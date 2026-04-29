@@ -6609,6 +6609,33 @@ const GA_GROUP_COLORS = {
 function smStatusBadge(s){const m={active:'badge-green',expired:'badge-gray',cancelled:'badge-red'};const l={active:'Đang quản lý',expired:'Hết hạn',cancelled:'Huỷ'};return '<span class="badge '+( m[s]||'badge-gray')+'">'+( l[s]||s)+'</span>';}
 function smContractMonths(c){if(!c.startDate||!c.endDate)return 0;const s=new Date(c.startDate),e=new Date(c.endDate);return Math.max(0,(e.getFullYear()-s.getFullYear())*12+e.getMonth()-s.getMonth()+1);}
 
+// Lấy tỷ giá USD hiện tại để hiển thị tương đương trong báo cáo
+function smCurrentUsdRate(){
+  // Ưu tiên: fxRates trong DEMO (nếu có), fallback 25500
+  try {
+    const rates = (window.__DEMO_STORE__?.fxRates) || [];
+    const usd = rates.find(r => (r.from||r.currency)==='USD');
+    if (usd && usd.rate) return parseFloat(usd.rate);
+  } catch(_){}
+  return 25500;
+}
+function fmtUsdFromVnd(vnd){
+  const r = smCurrentUsdRate();
+  if (!r) return '';
+  const usd = vnd / r;
+  if (Math.abs(usd) >= 1000000) return '$' + (usd/1000000).toFixed(2) + 'M';
+  if (Math.abs(usd) >= 1000) return '$' + (usd/1000).toFixed(1) + 'K';
+  return '$' + usd.toFixed(0);
+}
+// Format số tiền nguyên tệ
+function fmtCurrency(amount, currency){
+  if (currency==='VND' || !currency) return fmtVnd(amount);
+  const sign = {USD:'$',SGD:'S$',EUR:'€',GBP:'£'}[currency] || (currency+' ');
+  if (Math.abs(amount) >= 1000000) return sign + (amount/1000000).toFixed(2) + 'M';
+  if (Math.abs(amount) >= 1000) return sign + (amount/1000).toFixed(1) + 'K';
+  return sign + Number(amount).toLocaleString('vi-VN');
+}
+
 async function renderSmDashboard() {
   showLoading();
   let contracts=[], entries=[];
@@ -6626,7 +6653,8 @@ async function renderSmDashboard() {
     const cFees=fees.filter(e=>e.contractId===c.id);
     const cFee=cFees.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
     const months=smContractMonths(c);
-    const planFee=months*(parseFloat(c.monthlyFee)||0);
+    const monthlyFeeVnd = parseFloat(c.monthlyFeeVnd) || (parseFloat(c.monthlyFee)||0)*(parseFloat(c.fxRate)||1);
+    const planFee=months*monthlyFeeVnd;
     const prog=planFee?Math.min(100,cFee/planFee*100):0;
     return `<div class="card"><div class="card-body">
       <div class="flex items-center justify-between mb8">
@@ -6636,14 +6664,18 @@ async function renderSmDashboard() {
       </div>
       <div style="background:var(--gray1);border-radius:4px;padding:6px 10px;margin-bottom:8px;font-size:11px">${c.scope||''}</div>
       <div class="form-grid cols3" style="gap:8px">
-        <div><div class="kpi-label">Phí QT/tháng</div><div style="font-size:14px;font-weight:700;color:var(--teal);font-family:var(--mono)">${fmtB(c.monthlyFee)}</div></div>
+        <div><div class="kpi-label">Phí QT/tháng</div>
+          <div style="font-size:14px;font-weight:700;color:var(--teal);font-family:var(--mono)">${fmtCurrency(c.monthlyFee, c.currency||'VND')}</div>
+          ${(c.currency&&c.currency!=='VND')?`<div style="font-size:10px;color:var(--text3)">≈ ${fmtVnd(c.monthlyFeeVnd||(c.monthlyFee*(c.fxRate||1)))}</div>`:''}
+        </div>
         <div><div class="kpi-label">Đã thu ${S.year}</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">${fmtB(cFee)}</div></div>
         <div><div class="kpi-label">Tiến độ</div><div style="font-size:14px;font-weight:700;color:${prog>=80?'var(--green)':'var(--amber)'};font-family:var(--mono)">${pct(prog)}</div></div>
       </div>
       <div class="progress-wrap mt8"><div class="progress-bar ${prog<50?'warn':''}" style="width:${prog.toFixed(1)}%"></div></div>
       <div class="row-actions mt8">
         <button class="btn btn-outline btn-xs" onclick="openSmContractForm(${JSON.stringify(c).replace(/"/g,'&quot;')})">✏️ Sửa</button>
-        <button class="btn btn-outline btn-xs" onclick="openSmPassthroughForm({contractId:'${c.id}'})">+ Nhập thu/chi hộ</button>
+        <button class="btn btn-outline btn-xs" onclick="openSmPassthroughForm({contractId:'${c.id}'})">+ Thu/chi hộ</button>
+        <button class="btn btn-outline btn-xs" onclick="openSmCostForm({contractId:'${c.id}'})">+ CP QT</button>
         <button class="btn btn-primary btn-xs" onclick="renderSmReport('${c.id}')">Báo cáo</button>
       </div>
     </div></div>`;
@@ -6655,14 +6687,15 @@ async function renderSmDashboard() {
       <div style="font-size:13px;line-height:1.6"><strong>Pass-through:</strong> Thu hộ/Chi hộ chủ tàu KHÔNG phải doanh thu/chi phí của SME. Doanh thu thực = <strong>Phí quản lý (Management Fee)</strong>.</div>
     </div>
     <div class="kpi-grid cols4 mb16">
-      <div class="kpi-card accent-teal"><div class="kpi-label">Phí quản lý thực thu ${S.year}</div><div class="kpi-value">${fmtB(totalFee)}</div><div class="kpi-sub">DT thực của SME</div></div>
-      <div class="kpi-card accent-blue"><div class="kpi-label">Tổng thu hộ</div><div class="kpi-value">${fmtB(totalThuHo)}</div><div class="kpi-sub">Không phải DT SME</div></div>
-      <div class="kpi-card accent-amber"><div class="kpi-label">Tổng chi hộ</div><div class="kpi-value">${fmtB(totalChiHo)}</div><div class="kpi-sub">Không phải CP SME</div></div>
-      <div class="kpi-card ${netPT>=0?'accent-green':'accent-red'}"><div class="kpi-label">Chênh lệch thu/chi hộ</div><div class="kpi-value ${netPT>=0?'kpi-positive':'kpi-negative'}">${fmtB(Math.abs(netPT))}</div><div class="kpi-sub">${netPT>=0?'Đang giữ hộ CT':'Đang ứng trước'}</div></div>
+      <div class="kpi-card accent-teal"><div class="kpi-label">Phí quản lý thực thu ${S.year}</div><div class="kpi-value">${fmtB(totalFee)}</div><div class="kpi-sub">≈ ${fmtUsdFromVnd(totalFee)} • DT thực của SME</div></div>
+      <div class="kpi-card accent-blue"><div class="kpi-label">Tổng thu hộ</div><div class="kpi-value">${fmtB(totalThuHo)}</div><div class="kpi-sub">≈ ${fmtUsdFromVnd(totalThuHo)} • Không phải DT SME</div></div>
+      <div class="kpi-card accent-amber"><div class="kpi-label">Tổng chi hộ</div><div class="kpi-value">${fmtB(totalChiHo)}</div><div class="kpi-sub">≈ ${fmtUsdFromVnd(totalChiHo)} • Không phải CP SME</div></div>
+      <div class="kpi-card ${netPT>=0?'accent-green':'accent-red'}"><div class="kpi-label">Chênh lệch thu/chi hộ</div><div class="kpi-value ${netPT>=0?'kpi-positive':'kpi-negative'}">${fmtB(Math.abs(netPT))}</div><div class="kpi-sub">≈ ${fmtUsdFromVnd(Math.abs(netPT))} • ${netPT>=0?'Đang giữ hộ CT':'Đang ứng trước'}</div></div>
     </div>
     <div class="flex items-center justify-between mb12">
       <div class="section-title" style="margin:0">${contracts.length} tàu đang quản lý</div>
       <div class="flex gap8">
+        <button class="btn btn-outline btn-sm" onclick="openSmCostForm({})">+ Nhập chi phí QT</button>
         <button class="btn btn-outline btn-sm" onclick="openSmPassthroughForm({})">+ Nhập thu/chi hộ</button>
         <button class="btn btn-primary btn-sm" onclick="openSmContractForm()">+ Thêm tàu</button>
       </div>
@@ -6673,21 +6706,24 @@ async function renderSmDashboard() {
     <div class="card">
       <div class="card-header"><h3>Sổ thu hộ / chi hộ gần đây</h3></div>
       <div class="card-body no-pad"><div class="tbl-wrap"><table>
-        <thead><tr><th>Ngày</th><th>Tàu</th><th>Loại</th><th class="num">Số tiền</th><th>Mô tả</th><th></th></tr></thead>
+        <thead><tr><th>Ngày</th><th>Tàu</th><th>Loại</th><th class="num">Số tiền gốc</th><th class="num">VNĐ</th><th>Mô tả</th><th></th></tr></thead>
         <tbody>${entries.length?entries.slice().sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate)).slice(0,15).map(e=>{
           const ctr=contracts.find(c=>c.id===e.contractId)||{};
           const typeBadge=e.type==='mgmt_fee'?'<span class="badge badge-teal">Phí QT</span>':e.type==='thu_ho'?'<span class="badge badge-blue">Thu hộ</span>':'<span class="badge badge-amber">Chi hộ</span>';
+          const cur=e.currency||'VND';
+          const origAmt = (cur==='VND') ? '—' : `${fmtCurrency(e.amount,cur)}<div style="font-size:10px;color:var(--text3)">@${(e.fxRate||1).toLocaleString('vi-VN')}</div>`;
           return `<tr><td class="mono">${fmtDate(e.entryDate)}</td><td style="font-size:12px">${ctr.vesselName||'—'}</td><td>${typeBadge}</td>
+            <td class="num" style="font-size:12px">${origAmt}</td>
             <td class="num ${e.type==='thu_ho'?'pos':e.type==='chi_ho'?'neg':''}">${fmtVnd(e.amountVnd)}</td>
             <td style="font-size:12px">${e.description||'—'}</td>
             <td class="row-actions"><button class="btn btn-ghost btn-xs" onclick="openSmPassthroughForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">✏️</button><button class="btn btn-ghost btn-xs" onclick="deleteSmPassthrough('${e.id}')">🗑</button></td></tr>`;
-        }).join(''):'<tr><td colspan="6"><div class="empty-state">Chưa có bút toán nào.</div></td></tr>'}</tbody>
+        }).join(''):'<tr><td colspan="7"><div class="empty-state">Chưa có bút toán nào.</div></td></tr>'}</tbody>
       </table></div></div>
     </div>`;
 }
 
 function openSmContractForm(c={}) {
-  const currencies=['VND','USD'].map(cur=>`<option value="${cur}"${cur===(c.currency||'VND')?'selected':''}>${cur}</option>`).join('');
+  const currencies=['VND','USD','SGD','EUR','GBP'].map(cur=>`<option value="${cur}"${cur===(c.currency||'USD')?'selected':''}>${cur}</option>`).join('');
   const statusOpts=['active','expired','cancelled'].map(s=>`<option value="${s}"${s===(c.status||'active')?'selected':''}>${{active:'Đang quản lý',expired:'Hết hạn',cancelled:'Huỷ'}[s]}</option>`).join('');
   const html=`<div class="form-grid cols2">
     <div class="field required" style="grid-column:span 2"><label>Tên tàu</label><input id="smc_v" value="${c.vesselName||''}"/></div>
@@ -6697,15 +6733,32 @@ function openSmContractForm(c={}) {
     <div class="field"><label>Số HĐ</label><input id="smc_n" value="${c.contractNo||''}"/></div>
     <div class="field required"><label>Ngày bắt đầu</label><input type="date" id="smc_s" value="${c.startDate||''}"/></div>
     <div class="field"><label>Ngày kết thúc</label><input type="date" id="smc_e" value="${c.endDate||''}"/></div>
-    <div class="field required"><label>Phí quản lý/tháng</label><input type="number" id="smc_f" value="${c.monthlyFee||''}"/></div>
+    <div class="field required"><label>Phí quản lý/tháng</label><input type="number" id="smc_f" value="${c.monthlyFee||''}" oninput="smcContractCompVnd()"/></div>
+    <div class="field"><label>Đồng tiền</label><select id="smc_cur" onchange="smcContractCompVnd()">${currencies}</select></div>
+    <div class="field"><label>Tỷ giá → VNĐ</label><input type="number" id="smc_fx" value="${c.fxRate||25500}" oninput="smcContractCompVnd()"/></div>
+    <div class="field"><label>Phí/tháng quy VNĐ</label><input type="number" id="smc_fvnd" value="${c.monthlyFeeVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--teal)"/></div>
     <div class="field"><label>Trạng thái</label><select id="smc_st">${statusOpts}</select></div>
     <div class="field" style="grid-column:span 2"><label>Phạm vi quản lý</label><textarea id="smc_sc">${c.scope||''}</textarea></div>
   </div>`;
   openModal(c.id?'Cập nhật hợp đồng QT tàu':'Thêm hợp đồng quản lý tàu',html,async()=>{
-    const payload={id:c.id||newId(),vesselName:gv('smc_v'),ownerName:gv('smc_o'),ownerContact:gv('smc_c'),imoNumber:gv('smc_i'),contractNo:gv('smc_n'),startDate:gv('smc_s'),endDate:gv('smc_e'),monthlyFee:parseFloat(gv('smc_f'))||0,currency:'VND',fxRate:1,status:gv('smc_st'),scope:gv('smc_sc'),createdAt:c.createdAt||new Date().toISOString()};
+    const fee=parseFloat(gv('smc_f'))||0, fx=parseFloat(gv('smc_fx'))||1;
+    const cur=gv('smc_cur');
+    const feeVnd = (cur==='VND') ? fee : Math.round(fee*fx);
+    const payload={id:c.id||newId(),vesselName:gv('smc_v'),ownerName:gv('smc_o'),ownerContact:gv('smc_c'),imoNumber:gv('smc_i'),contractNo:gv('smc_n'),startDate:gv('smc_s'),endDate:gv('smc_e'),monthlyFee:fee,currency:cur,fxRate:fx,monthlyFeeVnd:feeVnd,status:gv('smc_st'),scope:gv('smc_sc'),createdAt:c.createdAt||new Date().toISOString()};
     if(!payload.vesselName){toast('Nhập tên tàu','warn');return;}
     showLoading();try{await api('saveSmContract',payload);toast('Đã lưu','ok');closeModal();renderSmDashboard();}catch(e){toast('Lỗi','err');}hideLoading();
   });
+  setTimeout(()=>smcContractCompVnd(),50);
+}
+function smcContractCompVnd(){
+  const fee=parseFloat(document.getElementById('smc_f')?.value)||0;
+  const fx=parseFloat(document.getElementById('smc_fx')?.value)||1;
+  const cur=document.getElementById('smc_cur')?.value||'VND';
+  const feeVnd = (cur==='VND') ? fee : Math.round(fee*fx);
+  const fxInput = document.getElementById('smc_fx');
+  if (fxInput) fxInput.disabled = (cur==='VND');
+  const out = document.getElementById('smc_fvnd');
+  if (out) out.value = feeVnd;
 }
 
 function openSmPassthroughForm(e={}) {
@@ -6716,7 +6769,7 @@ function openSmPassthroughForm(e={}) {
     {v:'thu_ho',  l:'Thu hộ chủ tàu (pass-through IN)'},
     {v:'chi_ho',  l:'Chi hộ chủ tàu (pass-through OUT)'},
   ].map(t=>`<option value="${t.v}"${t.v===(e.type||'mgmt_fee')?'selected':''}>${t.l}</option>`).join('');
-  const currencies=['VND','USD','SGD'].map(c=>`<option value="${c}"${c===(e.currency||'VND')?'selected':''}>${c}</option>`).join('');
+  const currencies=['VND','USD','SGD','EUR','GBP'].map(c=>`<option value="${c}"${c===(e.currency||'VND')?'selected':''}>${c}</option>`).join('');
   const html=`
     <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:12px;color:#664d03">
       <strong>Lưu ý:</strong> Chỉ <strong>Phí quản lý</strong> là doanh thu thực của SME. Thu hộ/Chi hộ hạch toán công nợ với chủ tàu.
@@ -6734,14 +6787,91 @@ function openSmPassthroughForm(e={}) {
     </div>`;
   openModal(e.id?'Cập nhật bút toán':'Nhập thu hộ / chi hộ / phí quản lý',html,async()=>{
     const amt=parseFloat(gv('smp_amt'))||0,fx=parseFloat(gv('smp_fx'))||1;
-    const payload={id:e.id||newId(),contractId:gv('smp_ctr'),type:gv('smp_type'),entryDate:gv('smp_date'),month:gv('smp_month'),amount:amt,currency:gv('smp_cur'),fxRate:fx,amountVnd:Math.round(amt*fx),description:gv('smp_desc'),createdAt:e.createdAt||new Date().toISOString()};
+    const cur=gv('smp_cur');
+    const amtVnd = (cur==='VND') ? amt : Math.round(amt*fx);
+    const payload={id:e.id||newId(),contractId:gv('smp_ctr'),type:gv('smp_type'),entryDate:gv('smp_date'),month:gv('smp_month'),amount:amt,currency:cur,fxRate:fx,amountVnd:amtVnd,description:gv('smp_desc'),createdAt:e.createdAt||new Date().toISOString()};
     if(!payload.contractId||!payload.amount){toast('Điền đủ thông tin','warn');return;}
     showLoading();try{await api('saveSmPassthrough',payload);toast('Đã lưu','ok');closeModal();renderSmDashboard();}catch(e){toast('Lỗi','err');}hideLoading();
   });
   setTimeout(()=>smCompVnd(),50);
 }
-function smCompVnd(){const a=parseFloat(document.getElementById('smp_amt')?.value)||0;const fx=parseFloat(document.getElementById('smp_fx')?.value)||1;if(document.getElementById('smp_vnd'))document.getElementById('smp_vnd').value=Math.round(a*fx);}
+function smCompVnd(){
+  const a=parseFloat(document.getElementById('smp_amt')?.value)||0;
+  const cur=document.getElementById('smp_cur')?.value||'VND';
+  const fxInput = document.getElementById('smp_fx');
+  // Nếu VND: tỷ giá = 1 và disable input
+  if (cur==='VND') {
+    if (fxInput) { fxInput.value=1; fxInput.disabled=true; }
+  } else {
+    if (fxInput) {
+      fxInput.disabled=false;
+      // Nếu fx đang =1 (mặc định cũ) thì set giá trị gợi ý theo currency
+      if (parseFloat(fxInput.value)<=1) {
+        const def={USD:25500,SGD:18800,EUR:27500,GBP:32000}[cur]||1;
+        fxInput.value=def;
+      }
+    }
+  }
+  const fx=parseFloat(fxInput?.value)||1;
+  const vnd = (cur==='VND') ? a : Math.round(a*fx);
+  const out=document.getElementById('smp_vnd');
+  if (out) out.value=vnd;
+}
 async function deleteSmPassthrough(id){if(!confirm('Xoá?'))return;try{await api('deleteSmPassthrough',{id});toast('Đã xoá','ok');renderSmDashboard();}catch(e){toast('Lỗi','err');}}
+
+// ─────────────────────────────────────────────────────────
+// FORM: Chi phí quản lý SM (smCosts) — chi phí thực SME
+// ─────────────────────────────────────────────────────────
+function openSmCostForm(e={}) {
+  const contracts=SM_DEMO.contracts;
+  const cOpts=contracts.map(c=>`<option value="${c.id}"${c.id===e.contractId?'selected':''}>${c.vesselName} — ${c.ownerName}</option>`).join('');
+  const currencies=['VND','USD','SGD','EUR','GBP'].map(c=>`<option value="${c}"${c===(e.currency||'VND')?'selected':''}>${c}</option>`).join('');
+  const html=`
+    <div style="background:#e7f5ff;border:1px solid #74c0fc;border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:12px;color:#0c63e4">
+      <strong>Lưu ý:</strong> Đây là chi phí <strong>thực tế của SME</strong> phát sinh để vận hành dịch vụ quản lý tàu (lương, đi lại, văn phòng phẩm…). Ảnh hưởng trực tiếp lợi nhuận SME.
+    </div>
+    <div class="form-grid cols2">
+      <div class="field required" style="grid-column:span 2"><label>Hợp đồng QT tàu</label><select id="smcst_ctr">${cOpts}</select></div>
+      <div class="field required" style="grid-column:span 2"><label>Nội dung chi phí</label><input id="smcst_desc" value="${e.description||''}" placeholder="VD: Phí đi tàu, lương cán bộ quản lý..."/></div>
+      <div class="field required"><label>Ngày</label><input type="date" id="smcst_date" value="${e.entryDate||today()}"/></div>
+      <div class="field"><label>Tháng hạch toán</label><input type="month" id="smcst_month" value="${e.month||today().slice(0,7)}"/></div>
+      <div class="field required"><label>Số tiền</label><input type="number" id="smcst_amt" value="${e.amount||''}" oninput="smCostCompVnd()"/></div>
+      <div class="field"><label>Đồng tiền</label><select id="smcst_cur" onchange="smCostCompVnd()">${currencies}</select></div>
+      <div class="field"><label>Tỷ giá → VNĐ</label><input type="number" id="smcst_fx" value="${e.fxRate||1}" oninput="smCostCompVnd()"/></div>
+      <div class="field"><label>Số tiền VNĐ</label><input type="number" id="smcst_vnd" value="${e.amountVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--teal)"/></div>
+    </div>`;
+  openModal(e.id?'Cập nhật chi phí QT':'Nhập chi phí quản lý',html,async()=>{
+    const amt=parseFloat(gv('smcst_amt'))||0, fx=parseFloat(gv('smcst_fx'))||1;
+    const cur=gv('smcst_cur');
+    const amtVnd=(cur==='VND')?amt:Math.round(amt*fx);
+    const payload={id:e.id||newId(),contractId:gv('smcst_ctr'),entryDate:gv('smcst_date'),month:gv('smcst_month'),amount:amt,currency:cur,fxRate:fx,amountVnd:amtVnd,description:gv('smcst_desc'),createdAt:e.createdAt||new Date().toISOString()};
+    if(!payload.contractId||!payload.amount){toast('Điền đủ thông tin','warn');return;}
+    showLoading();try{await api('saveSmCost',payload);toast('Đã lưu','ok');closeModal();renderSmDashboard();}catch(err){toast('Lỗi','err');}hideLoading();
+  });
+  setTimeout(()=>smCostCompVnd(),50);
+}
+function smCostCompVnd(){
+  const a=parseFloat(document.getElementById('smcst_amt')?.value)||0;
+  const cur=document.getElementById('smcst_cur')?.value||'VND';
+  const fxInput=document.getElementById('smcst_fx');
+  if (cur==='VND') {
+    if (fxInput) { fxInput.value=1; fxInput.disabled=true; }
+  } else {
+    if (fxInput) {
+      fxInput.disabled=false;
+      if (parseFloat(fxInput.value)<=1) {
+        const def={USD:25500,SGD:18800,EUR:27500,GBP:32000}[cur]||1;
+        fxInput.value=def;
+      }
+    }
+  }
+  const fx=parseFloat(fxInput?.value)||1;
+  const vnd=(cur==='VND')?a:Math.round(a*fx);
+  const out=document.getElementById('smcst_vnd');
+  if (out) out.value=vnd;
+}
+async function deleteSmCost(id){if(!confirm('Xoá?'))return;try{await api('deleteSmCost',{id});toast('Đã xoá','ok');renderSmDashboard();}catch(e){toast('Lỗi','err');}}
+
 
 async function renderSmReport(contractId) {
   showLoading();
