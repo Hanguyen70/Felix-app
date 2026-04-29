@@ -6651,17 +6651,33 @@ async function renderSmDashboard() {
 
   const contractCards=contracts.map(c=>{
     const cFees=fees.filter(e=>e.contractId===c.id);
+    const cThuHo=thuHo.filter(e=>e.contractId===c.id).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+    const cChiHo=chiHo.filter(e=>e.contractId===c.id).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+    const balance = cThuHo - cChiHo; // Số dư công nợ chủ tàu (>0: SME giữ hộ, <0: SME ứng trước)
     const cFee=cFees.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
     const months=smContractMonths(c);
     const monthlyFeeVnd = parseFloat(c.monthlyFeeVnd) || (parseFloat(c.monthlyFee)||0)*(parseFloat(c.fxRate)||1);
     const planFee=months*monthlyFeeVnd;
     const prog=planFee?Math.min(100,cFee/planFee*100):0;
+
+    // Cảnh báo nếu có ngưỡng và số dư thấp hơn
+    const minBal = parseFloat(c.minBalance)||0;
+    let alertHtml = '';
+    if (minBal > 0) {
+      if (balance < 0) {
+        alertHtml = `<div style="background:#fee2e2;border:1px solid #ef4444;color:#991b1b;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:11px;font-weight:600">🔴 SME đang ứng trước ${fmtVnd(Math.abs(balance))} — Cần thu lại từ chủ tàu!</div>`;
+      } else if (balance < minBal) {
+        alertHtml = `<div style="background:#fef3c7;border:1px solid #f59e0b;color:#92400e;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:11px;font-weight:600">⚠ Tiền ứng còn ${fmtVnd(balance)} (dưới ngưỡng ${fmtVnd(minBal)}) — Đề nghị chủ tàu chuyển bổ sung</div>`;
+      }
+    }
+
     return `<div class="card"><div class="card-body">
       <div class="flex items-center justify-between mb8">
         <div><div style="font-size:13px;font-weight:600;color:var(--navy)">${c.vesselName}</div>
         <div style="font-size:11px;color:var(--text3)">Chủ tàu: <strong>${c.ownerName}</strong> | ${c.contractNo}</div></div>
         ${smStatusBadge(c.status)}
       </div>
+      ${alertHtml}
       <div style="background:var(--gray1);border-radius:4px;padding:6px 10px;margin-bottom:8px;font-size:11px">${c.scope||''}</div>
       <div class="form-grid cols3" style="gap:8px">
         <div><div class="kpi-label">Phí QT/tháng</div>
@@ -6672,16 +6688,47 @@ async function renderSmDashboard() {
         <div><div class="kpi-label">Tiến độ</div><div style="font-size:14px;font-weight:700;color:${prog>=80?'var(--green)':'var(--amber)'};font-family:var(--mono)">${pct(prog)}</div></div>
       </div>
       <div class="progress-wrap mt8"><div class="progress-bar ${prog<50?'warn':''}" style="width:${prog.toFixed(1)}%"></div></div>
+      <!-- Số dư công nợ -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--gray2)">
+        <div><div class="kpi-label" style="font-size:10px">Thu hộ</div><div style="font-size:12px;font-weight:600;color:var(--teal);font-family:var(--mono)">${fmtB(cThuHo)}</div></div>
+        <div><div class="kpi-label" style="font-size:10px">Chi hộ</div><div style="font-size:12px;font-weight:600;color:var(--amber);font-family:var(--mono)">${fmtB(cChiHo)}</div></div>
+        <div><div class="kpi-label" style="font-size:10px">Số dư</div><div style="font-size:12px;font-weight:700;color:${balance>=0?'var(--green)':'var(--red)'};font-family:var(--mono)">${balance>=0?'+':'−'}${fmtB(Math.abs(balance))}</div></div>
+      </div>
       <div class="row-actions mt8">
         <button class="btn btn-outline btn-xs" onclick="openSmContractForm(${JSON.stringify(c).replace(/"/g,'&quot;')})">✏️ Sửa</button>
         <button class="btn btn-outline btn-xs" onclick="openSmPassthroughForm({contractId:'${c.id}'})">+ Thu/chi hộ</button>
         <button class="btn btn-outline btn-xs" onclick="openSmCostForm({contractId:'${c.id}'})">+ CP QT</button>
+        <button class="btn btn-outline btn-xs" onclick="renderSmLedger('${c.id}')">📒 Sổ công nợ</button>
         <button class="btn btn-primary btn-xs" onclick="renderSmReport('${c.id}')">Báo cáo</button>
       </div>
     </div></div>`;
   }).join('');
 
   document.getElementById('content').innerHTML = `
+    ${(()=>{
+      // Tính danh sách tàu có cảnh báo
+      const alerts = contracts.map(c=>{
+        const minBal = parseFloat(c.minBalance)||0;
+        if (minBal<=0) return null;
+        const cThu=thuHo.filter(e=>e.contractId===c.id).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+        const cChi=chiHo.filter(e=>e.contractId===c.id).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+        const bal = cThu - cChi;
+        if (bal < 0) return {c, bal, type:'overdraft'};
+        if (bal < minBal) return {c, bal, minBal, type:'low'};
+        return null;
+      }).filter(Boolean);
+      if (alerts.length===0) return '';
+      const items = alerts.map(a => {
+        if (a.type==='overdraft') {
+          return `<li><strong>${a.c.vesselName}</strong> (${a.c.ownerName}): SME đang ứng trước <strong style="color:#fff">${fmtVnd(Math.abs(a.bal))}</strong></li>`;
+        }
+        return `<li><strong>${a.c.vesselName}</strong> (${a.c.ownerName}): Số dư còn ${fmtVnd(a.bal)} (dưới ngưỡng ${fmtVnd(a.minBal)})</li>`;
+      }).join('');
+      return `<div style="background:linear-gradient(135deg,#dc2626,#991b1b);border-radius:var(--radius);padding:14px 20px;margin-bottom:16px;color:#fff">
+        <div style="font-weight:600;margin-bottom:6px;font-size:14px">⚠ ${alerts.length} tàu cần chú ý công nợ</div>
+        <ul style="margin:0;padding-left:20px;font-size:12px;line-height:1.7">${items}</ul>
+      </div>`;
+    })()}
     <div style="background:linear-gradient(135deg,#0a1628,#162d55);border-radius:var(--radius);padding:14px 20px;margin-bottom:16px;color:#fff">
       <div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Nguyên tắc kế toán</div>
       <div style="font-size:13px;line-height:1.6"><strong>Pass-through:</strong> Thu hộ/Chi hộ chủ tàu KHÔNG phải doanh thu/chi phí của SME. Doanh thu thực = <strong>Phí quản lý (Management Fee)</strong>.</div>
@@ -6738,13 +6785,14 @@ function openSmContractForm(c={}) {
     <div class="field"><label>Tỷ giá → VNĐ</label><input type="number" id="smc_fx" value="${c.fxRate||25500}" oninput="smcContractCompVnd()"/></div>
     <div class="field"><label>Phí/tháng quy VNĐ</label><input type="number" id="smc_fvnd" value="${c.monthlyFeeVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--teal)"/></div>
     <div class="field"><label>Trạng thái</label><select id="smc_st">${statusOpts}</select></div>
+    <div class="field" title="Khi số dư công nợ chủ tàu thấp hơn ngưỡng này, hệ thống sẽ cảnh báo. Nhập VNĐ. Để trống = không cảnh báo."><label>⚠ Ngưỡng tối thiểu (VNĐ)</label><input type="number" id="smc_minbal" value="${c.minBalance||''}" placeholder="VD: 500000000"/></div>
     <div class="field" style="grid-column:span 2"><label>Phạm vi quản lý</label><textarea id="smc_sc">${c.scope||''}</textarea></div>
   </div>`;
   openModal(c.id?'Cập nhật hợp đồng QT tàu':'Thêm hợp đồng quản lý tàu',html,async()=>{
     const fee=parseFloat(gv('smc_f'))||0, fx=parseFloat(gv('smc_fx'))||1;
     const cur=gv('smc_cur');
     const feeVnd = (cur==='VND') ? fee : Math.round(fee*fx);
-    const payload={id:c.id||newId(),vesselName:gv('smc_v'),ownerName:gv('smc_o'),ownerContact:gv('smc_c'),imoNumber:gv('smc_i'),contractNo:gv('smc_n'),startDate:gv('smc_s'),endDate:gv('smc_e'),monthlyFee:fee,currency:cur,fxRate:fx,monthlyFeeVnd:feeVnd,status:gv('smc_st'),scope:gv('smc_sc'),createdAt:c.createdAt||new Date().toISOString()};
+    const payload={id:c.id||newId(),vesselName:gv('smc_v'),ownerName:gv('smc_o'),ownerContact:gv('smc_c'),imoNumber:gv('smc_i'),contractNo:gv('smc_n'),startDate:gv('smc_s'),endDate:gv('smc_e'),monthlyFee:fee,currency:cur,fxRate:fx,monthlyFeeVnd:feeVnd,minBalance:parseFloat(gv('smc_minbal'))||0,status:gv('smc_st'),scope:gv('smc_sc'),createdAt:c.createdAt||new Date().toISOString()};
     if(!payload.vesselName){toast('Nhập tên tàu','warn');return;}
     showLoading();try{await api('saveSmContract',payload);toast('Đã lưu','ok');closeModal();renderSmDashboard();}catch(e){toast('Lỗi','err');}hideLoading();
   });
@@ -6872,6 +6920,181 @@ function smCostCompVnd(){
 }
 async function deleteSmCost(id){if(!confirm('Xoá?'))return;try{await api('deleteSmCost',{id});toast('Đã xoá','ok');renderSmDashboard();}catch(e){toast('Lỗi','err');}}
 
+
+// ─────────────────────────────────────────────────────────
+// SỔ CHI TIẾT CÔNG NỢ CHỦ TÀU
+// Liệt kê toàn bộ thu hộ / chi hộ theo thứ tự thời gian
+// và tính số dư luỹ kế cho từng dòng
+// ─────────────────────────────────────────────────────────
+async function renderSmLedger(contractId) {
+  showLoading();
+  let contracts=[], entries=[];
+  try { [contracts, entries] = await Promise.all([
+    api('getSmContracts', {}),
+    api('getSmPassthrough', {})  // lấy tất cả các năm để xem lịch sử đầy đủ
+  ]); } catch(e){toast('Lỗi','err');}
+  hideLoading();
+
+  const c = contracts.find(x => x.id === contractId) || contracts[0] || {};
+  if (!c.id) {
+    document.getElementById('content').innerHTML = '<div class="empty-state">Chưa có hợp đồng quản lý tàu nào.</div>';
+    return;
+  }
+
+  // Chỉ thu hộ + chi hộ (không phí QT)
+  const ledger = entries
+    .filter(e => e.contractId === c.id && (e.type === 'thu_ho' || e.type === 'chi_ho'))
+    .slice()
+    .sort((a, b) => new Date(a.entryDate) - new Date(b.entryDate));
+
+  // Tính số dư luỹ kế
+  let runningBalance = 0;
+  const rows = ledger.map(e => {
+    const amt = parseFloat(e.amountVnd) || 0;
+    if (e.type === 'thu_ho') runningBalance += amt;
+    else runningBalance -= amt;
+    return { ...e, balance: runningBalance };
+  });
+
+  const totalThu = ledger.filter(e => e.type === 'thu_ho').reduce((s, e) => s + (parseFloat(e.amountVnd) || 0), 0);
+  const totalChi = ledger.filter(e => e.type === 'chi_ho').reduce((s, e) => s + (parseFloat(e.amountVnd) || 0), 0);
+  const finalBalance = totalThu - totalChi;
+
+  const minBal = parseFloat(c.minBalance) || 0;
+  let alertHtml = '';
+  if (minBal > 0) {
+    if (finalBalance < 0) {
+      alertHtml = `<div style="background:#fee2e2;border:1px solid #ef4444;color:#991b1b;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-weight:600">🔴 SME đang ứng trước ${fmtVnd(Math.abs(finalBalance))} cho tàu này — Cần thu lại từ chủ tàu!</div>`;
+    } else if (finalBalance < minBal) {
+      alertHtml = `<div style="background:#fef3c7;border:1px solid #f59e0b;color:#92400e;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-weight:600">⚠ Số dư công nợ còn ${fmtVnd(finalBalance)} (dưới ngưỡng ${fmtVnd(minBal)}) — Đề nghị chủ tàu chuyển bổ sung</div>`;
+    }
+  }
+
+  const otherContracts = contracts.filter(x => x.id !== c.id).map(x =>
+    `<button class="btn btn-outline btn-xs" onclick="renderSmLedger('${x.id}')">${x.vesselName}</button>`
+  ).join('');
+
+  document.getElementById('content').innerHTML = `
+    <div class="flex items-center justify-between mb12">
+      <div>
+        <h2 style="margin:0;font-size:18px">📒 Sổ công nợ chủ tàu</h2>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">${c.vesselName} — Chủ tàu: <strong>${c.ownerName}</strong> | HĐ ${c.contractNo||'—'}</div>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="renderSmDashboard()">← Về Ship Mgmt</button>
+    </div>
+
+    ${alertHtml}
+
+    <div class="kpi-grid cols4 mb16">
+      <div class="kpi-card accent-blue"><div class="kpi-label">Tổng thu hộ</div><div class="kpi-value">${fmtB(totalThu)}</div><div class="kpi-sub">≈ ${fmtUsdFromVnd(totalThu)}</div></div>
+      <div class="kpi-card accent-amber"><div class="kpi-label">Tổng chi hộ</div><div class="kpi-value">${fmtB(totalChi)}</div><div class="kpi-sub">≈ ${fmtUsdFromVnd(totalChi)}</div></div>
+      <div class="kpi-card ${finalBalance>=0?'accent-green':'accent-red'}">
+        <div class="kpi-label">Số dư hiện tại</div>
+        <div class="kpi-value ${finalBalance>=0?'kpi-positive':'kpi-negative'}">${finalBalance>=0?'+':'−'}${fmtB(Math.abs(finalBalance))}</div>
+        <div class="kpi-sub">${finalBalance>=0?'SME đang giữ hộ':'SME đang ứng trước'}</div>
+      </div>
+      <div class="kpi-card accent-teal">
+        <div class="kpi-label">Ngưỡng cảnh báo</div>
+        <div class="kpi-value">${minBal>0?fmtB(minBal):'—'}</div>
+        <div class="kpi-sub">${minBal>0?'Đặt trên hợp đồng':'Chưa đặt'}</div>
+      </div>
+    </div>
+
+    ${otherContracts ? `<div class="mb12" style="font-size:12px;color:var(--text3)">Xem sổ tàu khác: ${otherContracts}</div>` : ''}
+
+    <div class="card">
+      <div class="card-header flex items-center justify-between">
+        <h3>Chi tiết bút toán theo thời gian</h3>
+        <div class="flex gap8">
+          <button class="btn btn-outline btn-sm" onclick="openSmPassthroughForm({contractId:'${c.id}'})">+ Thêm thu/chi hộ</button>
+          <button class="btn btn-outline btn-sm" onclick="exportSmLedgerCsv('${c.id}')">📊 Xuất CSV</button>
+        </div>
+      </div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap"><table>
+          <thead><tr>
+            <th style="width:90px">Ngày</th>
+            <th>Mô tả</th>
+            <th class="num">Thu hộ</th>
+            <th class="num">Chi hộ</th>
+            <th class="num">Số dư luỹ kế</th>
+            <th style="width:60px"></th>
+          </tr></thead>
+          <tbody>
+            ${rows.length === 0 ? '<tr><td colspan="6"><div class="empty-state">Chưa có bút toán thu/chi hộ nào cho tàu này.</div></td></tr>' :
+              rows.map(e => {
+                const cur = e.currency || 'VND';
+                const origNote = (cur !== 'VND') ? `<div style="font-size:10px;color:var(--text3)">${fmtCurrency(e.amount, cur)} @${(e.fxRate||1).toLocaleString('vi-VN')}</div>` : '';
+                return `<tr>
+                  <td class="mono" style="font-size:12px">${fmtDate(e.entryDate)}</td>
+                  <td style="font-size:12px">${e.description || '—'}${origNote}</td>
+                  <td class="num pos" style="font-family:var(--mono)">${e.type === 'thu_ho' ? fmtVnd(e.amountVnd) : ''}</td>
+                  <td class="num neg" style="font-family:var(--mono)">${e.type === 'chi_ho' ? fmtVnd(e.amountVnd) : ''}</td>
+                  <td class="num" style="font-family:var(--mono);font-weight:600;color:${e.balance>=0?'var(--green)':'var(--red)'}">${e.balance>=0?'':'−'}${fmtVnd(Math.abs(e.balance))}</td>
+                  <td class="row-actions">
+                    <button class="btn btn-ghost btn-xs" onclick="openSmPassthroughForm(${JSON.stringify(e).replace(/"/g, '&quot;')})">✏️</button>
+                    <button class="btn btn-ghost btn-xs" onclick="deleteSmPassthrough('${e.id}')">🗑</button>
+                  </td>
+                </tr>`;
+              }).join('')
+            }
+          </tbody>
+          ${rows.length > 0 ? `<tfoot><tr style="font-weight:700;background:var(--gray1)">
+            <td colspan="2">TỔNG CỘNG</td>
+            <td class="num pos" style="font-family:var(--mono)">${fmtVnd(totalThu)}</td>
+            <td class="num neg" style="font-family:var(--mono)">${fmtVnd(totalChi)}</td>
+            <td class="num" style="font-family:var(--mono);color:${finalBalance>=0?'var(--green)':'var(--red)'}">${finalBalance>=0?'':'−'}${fmtVnd(Math.abs(finalBalance))}</td>
+            <td></td>
+          </tr></tfoot>` : ''}
+        </table></div>
+      </div>
+    </div>
+  `;
+}
+
+// Xuất sổ công nợ ra CSV
+async function exportSmLedgerCsv(contractId) {
+  let contracts = [], entries = [];
+  try { [contracts, entries] = await Promise.all([api('getSmContracts', {}), api('getSmPassthrough', {})]); }
+  catch(e) { toast('Lỗi tải dữ liệu', 'err'); return; }
+
+  const c = contracts.find(x => x.id === contractId);
+  if (!c) return;
+
+  const ledger = entries
+    .filter(e => e.contractId === c.id && (e.type === 'thu_ho' || e.type === 'chi_ho'))
+    .slice().sort((a, b) => new Date(a.entryDate) - new Date(b.entryDate));
+
+  let runningBalance = 0;
+  const rows = ledger.map(e => {
+    const amt = parseFloat(e.amountVnd) || 0;
+    if (e.type === 'thu_ho') runningBalance += amt; else runningBalance -= amt;
+    return [
+      e.entryDate || '',
+      (e.description || '').replace(/"/g, '""'),
+      e.type === 'thu_ho' ? amt : '',
+      e.type === 'chi_ho' ? amt : '',
+      runningBalance,
+      e.currency || 'VND',
+      e.amount || '',
+      e.fxRate || 1,
+    ];
+  });
+
+  const header = ['Ngày', 'Mô tả', 'Thu hộ (VNĐ)', 'Chi hộ (VNĐ)', 'Số dư luỹ kế (VNĐ)', 'Đồng tiền gốc', 'Số tiền gốc', 'Tỷ giá'];
+  const csvRows = [header, ...rows].map(r => r.map(v =>
+    typeof v === 'string' && /[",\n]/.test(v) ? '"' + v + '"' : v
+  ).join(','));
+  const csv = '\uFEFF' + csvRows.join('\n');
+
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  const fname = `so-cong-no-${(c.vesselName||'tau').replace(/[^a-zA-Z0-9]/g,'_')}-${stamp}.csv`;
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = fname; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  toast('Đã xuất ' + fname, 'ok');
+}
 
 async function renderSmReport(contractId) {
   showLoading();
