@@ -751,7 +751,14 @@ body.ios-view .ios-banner { display: block; }
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
       Hoạt động chung (Corporate Center)
     </div>
-    <div class="nav-item" data-page="tax-report" onclick="nav(this)">
+    <div class="nav-item" data-page="ga-cats" onclick="nav(this)">
+      <svg class="icon" viewBox="0 0 20 20" fill="currentColor"><path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM14 11a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1h-1a1 1 0 110-2h1v-1a1 1 0 011-1z"/></svg>
+      Danh mục G&amp;A
+    </div>
+
+
+    <div class="nav-section home-only">Báo cáo tổng hợp</div>
+    <div class="nav-item home-only" data-page="tax-report" onclick="nav(this)">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/></svg>
       Dự trù BCTC / Thuế TNDN
     </div>
@@ -931,7 +938,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.29-04:20'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.29-04:55'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -1874,7 +1881,7 @@ const MODE_PAGES = {
   om:     ['om-dashboard','om-contracts','om-costs','om-revenue',
            'om-contract','om-cats','om-plan'],
   sm:     ['sm-dashboard'],
-  ga:     ['ga','tax-report'],
+  ga:     ['ga','ga-cats'],
 };
 const MODE_HOME = {
   vessel: 'projects',
@@ -4851,6 +4858,7 @@ const ALL_PAGES = {
   'sm-dashboard':     () => renderSmDashboard(),
   // G&A
   ga:                 () => renderGa(),
+  'ga-cats':          () => renderGaCats(),
   'tax-report':       () => renderTaxReport(),
   // Consolidated
   consolidated:       () => renderConsolidated(),
@@ -4871,6 +4879,7 @@ const ALL_TITLES = {
   'om-cats':    'Danh mục chi phí / doanh thu O&M',
   'sm-dashboard':'Quản lý tàu (Ship Management)',
   ga:'Hoạt động chung (Corporate Center)', consolidated:'Báo cáo tổng hợp P&L',
+  'ga-cats':'Danh mục G&A',
   'tax-report':'Dự trù BCTC — Lợi nhuận chịu thuế TNDN',
 };
 
@@ -6061,7 +6070,8 @@ async function renderOmPlan() {
 // Form cập nhật kế hoạch O&M theo hợp đồng — nhập theo năm
 function openOmPlanForm(contractId) {
   const c    = OM_DEMO.contracts.find(x=>x.id===contractId)||{};
-  const plan = (OM_DEMO.omPlans||[]).find(p=>p.contractId===contractId&&String(p.year)===String(S.year))||{};
+  // Tìm plan theo contractId (mới: plan thuộc về vòng đời HĐ, không phải năm)
+  const plan = (OM_DEMO.omPlans||[]).find(p=>p.contractId===contractId)||{};
   const totalMonths = omContractMonths(c) || 12;
   const cur  = plan.currency||'USD';
   const fx   = plan.fxRate||25450;
@@ -6069,21 +6079,32 @@ function openOmPlanForm(contractId) {
   const curOpts = ['VND','USD','SGD','EUR','GBP'].map(cc=>
     `<option value="${cc}"${cc===cur?' selected':''}>${cc}</option>`).join('');
 
+  // Tạo dải tháng theo vòng đời HĐ: M1, M2, ... MN
+  const months = [];
+  if (c.startDate && totalMonths > 0) {
+    const start = new Date(c.startDate);
+    for (let i=0; i<totalMonths; i++) {
+      const d = new Date(start.getFullYear(), start.getMonth()+i, 1);
+      const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      months.push({ index: i+1, ym, label: `M${i+1} (${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()})` });
+    }
+  }
+
+  // Plan đã có sẵn theo tháng nếu mode=monthly
+  const monthlyData = plan.monthlyData || {}; // { 'YYYY-MM': { rev, cost } }
+  const useMonthly = plan.mode === 'monthly';
+
   const html = `
     <div style="background:var(--gray1);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:12px">
       <strong>${c.name}</strong> · ${c.client||'—'}<br>
-      <span style="color:var(--text3)">${fmtDate(c.startDate)} → ${fmtDate(c.endDate)} · ${totalMonths} tháng</span>
+      <span style="color:var(--text3)">${fmtDate(c.startDate)} → ${fmtDate(c.endDate)} · <strong>${totalMonths} tháng</strong> theo vòng đời HĐ</span>
     </div>
 
-    <!-- Năm & tiền tệ -->
-    <div class="form-grid cols3" style="margin-bottom:14px">
-      <div class="field required">
-        <label>Năm kế hoạch</label>
-        <input type="number" id="opl_year" value="${plan.year||S.year}" min="2020" max="2099"/>
-      </div>
+    <!-- Đồng tiền & tỷ giá -->
+    <div class="form-grid cols2" style="margin-bottom:14px">
       <div class="field required">
         <label>Đồng tiền</label>
-        <select id="opl_cur" onchange="oplOnCurChange()">
+        <select id="opl_cur" onchange="oplOnCurChange();oplRecalc()">
           ${curOpts}
         </select>
       </div>
@@ -6091,105 +6112,212 @@ function openOmPlanForm(contractId) {
         <label>Tỷ giá (1 ngoại tệ = ? VNĐ)</label>
         <input type="number" id="opl_fx" value="${cur==='VND'?1:fx}"
           ${cur==='VND'?'readonly style="opacity:.5"':''}
-          oninput="oplCalc()"/>
+          oninput="oplRecalc()"/>
       </div>
     </div>
 
-    <!-- Doanh thu KH -->
-    <div style="background:var(--gray1);border-radius:var(--radius);padding:14px;margin-bottom:12px">
-      <div class="section-title" style="margin-bottom:10px">💰 Kế hoạch Doanh thu năm ${S.year}</div>
-      <div class="form-grid cols3">
-        <div class="field required">
-          <label>Doanh thu KH cả năm</label>
-          <input type="number" id="opl_rev" value="${plan.planRevenue||''}" min="0" oninput="oplCalc()"
-            placeholder="Nhập theo đồng tiền chọn"/>
+    <!-- Chế độ nhập KH -->
+    <div class="tabs mb12">
+      <div class="tab ${!useMonthly?'active':''}" id="oplTabTotal" onclick="oplSwitchMode('total')">📦 Nhập tổng cả HĐ (chia đều)</div>
+      <div class="tab ${useMonthly?'active':''}" id="oplTabMonthly" onclick="oplSwitchMode('monthly')">📅 Nhập từng tháng</div>
+    </div>
+
+    <!-- Mode A: Tổng + chia đều -->
+    <div id="opl-mode-total" style="${useMonthly?'display:none':''}">
+      <div style="background:var(--gray1);border-radius:var(--radius);padding:14px;margin-bottom:12px">
+        <div class="section-title" style="margin-bottom:10px">💰 Doanh thu KH cả vòng đời HĐ (${totalMonths} tháng)</div>
+        <div class="form-grid cols3">
+          <div class="field required">
+            <label>DT KH tổng</label>
+            <input type="number" id="opl_rev" value="${plan.planRevenue||''}" min="0" oninput="oplRecalc()"/>
+          </div>
+          <div class="field"><label>DT/tháng</label><input type="number" id="opl_mrev" readonly style="background:var(--gray2);font-weight:600;color:var(--teal)"/></div>
+          <div class="field"><label>DT tổng quy VNĐ</label><input type="number" id="opl_rev_vnd" readonly style="background:var(--gray2);font-weight:600;color:var(--blue)"/></div>
         </div>
-        <div class="field">
-          <label>DT/tháng (tự tính)</label>
-          <input type="number" id="opl_mrev" readonly
-            value="${plan.monthlyPlanRev||''}"
-            style="background:var(--gray2);font-weight:600;color:var(--teal)"/>
+      </div>
+      <div style="background:var(--gray1);border-radius:var(--radius);padding:14px;margin-bottom:12px">
+        <div class="section-title" style="margin-bottom:10px">💸 Chi phí KH cả vòng đời HĐ</div>
+        <div class="form-grid cols3">
+          <div class="field required">
+            <label>CP KH tổng</label>
+            <input type="number" id="opl_cost" value="${plan.planCost||''}" min="0" oninput="oplRecalc()"/>
+          </div>
+          <div class="field"><label>CP/tháng</label><input type="number" id="opl_mcost" readonly style="background:var(--gray2);font-weight:600;color:var(--amber)"/></div>
+          <div class="field"><label>CP tổng quy VNĐ</label><input type="number" id="opl_cost_vnd" readonly style="background:var(--gray2);font-weight:600;color:var(--blue)"/></div>
         </div>
-        <div class="field">
-          <label>DT cả năm quy VNĐ</label>
-          <input type="number" id="opl_rev_vnd" readonly
-            value="${plan.planRevenueVND||''}"
-            style="background:var(--gray2);font-weight:600;color:var(--blue)"/>
-        </div>
+      </div>
+      <div class="form-grid cols2">
+        <div class="field"><label>Margin KH %</label><input type="number" id="opl_mg" readonly style="background:var(--gray2);font-weight:700;color:var(--green)"/></div>
+        <div class="field"><label>Ghi chú</label><input id="opl_notes" value="${plan.notes||''}"/></div>
       </div>
     </div>
 
-    <!-- Chi phí KH -->
-    <div style="background:var(--gray1);border-radius:var(--radius);padding:14px;margin-bottom:12px">
-      <div class="section-title" style="margin-bottom:10px">💸 Kế hoạch Chi phí năm ${S.year}</div>
-      <div class="form-grid cols3">
-        <div class="field required">
-          <label>Chi phí KH cả năm</label>
-          <input type="number" id="opl_cost" value="${plan.planCost||''}" min="0" oninput="oplCalc()"
-            placeholder="Nhập theo đồng tiền chọn"/>
+    <!-- Mode B: Theo tháng -->
+    <div id="opl-mode-monthly" style="${useMonthly?'':'display:none'}">
+      <div style="background:var(--gray1);border-radius:var(--radius);padding:14px;margin-bottom:12px">
+        <div class="flex items-center justify-between mb8">
+          <div class="section-title" style="margin:0">📅 Kế hoạch từng tháng (${cur})</div>
+          <button type="button" class="btn btn-outline btn-xs" onclick="oplFillEvenly()">⚖ Chia đều từ ô 1</button>
         </div>
-        <div class="field">
-          <label>CP/tháng (tự tính)</label>
-          <input type="number" id="opl_mcost" readonly
-            value="${plan.monthlyPlanCost||''}"
-            style="background:var(--gray2);font-weight:600;color:var(--amber)"/>
+        <div class="tbl-wrap" style="max-height:400px;overflow:auto">
+          <table>
+            <thead style="position:sticky;top:0;background:var(--gray2);z-index:1">
+              <tr>
+                <th style="width:140px">Tháng HĐ</th>
+                <th class="num">Doanh thu KH</th>
+                <th class="num">Chi phí KH</th>
+                <th class="num" style="width:120px">Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${months.map(m => {
+                const md = monthlyData[m.ym] || {};
+                return `<tr>
+                  <td style="font-size:12px;font-weight:600">${m.label}</td>
+                  <td><input type="number" class="opl-rev-cell" data-ym="${m.ym}" value="${md.rev||''}" oninput="oplMonthlyCalc()" style="width:100%;padding:4px 8px;font-size:12px;font-family:var(--mono);text-align:right"/></td>
+                  <td><input type="number" class="opl-cost-cell" data-ym="${m.ym}" value="${md.cost||''}" oninput="oplMonthlyCalc()" style="width:100%;padding:4px 8px;font-size:12px;font-family:var(--mono);text-align:right"/></td>
+                  <td class="num" data-mg="${m.ym}" style="font-size:12px;font-weight:600;color:var(--green)">—</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+            <tfoot style="background:var(--gray2)">
+              <tr style="font-weight:700">
+                <td>TỔNG</td>
+                <td class="num" id="opl_m_total_rev" style="font-family:var(--mono);color:var(--teal)">—</td>
+                <td class="num" id="opl_m_total_cost" style="font-family:var(--mono);color:var(--amber)">—</td>
+                <td class="num" id="opl_m_total_mg" style="font-family:var(--mono);color:var(--green)">—</td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
-        <div class="field">
-          <label>CP cả năm quy VNĐ</label>
-          <input type="number" id="opl_cost_vnd" readonly
-            value="${plan.planCostVND||''}"
-            style="background:var(--gray2);font-weight:600;color:var(--blue)"/>
-        </div>
       </div>
-    </div>
-
-    <!-- Margin & tóm tắt -->
-    <div class="form-grid cols3">
-      <div class="field">
-        <label>Margin KH % (tự tính)</label>
-        <input type="number" id="opl_mg" readonly value="${plan.planMarginPct||''}"
-          style="background:var(--gray2);font-weight:700;color:var(--green)"/>
-      </div>
-      <div class="field">
-        <label>Số tháng hoạt động</label>
-        <input type="number" id="opl_months" value="${plan.planMonths||totalMonths}" min="1" max="12"
-          oninput="oplCalc()"/>
-      </div>
-      <div class="field">
-        <label>Ghi chú</label>
-        <input id="opl_notes" value="${plan.notes||''}"/>
-      </div>
+      <div class="field"><label>Ghi chú</label><input id="opl_notes2" value="${plan.notes||''}"/></div>
     </div>`;
 
-  openModal(`Kế hoạch O&M — ${c.name} — ${S.year}`, html, () => {
-    const cur2    = gv('opl_cur')||'VND';
-    const fx2     = parseFloat(gv('opl_fx'))||1;
-    const planRev = parseFloat(gv('opl_rev'))||0;
-    const planCost= parseFloat(gv('opl_cost'))||0;
-    const months  = parseInt(gv('opl_months'))||1;
-    const payload = {
-      id: plan.id||newId(), contractId,
-      year:          parseInt(gv('opl_year')),
-      currency:      cur2,
-      fxRate:        fx2,
-      planRevenue:   planRev,
-      planCost:      planCost,
-      planRevenueVND:Math.round(planRev*fx2),
-      planCostVND:   Math.round(planCost*fx2),
-      planMarginPct: planRev ? +((planRev-planCost)/planRev*100).toFixed(1) : 0,
-      planMonths:    months,
-      monthlyPlanRev:  Math.round(planRev/months),
-      monthlyPlanCost: Math.round(planCost/months),
-      notes: gv('opl_notes'),
-    };
-    if (!payload.planRevenue) { toast('Nhập doanh thu kế hoạch','warn'); return; }
+  openModal(`Kế hoạch O&M — ${c.name}`, html, () => {
+    const cur2 = gv('opl_cur')||'VND';
+    const fx2  = parseFloat(gv('opl_fx'))||1;
+    const mode = document.getElementById('opl-mode-monthly').style.display==='none' ? 'total' : 'monthly';
+
+    let payload;
+    if (mode === 'total') {
+      const planRev = parseFloat(gv('opl_rev'))||0;
+      const planCost= parseFloat(gv('opl_cost'))||0;
+      payload = {
+        id: plan.id||newId(), contractId,
+        mode: 'total',
+        currency: cur2, fxRate: fx2,
+        planRevenue: planRev, planCost: planCost,
+        planRevenueVND: Math.round(planRev*fx2), planCostVND: Math.round(planCost*fx2),
+        planMarginPct: planRev ? +((planRev-planCost)/planRev*100).toFixed(1) : 0,
+        planMonths: totalMonths,
+        monthlyPlanRev: totalMonths ? Math.round(planRev/totalMonths) : 0,
+        monthlyPlanCost: totalMonths ? Math.round(planCost/totalMonths) : 0,
+        notes: gv('opl_notes'),
+      };
+      if (!payload.planRevenue) { toast('Nhập doanh thu kế hoạch','warn'); return; }
+    } else {
+      // Monthly mode
+      const md = {};
+      let totalRev = 0, totalCost = 0;
+      document.querySelectorAll('.opl-rev-cell').forEach(el => {
+        const ym = el.dataset.ym;
+        const v = parseFloat(el.value)||0;
+        if (!md[ym]) md[ym] = {};
+        md[ym].rev = v; totalRev += v;
+      });
+      document.querySelectorAll('.opl-cost-cell').forEach(el => {
+        const ym = el.dataset.ym;
+        const v = parseFloat(el.value)||0;
+        if (!md[ym]) md[ym] = {};
+        md[ym].cost = v; totalCost += v;
+      });
+      payload = {
+        id: plan.id||newId(), contractId,
+        mode: 'monthly',
+        currency: cur2, fxRate: fx2,
+        monthlyData: md,
+        planRevenue: totalRev, planCost: totalCost,
+        planRevenueVND: Math.round(totalRev*fx2), planCostVND: Math.round(totalCost*fx2),
+        planMarginPct: totalRev ? +((totalRev-totalCost)/totalRev*100).toFixed(1) : 0,
+        planMonths: totalMonths,
+        monthlyPlanRev: totalMonths ? Math.round(totalRev/totalMonths) : 0,
+        monthlyPlanCost: totalMonths ? Math.round(totalCost/totalMonths) : 0,
+        notes: gv('opl_notes2'),
+      };
+      if (!payload.planRevenue) { toast('Nhập kế hoạch ít nhất 1 tháng','warn'); return; }
+    }
+
     if (!OM_DEMO.omPlans) OM_DEMO.omPlans = [];
-    const idx = OM_DEMO.omPlans.findIndex(p=>p.id===payload.id);
-    idx>=0 ? OM_DEMO.omPlans[idx]=payload : OM_DEMO.omPlans.push(payload);
-    toast('Đã lưu kế hoạch','ok'); closeModal(); renderOmPlan();
+    const i = OM_DEMO.omPlans.findIndex(p => p.contractId===contractId);
+    if (i>=0) OM_DEMO.omPlans[i] = payload;
+    else OM_DEMO.omPlans.push(payload);
+    _lsSaveAll();
+    toast('Đã lưu kế hoạch','ok');
+    closeModal();
+    renderOmPlan();
   }, 'lg');
 
-  setTimeout(oplCalc, 50);
+  setTimeout(()=>{ oplRecalc(); oplMonthlyCalc(); }, 50);
+}
+
+// Switch giữa 2 mode
+function oplSwitchMode(mode) {
+  document.getElementById('oplTabTotal').classList.toggle('active', mode==='total');
+  document.getElementById('oplTabMonthly').classList.toggle('active', mode==='monthly');
+  document.getElementById('opl-mode-total').style.display = mode==='total'?'':'none';
+  document.getElementById('opl-mode-monthly').style.display = mode==='monthly'?'':'none';
+}
+
+// Recalc cho mode TOTAL
+function oplRecalc() {
+  const cur = gv('opl_cur')||'VND';
+  const fx = parseFloat(gv('opl_fx'))||1;
+  const rev = parseFloat(gv('opl_rev'))||0;
+  const cost = parseFloat(gv('opl_cost'))||0;
+  // Số tháng từ HĐ
+  const c = OM_DEMO.contracts.find(x => {
+    const titleEl = document.querySelector('.modal-title');
+    return titleEl && titleEl.textContent.includes(x.name);
+  }) || {};
+  const months = omContractMonths(c) || 12;
+  const setIf = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  setIf('opl_mrev', months ? Math.round(rev/months) : 0);
+  setIf('opl_mcost', months ? Math.round(cost/months) : 0);
+  setIf('opl_rev_vnd', Math.round(rev*fx));
+  setIf('opl_cost_vnd', Math.round(cost*fx));
+  setIf('opl_mg', rev ? +((rev-cost)/rev*100).toFixed(1) : 0);
+}
+
+// Recalc cho mode MONTHLY
+function oplMonthlyCalc() {
+  let totalRev = 0, totalCost = 0;
+  document.querySelectorAll('.opl-rev-cell').forEach(el => totalRev += parseFloat(el.value)||0);
+  document.querySelectorAll('.opl-cost-cell').forEach(el => totalCost += parseFloat(el.value)||0);
+  // Margin từng dòng
+  document.querySelectorAll('[data-mg]').forEach(td => {
+    const ym = td.dataset.mg;
+    const r = parseFloat(document.querySelector(`.opl-rev-cell[data-ym="${ym}"]`)?.value)||0;
+    const c = parseFloat(document.querySelector(`.opl-cost-cell[data-ym="${ym}"]`)?.value)||0;
+    td.textContent = r ? `${(r-c).toLocaleString('vi-VN')} (${((r-c)/r*100).toFixed(0)}%)` : '—';
+  });
+  const setIf = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  setIf('opl_m_total_rev', totalRev.toLocaleString('vi-VN'));
+  setIf('opl_m_total_cost', totalCost.toLocaleString('vi-VN'));
+  setIf('opl_m_total_mg', totalRev ? `${(totalRev-totalCost).toLocaleString('vi-VN')} (${((totalRev-totalCost)/totalRev*100).toFixed(0)}%)` : '—');
+}
+
+// Chia đều từ ô số 1 cho tất cả các tháng còn lại
+function oplFillEvenly() {
+  const cells = [...document.querySelectorAll('.opl-rev-cell')];
+  const costCells = [...document.querySelectorAll('.opl-cost-cell')];
+  if (cells.length === 0) return;
+  const r = parseFloat(cells[0].value)||0;
+  const cVal = parseFloat(costCells[0].value)||0;
+  if (r === 0 && cVal === 0) { toast('Nhập số ô đầu tiên trước','warn'); return; }
+  cells.forEach(c => c.value = r);
+  costCells.forEach(c => c.value = cVal);
+  oplMonthlyCalc();
 }
 
 function oplOnCurChange() {
@@ -6199,21 +6327,9 @@ function oplOnCurChange() {
     if (cur === 'VND') { fxEl.value=1; fxEl.readOnly=true; fxEl.style.opacity='0.5'; }
     else { fxEl.value=fxDefault(cur); fxEl.readOnly=false; fxEl.style.opacity='1'; }
   }
-  oplCalc();
+  oplRecalc();
 }
 
-function oplCalc() {
-  const rev    = parseFloat(document.getElementById('opl_rev')?.value)||0;
-  const cost   = parseFloat(document.getElementById('opl_cost')?.value)||0;
-  const months = parseInt(document.getElementById('opl_months')?.value)||1;
-  const fx     = parseFloat(document.getElementById('opl_fx')?.value)||1;
-
-  if (document.getElementById('opl_mrev'))     document.getElementById('opl_mrev').value     = Math.round(rev/months);
-  if (document.getElementById('opl_mcost'))    document.getElementById('opl_mcost').value    = Math.round(cost/months);
-  if (document.getElementById('opl_rev_vnd'))  document.getElementById('opl_rev_vnd').value  = Math.round(rev*fx);
-  if (document.getElementById('opl_cost_vnd')) document.getElementById('opl_cost_vnd').value = Math.round(cost*fx);
-  if (document.getElementById('opl_mg'))       document.getElementById('opl_mg').value       = rev ? +((rev-cost)/rev*100).toFixed(1) : 0;
-}
 async function renderOmCats() {
   const costCats = OM_DEMO.omCostCats;
   const revCats  = OM_DEMO.omRevCats;
@@ -6504,13 +6620,32 @@ async function loadOmReport() {
   const c      = contracts.find(x=>x.id===id)||{};
   const cCosts = costs.filter(e=>e.contractId===id);
   const cRevs  = revs.filter(r=>r.contractId===id&&!r.isPlan&&r.isPlan!=='true');
-  const cPlan  = revs.filter(r=>r.contractId===id&&(r.isPlan===true||r.isPlan==='true'));
+
+  // Lấy plan theo vòng đời HĐ (mới)
+  const lifePlan = (OM_DEMO.omPlans||[]).find(p=>p.contractId===id) || null;
 
   const totalRev  = cRevs.reduce((s,r)=>s+(parseFloat(r.amountVnd)||0),0);
-  const totalPlan = cPlan.reduce((s,r)=>s+(parseFloat(r.amountVnd)||0),0) || omContractRevYear(c, S.year);
+  // Plan tổng = từ lifePlan (mới) hoặc fallback monthlyFee*tổng tháng (cũ)
+  const totalPlan = lifePlan ? (parseFloat(lifePlan.planRevenueVND)||0)
+                              : ((parseFloat(c.monthlyFee)||0) * omContractMonths(c));
+  const totalPlanCost = lifePlan ? (parseFloat(lifePlan.planCostVND)||0) : 0;
   const totalCost = cCosts.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const margin    = totalRev - totalCost;
   const marginPct = totalRev ? margin/totalRev*100 : 0;
+
+  // Tính tiến độ thời gian
+  const totalContractMonths = omContractMonths(c);
+  const now = new Date();
+  const cs = c.startDate ? new Date(c.startDate) : null;
+  const ce = c.endDate   ? new Date(c.endDate)   : null;
+  let elapsedMonths = 0, timeProgress = 0;
+  if (cs && ce) {
+    if (now < cs) { elapsedMonths = 0; }
+    else if (now > ce) { elapsedMonths = totalContractMonths; }
+    else { elapsedMonths = (now.getFullYear()-cs.getFullYear())*12 + now.getMonth()-cs.getMonth() + 1; }
+    timeProgress = totalContractMonths ? Math.min(100, elapsedMonths/totalContractMonths*100) : 0;
+  }
+  const revProgress = totalPlan ? totalRev/totalPlan*100 : 0;
 
   // Cost breakdown by group
   const grpBreakdown={};
@@ -6540,11 +6675,40 @@ async function loadOmReport() {
     `).join('')}
   `).join('');
 
-  // Monthly breakdown
+  // Monthly breakdown — theo vòng đời HĐ (M1, M2, ... MN)
   const monthlyRev={}, monthlyCost={};
   cRevs.forEach(r=>{ const m=r.month||r.entryDate?.slice(0,7)||''; monthlyRev[m]=(monthlyRev[m]||0)+(parseFloat(r.amountVnd)||0); });
   cCosts.forEach(e=>{ const m=e.month||e.entryDate?.slice(0,7)||''; monthlyCost[m]=(monthlyCost[m]||0)+(parseFloat(e.amountVnd)||0); });
-  const allMonths=[...new Set([...Object.keys(monthlyRev),...Object.keys(monthlyCost)])].sort();
+
+  // Tạo dải tháng theo vòng đời HĐ
+  const lifeMonths = [];
+  if (cs && totalContractMonths > 0) {
+    for (let i=0; i<totalContractMonths; i++) {
+      const d = new Date(cs.getFullYear(), cs.getMonth()+i, 1);
+      const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      lifeMonths.push({ index: i+1, ym, label: `M${i+1}`, sub: `${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` });
+    }
+  }
+
+  // KH theo tháng: nếu lifePlan có monthlyData → dùng theo dòng; nếu mode=total → chia đều
+  const planMonthlyMap = {};
+  if (lifePlan) {
+    const fx = parseFloat(lifePlan.fxRate)||1;
+    if (lifePlan.mode === 'monthly' && lifePlan.monthlyData) {
+      Object.entries(lifePlan.monthlyData).forEach(([ym, v]) => {
+        planMonthlyMap[ym] = {
+          rev:  Math.round((parseFloat(v.rev)||0) * fx),
+          cost: Math.round((parseFloat(v.cost)||0) * fx),
+        };
+      });
+    } else {
+      // Total → chia đều
+      const monthsCount = lifeMonths.length || 1;
+      const mRev = Math.round((parseFloat(lifePlan.planRevenueVND)||0) / monthsCount);
+      const mCost = Math.round((parseFloat(lifePlan.planCostVND)||0) / monthsCount);
+      lifeMonths.forEach(m => { planMonthlyMap[m.ym] = { rev: mRev, cost: mCost }; });
+    }
+  }
 
   document.getElementById('om-report-content').innerHTML = `
     <div class="section-title">${c.name} — ${c.client} — ${c.contractNo}</div>
@@ -6554,15 +6718,29 @@ async function loadOmReport() {
     </div>
 
     <div class="kpi-grid cols4 mb16">
-      <div class="kpi-card accent-teal"><div class="kpi-label">Doanh thu thực thu</div><div class="kpi-value">${fmtB(totalRev)}</div></div>
-      <div class="kpi-card accent-blue"><div class="kpi-label">Kế hoạch doanh thu</div><div class="kpi-value">${fmtB(totalPlan)}</div><div class="kpi-sub">${pct(totalPlan?totalRev/totalPlan*100:0)} thực hiện</div></div>
-      <div class="kpi-card accent-amber"><div class="kpi-label">Tổng chi phí</div><div class="kpi-value">${fmtB(totalCost)}</div></div>
+      <div class="kpi-card accent-teal"><div class="kpi-label">Doanh thu thực thu</div><div class="kpi-value">${fmtB(totalRev)}</div><div class="kpi-sub">${pct(revProgress)} so với KH</div></div>
+      <div class="kpi-card accent-blue"><div class="kpi-label">Kế hoạch DT vòng đời HĐ</div><div class="kpi-value">${fmtB(totalPlan)}</div><div class="kpi-sub">${lifePlan ? (lifePlan.mode==='monthly'?'Theo từng tháng':'Chia đều theo tháng') : 'Tự tính theo phí HĐ'}</div></div>
+      <div class="kpi-card accent-amber"><div class="kpi-label">Tiến độ thời gian</div><div class="kpi-value">${pct(timeProgress)}</div><div class="kpi-sub">${elapsedMonths}/${totalContractMonths} tháng đã qua</div></div>
       <div class="kpi-card ${marginPct>=0?'accent-green':'accent-red'}">
         <div class="kpi-label">Margin</div>
         <div class="kpi-value ${marginPct>=0?'kpi-positive':'kpi-negative'}">${pct(marginPct)}</div>
-        <div class="kpi-sub">${fmtB(margin)}</div>
+        <div class="kpi-sub">${fmtB(margin)} (CP: ${fmtB(totalCost)})</div>
       </div>
     </div>
+
+    ${(()=>{
+      // Cảnh báo lệch tiến độ
+      if (!lifePlan || !totalContractMonths) return '';
+      const diff = revProgress - timeProgress;
+      if (Math.abs(diff) < 5) return ''; // Bình thường, không cảnh báo
+      if (diff < -10) {
+        return `<div style="background:#fef3c7;border-left:4px solid #f59e0b;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:#92400e">⚠ <strong>Chậm tiến độ doanh thu</strong> — Đã qua ${pct(timeProgress)} thời gian HĐ nhưng mới đạt ${pct(revProgress)} kế hoạch doanh thu (lệch ${pct(Math.abs(diff))})</div>`;
+      }
+      if (diff > 10) {
+        return `<div style="background:#dcfce7;border-left:4px solid #16a34a;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:#166534">✓ <strong>Vượt tiến độ doanh thu</strong> — Mới qua ${pct(timeProgress)} thời gian HĐ nhưng đã đạt ${pct(revProgress)} kế hoạch (vượt ${pct(diff)})</div>`;
+      }
+      return '';
+    })()}
 
     <div class="form-grid cols2 mb16" style="gap:16px">
       <div class="card">
@@ -6579,19 +6757,57 @@ async function loadOmReport() {
     </div>
 
     <div class="card">
-      <div class="card-header"><h3>Chi tiết theo tháng</h3></div>
+      <div class="card-header"><h3>Chi tiết theo tháng — Vòng đời HĐ</h3></div>
       <div class="card-body no-pad">
         <div class="tbl-wrap">
           <table>
-            <thead><tr><th>Tháng</th><th class="num">Doanh thu</th><th class="num">Chi phí</th><th class="num">Margin tháng</th><th class="num">Margin%</th></tr></thead>
+            <thead><tr>
+              <th>Tháng HĐ</th>
+              <th class="num">KH DT</th>
+              <th class="num">TT DT</th>
+              <th class="num">Δ DT</th>
+              <th class="num">KH CP</th>
+              <th class="num">TT CP</th>
+              <th class="num">Margin TT</th>
+              <th class="num">Margin%</th>
+            </tr></thead>
             <tbody>
-              ${allMonths.map(m=>{
-                const r=monthlyRev[m]||0, co=monthlyCost[m]||0, mg=r-co, mgp=r?mg/r*100:0;
-                return `<tr><td class="mono">${m}</td><td class="num">${fmtB(r)}</td><td class="num">${fmtB(co)}</td>
-                  <td class="num ${mg>=0?'pos':'neg'}">${fmtB(mg)}</td>
-                  <td class="num ${mgp>=0?'pos':'neg'}">${pct(mgp)}</td></tr>`;
-              }).join('')||'<tr><td colspan="5"><div class="empty-state">Chưa có dữ liệu</div></td></tr>'}
+              ${lifeMonths.length === 0 ? '<tr><td colspan="8"><div class="empty-state">HĐ chưa có ngày BĐ/KT</div></td></tr>' :
+                lifeMonths.map(m=>{
+                  const planRev = planMonthlyMap[m.ym]?.rev || 0;
+                  const planCost = planMonthlyMap[m.ym]?.cost || 0;
+                  const r = monthlyRev[m.ym]||0, co = monthlyCost[m.ym]||0;
+                  const dRev = r - planRev;
+                  const mg = r-co, mgp = r ? mg/r*100 : 0;
+                  // Đánh dấu tháng đã qua / chưa đến
+                  const ymDate = new Date(m.ym + '-01');
+                  const isPast = ymDate <= now;
+                  const rowStyle = !isPast ? 'opacity:0.55' : '';
+                  return `<tr style="${rowStyle}">
+                    <td style="font-weight:600"><span style="color:var(--teal)">${m.label}</span> <span style="font-size:11px;color:var(--text3)">${m.sub}</span></td>
+                    <td class="num text-muted" style="font-size:12px">${planRev?fmtB(planRev):'—'}</td>
+                    <td class="num">${r?fmtB(r):'—'}</td>
+                    <td class="num ${dRev>=0?'pos':'neg'}" style="font-size:12px">${(planRev||r)?((dRev>=0?'+':'−')+fmtB(Math.abs(dRev))):'—'}</td>
+                    <td class="num text-muted" style="font-size:12px">${planCost?fmtB(planCost):'—'}</td>
+                    <td class="num">${co?fmtB(co):'—'}</td>
+                    <td class="num ${mg>=0?'pos':'neg'}">${(r||co)?fmtB(mg):'—'}</td>
+                    <td class="num ${mgp>=0?'pos':'neg'}">${r?pct(mgp):'—'}</td>
+                  </tr>`;
+                }).join('')
+              }
             </tbody>
+            ${lifeMonths.length > 0 ? `<tfoot style="background:var(--gray2);font-weight:700">
+              <tr>
+                <td>TỔNG</td>
+                <td class="num" style="font-family:var(--mono);color:var(--text3)">${fmtB(totalPlan)}</td>
+                <td class="num" style="font-family:var(--mono);color:var(--teal)">${fmtB(totalRev)}</td>
+                <td class="num ${totalRev-totalPlan>=0?'pos':'neg'}">${(totalRev-totalPlan>=0?'+':'−')+fmtB(Math.abs(totalRev-totalPlan))}</td>
+                <td class="num" style="font-family:var(--mono);color:var(--text3)">${fmtB(totalPlanCost)}</td>
+                <td class="num" style="font-family:var(--mono);color:var(--amber)">${fmtB(totalCost)}</td>
+                <td class="num ${margin>=0?'pos':'neg'}">${fmtB(margin)}</td>
+                <td class="num ${marginPct>=0?'pos':'neg'}">${pct(marginPct)}</td>
+              </tr>
+            </tfoot>` : ''}
           </table>
         </div>
       </div>
@@ -6599,10 +6815,12 @@ async function loadOmReport() {
 
   setTimeout(()=>{
     const ctx=document.getElementById('chartOmMonth'); if(!ctx) return;
+    const labels = lifeMonths.map(m=>m.label);
     new Chart(ctx,{type:'bar',
-      data:{labels:allMonths,datasets:[
-        {label:'Doanh thu',data:allMonths.map(m=>(monthlyRev[m]||0)/1e6),backgroundColor:'rgba(13,148,136,.7)',borderRadius:3},
-        {label:'Chi phí',data:allMonths.map(m=>(monthlyCost[m]||0)/1e6),backgroundColor:'rgba(217,119,6,.5)',borderRadius:3},
+      data:{labels,datasets:[
+        {label:'KH DT',data:lifeMonths.map(m=>(planMonthlyMap[m.ym]?.rev||0)/1e6),backgroundColor:'rgba(59,130,246,.4)',borderRadius:3},
+        {label:'Doanh thu TT',data:lifeMonths.map(m=>(monthlyRev[m.ym]||0)/1e6),backgroundColor:'rgba(13,148,136,.8)',borderRadius:3},
+        {label:'Chi phí TT',data:lifeMonths.map(m=>(monthlyCost[m.ym]||0)/1e6),backgroundColor:'rgba(217,119,6,.6)',borderRadius:3},
       ]},
       options:{responsive:true,plugins:{legend:{position:'top'}},scales:{y:{ticks:{callback:v=>v+'tr'}}}}
     });
@@ -7269,6 +7487,137 @@ async function renderSmReport(contractId) {
 }
 
 // G&A page
+// ═══════════════════════════════════════════════════════
+// PAGE: DANH MỤC G&A — quản lý nhóm/khoản mục chi phí + doanh thu Corporate
+// ═══════════════════════════════════════════════════════
+async function renderGaCats() {
+  showLoading();
+  let cats=[], revCats=[];
+  try {
+    [cats, revCats] = await Promise.all([
+      api('getGaCats',{}),
+      api('getGaRevCats',{}),
+    ]);
+  } catch(e){ toast('Lỗi','err'); }
+  hideLoading();
+
+  // Phân chi phí theo nhóm
+  const costGroups = {};
+  cats.forEach(c => {
+    const g = c.group || 'Other';
+    if (!costGroups[g]) costGroups[g] = [];
+    costGroups[g].push(c);
+  });
+
+  // Render từng nhóm chi phí
+  const costGroupHtml = Object.keys(costGroups).map(g => {
+    const items = costGroups[g];
+    const label = GA_GROUP_LABELS[g] || g;
+    const badgeClass = GA_GROUP_COLORS[g] || 'badge-gray';
+    return `
+      <div class="card mb12">
+        <div class="card-header"><h3><span class="badge ${badgeClass}">${label}</span> <span style="font-size:12px;color:var(--text3);font-weight:400;margin-left:8px">${items.length} khoản</span></h3></div>
+        <div class="card-body no-pad">
+          <div class="tbl-wrap"><table>
+            <thead><tr><th>Tên khoản mục</th><th style="width:120px">Đơn vị</th><th style="width:100px"></th></tr></thead>
+            <tbody>${items.map(c => `
+              <tr>
+                <td style="font-size:13px">${c.name}</td>
+                <td style="font-size:12px;color:var(--text3)">${c.unit||'—'}</td>
+                <td class="row-actions">
+                  <button class="btn btn-ghost btn-xs" onclick="openGaCatForm(${JSON.stringify(c).replace(/"/g,'&quot;')})">✏️</button>
+                  <button class="btn btn-ghost btn-xs" onclick="deleteGaCat('${c.id}')">🗑</button>
+                </td>
+              </tr>
+            `).join('')}</tbody>
+          </table></div>
+        </div>
+      </div>`;
+  }).join('') || '<div class="empty-state">Chưa có khoản mục chi phí G&A nào.</div>';
+
+  // Doanh thu phụ trợ
+  const revHtml = revCats.length ? `
+    <div class="card mb12">
+      <div class="card-header"><h3><span class="badge badge-green">💰 Doanh thu phụ trợ</span> <span style="font-size:12px;color:var(--text3);font-weight:400;margin-left:8px">${revCats.length} khoản</span></h3></div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Tên khoản mục</th><th style="width:120px">Đơn vị</th><th style="width:100px"></th></tr></thead>
+          <tbody>${revCats.map(c => `
+            <tr>
+              <td style="font-size:13px">${c.name}</td>
+              <td style="font-size:12px;color:var(--text3)">${c.unit||'—'}</td>
+              <td class="row-actions">
+                <button class="btn btn-ghost btn-xs" onclick="openGaRevCatForm(${JSON.stringify(c).replace(/"/g,'&quot;')})">✏️</button>
+                <button class="btn btn-ghost btn-xs" onclick="deleteGaRevCat('${c.id}')">🗑</button>
+              </td>
+            </tr>
+          `).join('')}</tbody>
+        </table></div>
+      </div>
+    </div>` : '<div class="empty-state">Chưa có khoản mục doanh thu phụ trợ nào.</div>';
+
+  document.getElementById('content').innerHTML = `
+    <div style="background:linear-gradient(135deg,#0a1628,#162d55);border-radius:var(--radius);padding:14px 20px;margin-bottom:16px;color:#fff">
+      <div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Danh mục</div>
+      <div style="font-size:13px;line-height:1.6">Quản lý các khoản mục chi phí <strong>Corporate (G&A)</strong> và <strong>doanh thu phụ trợ</strong>. Các khoản mục này sẽ xuất hiện khi nhập bút toán trong "Hoạt động chung".</div>
+    </div>
+
+    <div class="tabs mb16">
+      <div class="tab active" id="gcTabCost" onclick="gaCatsSwitch('cost')">💸 Khoản mục chi phí (${cats.length})</div>
+      <div class="tab" id="gcTabRev" onclick="gaCatsSwitch('rev')">💰 Khoản mục doanh thu (${revCats.length})</div>
+    </div>
+
+    <div id="ga-cats-cost">
+      <div class="flex items-center justify-between mb12">
+        <div class="section-title" style="margin:0">Phân theo nhóm</div>
+        <button class="btn btn-primary btn-sm" onclick="openGaCatForm({})">+ Thêm khoản mục chi phí</button>
+      </div>
+      ${costGroupHtml}
+    </div>
+
+    <div id="ga-cats-rev" style="display:none">
+      <div class="flex items-center justify-between mb12">
+        <div class="section-title" style="margin:0">Doanh thu phụ trợ Corporate</div>
+        <button class="btn btn-primary btn-sm" onclick="openGaRevCatForm({})">+ Thêm khoản mục doanh thu</button>
+      </div>
+      ${revHtml}
+    </div>
+  `;
+}
+
+function gaCatsSwitch(tab) {
+  ['cost','rev'].forEach(t => {
+    document.getElementById('gcTab'+t.charAt(0).toUpperCase()+t.slice(1))?.classList.toggle('active', t===tab);
+    const sec = document.getElementById('ga-cats-'+t);
+    if (sec) sec.style.display = (t===tab) ? '' : 'none';
+  });
+}
+
+async function deleteGaCat(id) {
+  if (!confirm('Xoá khoản mục này? Các bút toán đã gắn sẽ giữ lại nhưng có thể hiển thị "—" ở cột khoản mục.')) return;
+  try { await api('deleteGaCat', {id}); toast('Đã xoá','ok'); renderGaCats(); }
+  catch(e){ toast('Lỗi','err'); }
+}
+
+async function deleteGaRevCat(id) {
+  if (!confirm('Xoá khoản mục doanh thu này?')) return;
+  try { await api('deleteGaRevCat', {id}); toast('Đã xoá','ok'); renderGaCats(); }
+  catch(e){ toast('Lỗi','err'); }
+}
+
+// Form thêm/sửa khoản mục doanh thu phụ trợ G&A
+function openGaRevCatForm(c={}){
+  const html=`<div class="form-grid">
+    <div class="field required"><label>Tên khoản mục doanh thu</label><input id="grc_n" value="${c.name||''}" placeholder="VD: Cho thuê văn phòng, Lãi tiền gửi..."/></div>
+    <div class="field"><label>Đơn vị / Ghi chú</label><input id="grc_u" value="${c.unit||''}"/></div>
+  </div>`;
+  openModal(c.id?'Cập nhật':'Thêm khoản mục doanh thu phụ trợ',html,async()=>{
+    const payload={id:c.id||newId(),name:gv('grc_n'),unit:gv('grc_u')};
+    if(!payload.name){toast('Nhập tên','warn');return;}
+    await api('saveGaRevCat',payload);toast('Đã lưu','ok');closeModal();renderGaCats();
+  },'sm');
+}
+
 async function renderGa() {
   showLoading();
   let cats=[], entries=[], revCats=[], revEntries=[];
@@ -7614,11 +7963,14 @@ function renderGaCats(){
   openModal('Danh mục G&A',html,null,'md');
 }
 function openGaCatForm(c={}){
-  const grps=Object.entries(GA_GROUP_LABELS).map(([k,l])=>`<option value="${k}"${k===c.group?'selected':''}>${l}</option>`).join('');
+  const grps=Object.entries(GA_GROUP_LABELS).filter(([k])=>!['PropRev','FinRev','Other'].includes(k)).map(([k,l])=>`<option value="${k}"${k===c.group?'selected':''}>${l}</option>`).join('');
   const html=`<div class="form-grid"><div class="field required"><label>Nhóm</label><select id="gc_g">${grps}</select></div><div class="field required"><label>Tên khoản mục</label><input id="gc_n" value="${c.name||''}"/></div><div class="field"><label>Đơn vị</label><input id="gc_u" value="${c.unit||''}"/></div></div>`;
   openModal(c.id?'Cập nhật':'Thêm khoản mục G&A',html,async()=>{
     const payload={id:c.id||newId(),group:gv('gc_g'),name:gv('gc_n'),unit:gv('gc_u')};
-    if(!payload.name){toast('Nhập tên','warn');return;}await api('saveGaCat',payload);toast('Đã lưu','ok');closeModal();
+    if(!payload.name){toast('Nhập tên','warn');return;}
+    await api('saveGaCat',payload);toast('Đã lưu','ok');closeModal();
+    // Tự refresh trang đang xem
+    if (S.page === 'ga-cats') renderGaCats();
   },'sm');
 }
 
