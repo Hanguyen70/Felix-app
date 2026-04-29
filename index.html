@@ -692,7 +692,7 @@ body.ios-view .ios-banner { display: block; }
   <nav>
 
 
-    <div class="nav-section">Quản lý</div>
+    <div class="nav-section" data-mode="vessel">Quản lý</div>
     <div class="nav-item" data-page="projects" onclick="nav(this)">
       <svg class="icon" viewBox="0 0 20 20" fill="currentColor"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/><path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/></svg>
       Dự án
@@ -714,7 +714,7 @@ body.ios-view .ios-banner { display: block; }
       Capex / Tài sản
     </div>
 
-    <div class="nav-section">Báo cáo tàu</div>
+    <div class="nav-section" data-mode="vessel">Báo cáo tàu</div>
     <div class="nav-item" data-page="report-project" onclick="nav(this)">
       <svg class="icon" viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
       Báo cáo dự án
@@ -740,13 +740,13 @@ body.ios-view .ios-banner { display: block; }
       Kế hoạch / Giá bán
     </div>
 
-    <div class="nav-section">Quản lý tàu (Ship Mgmt)</div>
+    <div class="nav-section" data-mode="sm">Quản lý tàu (Ship Mgmt)</div>
     <div class="nav-item" data-page="sm-dashboard" onclick="nav(this)">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0"/></svg>
       Quản lý tàu (Ship Mgmt)
     </div>
 
-    <div class="nav-section">Hoạt động chung (Corporate Center)</div>
+    <div class="nav-section" data-mode="ga">Hoạt động chung (Corporate Center)</div>
     <div class="nav-item" data-page="ga" onclick="nav(this)">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
       Hoạt động chung (Corporate Center)
@@ -757,7 +757,7 @@ body.ios-view .ios-banner { display: block; }
     </div>
 
 
-    <div class="nav-section">O&M — Tư vấn vận hành</div>
+    <div class="nav-section" data-mode="om">O&M — Tư vấn vận hành</div>
     <div class="nav-item" data-page="om-dashboard" onclick="nav(this)">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
       O&M Dashboard
@@ -925,6 +925,100 @@ const _WRITE_ACTIONS = new RegExp('^(save|delete|update|add|remove)', 'i');
 function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 
 // ═══════════════════════════════════════════════════════
+// AES-256-GCM ENCRYPTION LAYER
+// Mã hoá blob trước khi sync lên cloud
+// ═══════════════════════════════════════════════════════
+const CRYPTO_KEYS = {
+  enabled:       'felix_crypto_enabled',     // 'on' | 'off'
+  password:      'felix_crypto_password',    // Mật khẩu đã được anh nhập (lưu trong localStorage máy này)
+  verifier:      'felix_crypto_verifier',    // Để xác nhận password đúng (encrypt of "OK")
+};
+
+// Helper: chuyển string ↔ Uint8Array
+const _enc = new TextEncoder();
+const _dec = new TextDecoder();
+function _b64encode(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+}
+function _b64decode(b64) {
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+}
+
+// Tạo khoá AES từ password + salt (PBKDF2)
+async function _deriveKey(password, salt) {
+  const baseKey = await crypto.subtle.importKey(
+    'raw', _enc.encode(password),
+    { name: 'PBKDF2' }, false, ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: 250000,
+      hash: 'SHA-256'
+    },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+// Mã hoá: blob object → { encrypted:true, data, salt, iv, version:1 }
+async function cryptoEncrypt(plainObj, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv   = crypto.getRandomValues(new Uint8Array(12));
+  const key  = await _deriveKey(password, salt);
+  const plainBytes = _enc.encode(JSON.stringify(plainObj));
+  const cipherBuf  = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plainBytes);
+  return {
+    encrypted: true,
+    version:   1,
+    data:      _b64encode(cipherBuf),
+    salt:      _b64encode(salt),
+    iv:        _b64encode(iv),
+  };
+}
+
+// Giải mã: { encrypted, data, salt, iv } → blob object
+async function cryptoDecrypt(envelope, password) {
+  if (!envelope || !envelope.encrypted) throw new Error('Dữ liệu chưa được mã hoá');
+  const salt = _b64decode(envelope.salt);
+  const iv   = _b64decode(envelope.iv);
+  const key  = await _deriveKey(password, salt);
+  const cipher = _b64decode(envelope.data);
+  let plainBuf;
+  try {
+    plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
+  } catch(e) {
+    throw new Error('Sai mật khẩu hoặc dữ liệu bị hỏng');
+  }
+  return JSON.parse(_dec.decode(plainBuf));
+}
+
+// Kiểm tra crypto đang bật
+function isCryptoEnabled() {
+  return localStorage.getItem(CRYPTO_KEYS.enabled) === 'on';
+}
+function getCryptoPassword() {
+  return localStorage.getItem(CRYPTO_KEYS.password) || '';
+}
+
+// Tạo verifier (để check password sau này)
+async function _makeVerifier(password) {
+  return cryptoEncrypt({ ok: true, ts: Date.now() }, password);
+}
+async function _checkVerifier(password) {
+  const raw = localStorage.getItem(CRYPTO_KEYS.verifier);
+  if (!raw) return false;
+  try {
+    const env = JSON.parse(raw);
+    const dec = await cryptoDecrypt(env, password);
+    return dec && dec.ok === true;
+  } catch(_) { return false; }
+}
+
+// ═══════════════════════════════════════════════════════
 // CLOUD SYNC LAYER — Apps Script (Drive Sync) + GitHub Sync
 // ═══════════════════════════════════════════════════════
 const SYNC_KEYS = {
@@ -940,16 +1034,94 @@ const SYNC_KEYS = {
 };
 
 // ═══════════════════════════════════════════════════════
+// GATHER DATA — gom dữ liệu để sync lên cloud
+// (ưu tiên Apps Script API nếu có, fallback localStorage)
+// ═══════════════════════════════════════════════════════
+async function _gatherDataForSync() {
+  // Trường hợp 1: Đang chạy offline (Demo) — đọc từ localStorage
+  if (!API_URL) {
+    return _lsLoadAll();
+  }
+
+  // Trường hợp 2: Đã kết nối Apps Script — gọi API lấy hết dữ liệu
+  // Dùng Promise.allSettled để 1 endpoint lỗi không làm hỏng cả batch
+  const calls = await Promise.allSettled([
+    api('getVessels',     {}),
+    api('getCostCats',    {}),
+    api('getRevCats',     {}),
+    api('getProjects',    {}),
+    api('getCostEntries', {}),
+    api('getRevEntries',  {}),
+    api('getCapex',       {}),
+    api('getFxRates',     {}),
+    api('getAnnualPlan',  {}),
+    api('getSmContracts',   {}),
+    api('getSmPassthrough', {}),
+    api('getSmCosts',       {}),
+    api('getOmContracts',     {}),
+    api('getOmCostEntries',   {}),
+    api('getOmRevEntries',    {}),
+    api('getGaEntries',     {}),
+    api('getGaRevEntries',  {}),
+    api('getGaTaxAdj',      {}),
+    api('getFixedAssets',   {}),
+  ]);
+
+  const v = (i) => calls[i].status === 'fulfilled' ? (calls[i].value || []) : [];
+  const blob = {
+    DEMO: {
+      vessels:      v(0),
+      costCats:     v(1),
+      revCats:      v(2),
+      projects:     v(3),
+      costEntries:  v(4),
+      revEntries:   v(5),
+      capex:        v(6),
+      fxRates:      v(7),
+      annualPlan:   v(8),
+    },
+    SM_DEMO: {
+      contracts:           v(9),
+      passthroughEntries:  v(10),
+      smCosts:             v(11),
+    },
+    OM_DEMO: {
+      contracts:       v(12),
+      omCostEntries:   v(13),
+      omRevEntries:    v(14),
+    },
+    GA_DEMO: {
+      entries:         v(15),
+      revEntries:      v(16),
+      taxAdjustments:  v(17),
+      fixedAssets:     v(18),
+    },
+    _ts: Date.now(),
+    _source: 'apps_script',
+  };
+  return blob;
+}
+
+// ═══════════════════════════════════════════════════════
 // APPS SCRIPT (Google Drive) — đẩy/kéo cả localStorage blob
 // ═══════════════════════════════════════════════════════
 async function gasPushBlob() {
   const url = localStorage.getItem(SYNC_KEYS.gasUrl);
   if (!url) throw new Error('Chưa cấu hình GAS URL');
-  const blob = _lsLoadAll();
+  const blob = await _gatherDataForSync();
   if (!blob) throw new Error('Không có dữ liệu để đẩy lên cloud');
+
+  // Mã hoá nếu bật
+  let payload = blob;
+  if (isCryptoEnabled()) {
+    const pw = getCryptoPassword();
+    if (!pw) throw new Error('Chưa nhập mật khẩu mã hoá — vào Cài đặt');
+    payload = await cryptoEncrypt(blob, pw);
+  }
+
   const resp = await fetch(url + '?action=saveBlob', {
     method: 'POST',
-    body: JSON.stringify({ blob }),
+    body: JSON.stringify({ blob: payload }),
     headers: { 'Content-Type': 'text/plain' } // Tránh preflight CORS
   });
   const json = await resp.json();
@@ -965,8 +1137,18 @@ async function gasPullBlob() {
   const json = await resp.json();
   if (!json.ok) throw new Error(json.error || 'GAS load error');
   if (!json.data || !json.data.blob) throw new Error('Cloud chưa có dữ liệu');
+
+  let blob = json.data.blob;
+
+  // Giải mã nếu file là encrypted envelope
+  if (blob && blob.encrypted === true) {
+    const pw = getCryptoPassword();
+    if (!pw) throw new Error('File trên cloud đã mã hoá — cần nhập mật khẩu (Cài đặt)');
+    blob = await cryptoDecrypt(blob, pw);
+  }
+
   // Ghi đè localStorage
-  localStorage.setItem(LS_KEY, JSON.stringify(json.data.blob));
+  localStorage.setItem(LS_KEY, JSON.stringify(blob));
   localStorage.setItem(SYNC_KEYS.lastGasSync, String(Date.now()));
   return json.data;
 }
@@ -980,8 +1162,16 @@ async function ghPushBlob() {
   const path   = localStorage.getItem(SYNC_KEYS.ghPath) || 'felix-data.json';
   const branch = localStorage.getItem(SYNC_KEYS.ghBranch) || 'main';
   if (!token || !repo) throw new Error('Chưa cấu hình GitHub Token/Repo');
-  const blob = _lsLoadAll();
+  const blob = await _gatherDataForSync();
   if (!blob) throw new Error('Không có dữ liệu để đẩy lên GitHub');
+
+  // Mã hoá nếu bật
+  let payload = blob;
+  if (isCryptoEnabled()) {
+    const pw = getCryptoPassword();
+    if (!pw) throw new Error('Chưa nhập mật khẩu mã hoá — vào Cài đặt');
+    payload = await cryptoEncrypt(blob, pw);
+  }
 
   const apiBase = `https://api.github.com/repos/${repo}/contents/${path}`;
   const headers = { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github+json' };
@@ -993,9 +1183,9 @@ async function ghPushBlob() {
     if (r.ok) { const j = await r.json(); sha = j.sha; }
   } catch(_){}
 
-  const content = btoa(unescape(encodeURIComponent(JSON.stringify(blob, null, 2))));
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
   const body = {
-    message: 'FELIX auto-sync ' + new Date().toISOString(),
+    message: 'FELIX auto-sync ' + new Date().toISOString() + (isCryptoEnabled()?' [encrypted]':''),
     content, branch
   };
   if (sha) body.sha = sha;
@@ -1025,7 +1215,15 @@ async function ghPullBlob() {
   if (!resp.ok) throw new Error(json.message || 'GitHub pull failed');
   // Decode base64
   const decoded = decodeURIComponent(escape(atob(json.content.replace(/\s/g,''))));
-  const blob = JSON.parse(decoded);
+  let blob = JSON.parse(decoded);
+
+  // Giải mã nếu file là encrypted envelope
+  if (blob && blob.encrypted === true) {
+    const pw = getCryptoPassword();
+    if (!pw) throw new Error('File trên GitHub đã mã hoá — cần nhập mật khẩu (Cài đặt)');
+    blob = await cryptoDecrypt(blob, pw);
+  }
+
   localStorage.setItem(LS_KEY, JSON.stringify(blob));
   localStorage.setItem(SYNC_KEYS.lastGhSync, String(Date.now()));
   return blob;
@@ -1651,15 +1849,12 @@ function setMode(mode) {
     el.style.display = allowed.includes(page) ? '' : 'none';
   });
 
-  // Show/hide nav section headers
+  // Show/hide nav section headers — dùng data-mode để chính xác
   document.querySelectorAll('.nav-section').forEach(el => {
-    const txt = el.textContent.trim();
-    let show = false;
-    if (S.mode === 'vessel') show = !txt.includes('O&M') && !txt.includes('Ship Mgmt') && !txt.includes('G&A');
-    else if (S.mode === 'om') show = txt.includes('O&M') || txt.includes('Tổng quan');
-    else if (S.mode === 'sm') show = txt.includes('Ship Mgmt') || txt.includes('Tổng hợp');
-    else if (S.mode === 'ga') show = txt.includes('G&A') || txt.includes('Tổng hợp');
-    el.style.display = show ? '' : 'none';
+    // Bỏ qua các section đặc biệt (vessel-only / home-only) — đã xử lý riêng bên dưới
+    if (el.classList.contains('home-only') || el.classList.contains('vessel-only')) return;
+    const mode = el.dataset.mode;
+    el.style.display = (mode === S.mode) ? '' : 'none';
   });
 
   // Bắt buộc ẩn các home-only (Danh mục) khi vào mode bất kỳ — chúng chỉ hiện ở Dashboard chung
@@ -3455,6 +3650,27 @@ async function renderSettings() {
 
   document.getElementById('content').innerHTML = `
 
+    <!-- ── MÃ HOÁ DỮ LIỆU (AES-256) ── -->
+    <div class="card mb16" style="border-left:4px solid var(--teal)">
+      <div class="card-header"><h3>🔐 Mã hoá dữ liệu (AES-256)</h3></div>
+      <div class="card-body">
+        <p style="font-size:13px;color:var(--ink3);margin-bottom:12px;line-height:1.6">
+          Khi bật, dữ liệu sẽ được <strong>mã hoá AES-256-GCM</strong> trước khi đẩy lên cloud (Google Drive / GitHub).
+          Người có token nhưng không có mật khẩu sẽ <strong>không đọc được</strong> dữ liệu.
+        </p>
+        <div id="crypto-status" style="background:var(--bg);border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;font-family:var(--mono)"></div>
+        <div id="crypto-controls"></div>
+
+        <div style="background:#fff8e6;border-left:3px solid var(--amber);padding:10px 14px;margin-top:12px;font-size:12px;line-height:1.6;border-radius:4px">
+          <strong>⚠ Cảnh báo quan trọng:</strong><br>
+          • Mật khẩu KHÔNG được lưu ở bất kỳ đâu trên cloud — quên là <strong>MẤT DỮ LIỆU VĨNH VIỄN</strong>, không khôi phục được<br>
+          • Mật khẩu phải <strong>giống nhau trên TẤT CẢ thiết bị</strong> (PC, GitHub Pages, iPhone)<br>
+          • Sau khi bật mã hoá, mọi thiết bị mới phải nhập đúng mật khẩu mới đọc được file cloud<br>
+          • Nên dùng <strong>password manager</strong> (Bitwarden, 1Password, Notes iCloud có khoá) để lưu mật khẩu
+        </div>
+      </div>
+    </div>
+
     <!-- ── GOOGLE DRIVE SYNC (Apps Script) ── -->
     <div class="card mb16">
       <div class="card-header"><h3>☁ Google Drive Sync (Apps Script)</h3></div>
@@ -3616,7 +3832,7 @@ async function renderSettings() {
       </div>
     </div>`;
   // Cập nhật thông tin localStorage
-  setTimeout(()=>updateLsStats(), 50);
+  setTimeout(()=>{ updateLsStats(); renderCryptoCard(); }, 50);
 }
 
 function updateLsStats(){
@@ -3683,6 +3899,197 @@ function resetLocalData(){
   localStorage.removeItem(LS_KEY);
   toast('Đã xoá. Đang tải lại trang...','ok');
   setTimeout(()=>location.reload(), 800);
+}
+
+// ═══════════════════════════════════════════════════════
+// CRYPTO UI — Card "Mã hoá dữ liệu" trong Cài đặt
+// ═══════════════════════════════════════════════════════
+function renderCryptoCard() {
+  const statusEl = document.getElementById('crypto-status');
+  const ctrlEl   = document.getElementById('crypto-controls');
+  if (!statusEl || !ctrlEl) return;
+
+  const enabled = isCryptoEnabled();
+  const hasPw   = !!getCryptoPassword();
+
+  // Status
+  if (enabled && hasPw) {
+    statusEl.innerHTML = '<span style="color:var(--teal);font-weight:600">🔒 Mã hoá ĐANG BẬT</span> — File trên cloud được mã hoá AES-256';
+  } else if (enabled && !hasPw) {
+    statusEl.innerHTML = '<span style="color:var(--red);font-weight:600">⚠ Mã hoá đang bật nhưng chưa có mật khẩu trên thiết bị này</span> — Hãy nhập mật khẩu để đọc file cloud';
+  } else {
+    statusEl.innerHTML = '<span style="color:var(--ink3)">🔓 Mã hoá đang TẮT</span> — File trên cloud ở dạng plain text (token rò rỉ → lộ dữ liệu)';
+  }
+
+  // Controls
+  if (!enabled) {
+    // Chưa bật — cho nhập password để bật lần đầu
+    ctrlEl.innerHTML = `
+      <div class="form-grid cols2">
+        <div class="field" style="grid-column:span 2"><label>Mật khẩu mã hoá (đặt mới)</label>
+          <input type="password" id="crypto_pw1" placeholder="Mật khẩu mạnh, ít nhất 8 ký tự" autocomplete="new-password"/></div>
+        <div class="field" style="grid-column:span 2"><label>Nhập lại mật khẩu</label>
+          <input type="password" id="crypto_pw2" placeholder="Nhập lại để xác nhận" autocomplete="new-password"/></div>
+      </div>
+      <div class="flex gap8 mt8" style="flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="cryptoEnable()">🔒 Bật mã hoá</button>
+      </div>`;
+  } else if (enabled && !hasPw) {
+    // Đã bật ở thiết bị khác — máy này cần nhập password để đọc file cloud
+    ctrlEl.innerHTML = `
+      <div class="form-grid">
+        <div class="field"><label>Nhập mật khẩu (đã đặt ở thiết bị khác)</label>
+          <input type="password" id="crypto_pw_unlock" placeholder="Mật khẩu" autocomplete="current-password"/></div>
+      </div>
+      <div class="flex gap8 mt8" style="flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="cryptoUnlock()">🔑 Mở khoá thiết bị này</button>
+        <button class="btn btn-ghost btn-sm" onclick="cryptoDisableLocal()" style="color:var(--red)">Tắt mã hoá ở thiết bị này</button>
+      </div>`;
+  } else {
+    // Đã bật + có password
+    ctrlEl.innerHTML = `
+      <div class="flex gap8" style="flex-wrap:wrap">
+        <button class="btn btn-outline btn-sm" onclick="cryptoChangePassword()">🔄 Đổi mật khẩu</button>
+        <button class="btn btn-outline btn-sm" onclick="cryptoTestPassword()">✓ Kiểm tra mật khẩu</button>
+        <button class="btn btn-outline btn-sm" onclick="cryptoDisable()" style="color:var(--red);border-color:var(--red)">🔓 Tắt mã hoá</button>
+      </div>`;
+  }
+}
+
+async function cryptoEnable() {
+  const pw1 = document.getElementById('crypto_pw1')?.value || '';
+  const pw2 = document.getElementById('crypto_pw2')?.value || '';
+  if (pw1.length < 8) { toast('Mật khẩu phải ít nhất 8 ký tự','warn'); return; }
+  if (pw1 !== pw2) { toast('Mật khẩu không khớp','warn'); return; }
+  if (!confirm(
+    '⚠ XÁC NHẬN BẬT MÃ HOÁ\n\n' +
+    '• Quên mật khẩu = MẤT DỮ LIỆU VĨNH VIỄN, không khôi phục được\n' +
+    '• Mật khẩu phải dùng giống nhau trên TẤT CẢ thiết bị\n' +
+    '• Lần sync tiếp theo sẽ ghi file đã mã hoá lên cloud\n\n' +
+    'Bạn đã ghi nhớ mật khẩu (hoặc lưu vào password manager)?'
+  )) return;
+
+  showLoading();
+  try {
+    // Tạo verifier để sau này check password
+    const verifier = await _makeVerifier(pw1);
+    localStorage.setItem(CRYPTO_KEYS.verifier, JSON.stringify(verifier));
+    localStorage.setItem(CRYPTO_KEYS.password, pw1);
+    localStorage.setItem(CRYPTO_KEYS.enabled, 'on');
+    toast('Đã bật mã hoá. Bấm "Sync lên cloud" để đẩy file đã mã hoá','ok');
+  } catch(e) {
+    toast('Lỗi: '+e.message,'err');
+  }
+  hideLoading();
+  renderCryptoCard();
+}
+
+async function cryptoUnlock() {
+  const pw = document.getElementById('crypto_pw_unlock')?.value || '';
+  if (!pw) { toast('Nhập mật khẩu','warn'); return; }
+  showLoading();
+  try {
+    const ok = await _checkVerifier(pw);
+    if (!ok) {
+      // Có thể máy này chưa có verifier (lần đầu cấu hình) — thử pull từ cloud
+      // Trước hết thử dùng password để pull file từ GitHub/GAS
+      localStorage.setItem(CRYPTO_KEYS.password, pw);
+      let pulled = false;
+      try {
+        if (localStorage.getItem(SYNC_KEYS.gasUrl)) { await gasPullBlob(); pulled = true; }
+        else if (localStorage.getItem(SYNC_KEYS.ghToken)) { await ghPullBlob(); pulled = true; }
+      } catch(err) {
+        // Thất bại (có thể sai password)
+        localStorage.removeItem(CRYPTO_KEYS.password);
+        throw new Error('Sai mật khẩu hoặc không tải được file từ cloud');
+      }
+      if (pulled) {
+        // Tạo verifier mới ở máy này
+        const verifier = await _makeVerifier(pw);
+        localStorage.setItem(CRYPTO_KEYS.verifier, JSON.stringify(verifier));
+        toast('Đã mở khoá thiết bị, dữ liệu được tải về','ok');
+        setTimeout(()=>location.reload(), 800);
+        return;
+      }
+      throw new Error('Sai mật khẩu');
+    }
+    localStorage.setItem(CRYPTO_KEYS.password, pw);
+    toast('Đã mở khoá thiết bị này','ok');
+  } catch(e) {
+    toast('Lỗi: '+e.message,'err');
+  }
+  hideLoading();
+  renderCryptoCard();
+}
+
+async function cryptoTestPassword() {
+  const pw = getCryptoPassword();
+  if (!pw) { toast('Chưa có mật khẩu','warn'); return; }
+  const ok = await _checkVerifier(pw);
+  toast(ok?'✓ Mật khẩu đúng':'✗ Mật khẩu sai (file verifier có thể đã hỏng)', ok?'ok':'err');
+}
+
+async function cryptoChangePassword() {
+  const oldPw = prompt('Nhập mật khẩu hiện tại:');
+  if (!oldPw) return;
+  const ok = await _checkVerifier(oldPw);
+  if (!ok) { toast('Mật khẩu cũ không đúng','err'); return; }
+
+  const newPw = prompt('Nhập mật khẩu MỚI (ít nhất 8 ký tự):');
+  if (!newPw || newPw.length < 8) { toast('Mật khẩu mới phải ít nhất 8 ký tự','warn'); return; }
+  const newPw2 = prompt('Nhập lại mật khẩu mới để xác nhận:');
+  if (newPw !== newPw2) { toast('Không khớp','warn'); return; }
+  if (!confirm(
+    '⚠ Sau khi đổi mật khẩu, anh phải:\n' +
+    '1. Bấm "Sync lên cloud" để đẩy file đã mã hoá lại bằng mật khẩu mới\n' +
+    '2. Cập nhật mật khẩu mới trên TẤT CẢ thiết bị khác\n\n' +
+    'Tiếp tục?'
+  )) return;
+
+  showLoading();
+  try {
+    const verifier = await _makeVerifier(newPw);
+    localStorage.setItem(CRYPTO_KEYS.verifier, JSON.stringify(verifier));
+    localStorage.setItem(CRYPTO_KEYS.password, newPw);
+    toast('Đã đổi mật khẩu. Hãy bấm "Sync lên cloud" ngay','ok');
+  } catch(e) {
+    toast('Lỗi: '+e.message,'err');
+  }
+  hideLoading();
+  renderCryptoCard();
+}
+
+async function cryptoDisable() {
+  if (!confirm(
+    '⚠ TẮT mã hoá sẽ:\n' +
+    '• Ghi đè file cloud bằng dữ liệu PLAIN TEXT (không mã hoá)\n' +
+    '• Các thiết bị khác cũng sẽ tắt mã hoá khi sync\n\n' +
+    'Tiếp tục?'
+  )) return;
+  // Tắt local trước
+  localStorage.removeItem(CRYPTO_KEYS.enabled);
+  localStorage.removeItem(CRYPTO_KEYS.password);
+  localStorage.removeItem(CRYPTO_KEYS.verifier);
+  // Đẩy file plain lên cloud nếu đã cấu hình
+  showLoading();
+  try {
+    if (localStorage.getItem(SYNC_KEYS.gasUrl)) await gasPushBlob();
+    if (localStorage.getItem(SYNC_KEYS.ghToken)) await ghPushBlob();
+    toast('Đã tắt mã hoá và sync file plain lên cloud','ok');
+  } catch(e){
+    toast('Đã tắt cục bộ, sync cloud lỗi: '+e.message,'warn');
+  }
+  hideLoading();
+  renderCryptoCard();
+}
+
+function cryptoDisableLocal() {
+  if (!confirm('Tắt mã hoá CHỈ ở thiết bị này? Các thiết bị khác vẫn dùng mã hoá.\n\nLưu ý: thiết bị này sau đó sẽ không sync được với cloud (vì file cloud vẫn mã hoá).')) return;
+  localStorage.removeItem(CRYPTO_KEYS.enabled);
+  localStorage.removeItem(CRYPTO_KEYS.password);
+  localStorage.removeItem(CRYPTO_KEYS.verifier);
+  toast('Đã tắt mã hoá ở thiết bị này','ok');
+  renderCryptoCard();
 }
 
 // ═══════════════════════════════════════════════════════
