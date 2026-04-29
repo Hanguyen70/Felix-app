@@ -758,6 +758,10 @@ body.ios-view .ios-banner { display: block; }
 
 
     <div class="nav-section home-only">Báo cáo tổng hợp</div>
+    <div class="nav-item home-only" data-page="payroll-fund" onclick="nav(this)">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      Quỹ lương dự án (T/Q)
+    </div>
     <div class="nav-item home-only" data-page="tax-report" onclick="nav(this)">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/></svg>
       Dự trù BCTC / Thuế TNDN
@@ -799,12 +803,12 @@ body.ios-view .ios-banner { display: block; }
       <svg class="icon" viewBox="0 0 20 20" fill="currentColor"><path d="M8 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM15 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/><path d="M3 4a1 1 0 00-1 1v10a1 1 0 001 1h1.05a2.5 2.5 0 014.9 0H10a1 1 0 001-1V5a1 1 0 00-1-1H3z"/><path d="M14 7h1.05A2.5 2.5 0 0118 9.5v.5h-4v-3z"/></svg>
       Danh mục tàu
     </div>
+    <div class="nav-item vessel-only" data-page="categories" onclick="nav(this)">
+      <svg class="icon" viewBox="0 0 20 20" fill="currentColor"><path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM14 11a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1h-1a1 1 0 110-2h1v-1a1 1 0 011-1z"/></svg>
+      Danh mục chi phí / doanh thu tàu
+    </div>
 
     <div class="nav-section home-only">Danh mục chung</div>
-    <div class="nav-item home-only" data-page="categories" onclick="nav(this)">
-      <svg class="icon" viewBox="0 0 20 20" fill="currentColor"><path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM14 11a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1h-1a1 1 0 110-2h1v-1a1 1 0 011-1z"/></svg>
-      Danh mục chi phí / doanh thu
-    </div>
     <div class="nav-item home-only" data-page="fx-rates" onclick="nav(this)">
       <svg class="icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clip-rule="evenodd"/></svg>
       Tỷ giá
@@ -938,7 +942,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.29-04:55'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.29-06:05'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -1602,6 +1606,12 @@ function _buildInitialDemo() {
       {id:'cl04',group:'L',groupLabel:'Chi phí khác (ngoài BCTC)',category:'L2',categoryLabel:'Ghi nhận theo dõi',name:'Chi phí cơ hội / opportunity cost',unit:'lần',currency:'VND',active:true},
       {id:'cl05',group:'L',groupLabel:'Chi phí khác (ngoài BCTC)',category:'L2',categoryLabel:'Ghi nhận theo dõi',name:'Chi phí ước tính chưa xác nhận',unit:'lần',currency:'VND',active:true},
       {id:'cl06',group:'L',groupLabel:'Chi phí khác (ngoài BCTC)',category:'L2',categoryLabel:'Ghi nhận theo dõi',name:'Ghi nhận theo dõi nội bộ khác',unit:'lot',currency:'VND',active:true},
+      // ── T. TRÍCH QUỸ LƯƠNG DỰ ÁN (chỉ vào P/L, không vào BCTC) ──
+      {id:'ct01',group:'T',groupLabel:'Trích quỹ lương dự án',category:'T1',categoryLabel:'Trích quỹ lương từ DT',name:'Trích quỹ lương từ DT cho thuê tàu',unit:'%DT',currency:'VND',active:true,accrualPct:2},
+      {id:'ct02',group:'T',groupLabel:'Trích quỹ lương dự án',category:'T1',categoryLabel:'Trích quỹ lương từ DT',name:'Trích quỹ lương từ DT dịch vụ',unit:'%DT',currency:'VND',active:true,accrualPct:2},
+      {id:'ct03',group:'T',groupLabel:'Trích quỹ lương dự án',category:'T1',categoryLabel:'Trích quỹ lương từ DT',name:'Trích quỹ lương từ DT vận chuyển',unit:'%DT',currency:'VND',active:true,accrualPct:2},
+      {id:'ct04',group:'T',groupLabel:'Trích quỹ lương dự án',category:'T2',categoryLabel:'Trích quỹ thưởng dự án',name:'Trích quỹ thưởng KPI dự án',unit:'%DT',currency:'VND',active:true,accrualPct:1},
+      {id:'ct05',group:'T',groupLabel:'Trích quỹ lương dự án',category:'T2',categoryLabel:'Trích quỹ thưởng dự án',name:'Trích quỹ phụ cấp đặc biệt dự án',unit:'lần',currency:'VND',active:true,accrualPct:0},
       {id:'c9b',group:'F',groupLabel:'Phân bổ',  category:'F4',categoryLabel:'Khấu hao',          name:'Khấu hao máy móc thiết bị',    unit:'năm',  currency:'VND',active:true},
     ],
     revCats: [
@@ -1877,7 +1887,7 @@ function onYearChange() {
 const MODE_PAGES = {
   vessel: ['dashboard','projects','costs','fuel','revenue','capex',
            'report-project','report-annual','report-util','report-yoy',
-           'report-capex','report-plan','vessels'],
+           'report-capex','report-plan','vessels','categories'],
   om:     ['om-dashboard','om-contracts','om-costs','om-revenue',
            'om-contract','om-cats','om-plan'],
   sm:     ['sm-dashboard'],
@@ -2694,17 +2704,35 @@ function openCostForm(e={}) {
       </div>
       <div class="field"><label>Số hoá đơn / chứng từ</label><input id="ceinv" value="${e.invoiceNo||''}"/></div>
       <div class="field" style="grid-column:span 1"><label>Mô tả / Diễn giải</label><input id="cedesc" value="${e.description||''}"/></div>
+      <div class="field" style="grid-column:span 2"><label>Nguồn chi</label>
+        <select id="ceacc" title="Chỉ áp dụng cho chi phí thường. Bút toán nhóm T (trích quỹ) tự động được đánh dấu đúng loại.">
+          <option value=""${!e.accountType?' selected':''}>(1) Ghi nhận BCTC (mặc định) — Chi phí thường, vào cả P/L &amp; BCTC</option>
+          <option value="Q"${e.accountType==='Q'?' selected':''}>(2) Chi từ quỹ lương dự án — Không vào P/L (đã trích T trước)</option>
+        </select>
+      </div>
     </div>`;
 
   openModal(isEdit?'Cập nhật chi phí':'Nhập chi phí mới', html, async()=>{
     const amt  = parseFloat(gv('ceamt'))||0;
     const fx   = parseFloat(gv('cefx'))||1;
+    const catId = gv('cecat');
+    // Tự động xác định accountType:
+    // - Nếu category thuộc nhóm T → accountType='T' (Trích quỹ)
+    // - Còn lại: lấy từ ô chọn (Q=Chi từ quỹ, '' hoặc 'N'=Bình thường)
+    const cat = (S.costCats||[]).find(x=>x.id===catId);
+    let acctType = '';
+    if (cat && cat.group === 'T') {
+      acctType = 'T';
+    } else {
+      acctType = gv('ceacc') || '';  // '' = bình thường (mặc định), 'Q' = chi từ quỹ
+    }
     const payload = {
       id:e.id||newId(), vesselId:gv('cev'), projectId:gv('cep')||'',
-      categoryId:gv('cecat'), entryDate:gv('cedate'),
+      categoryId:catId, entryDate:gv('cedate'),
       amount:amt, currency:gv('cecur'), fxRate:fx,
       amountVnd: Math.round(amt*fx),
       description:gv('cedesc'), invoiceNo:gv('ceinv'), type:gv('cetype'),
+      accountType: acctType,
       createdAt:e.createdAt||new Date().toISOString(),
     };
     if (!payload.vesselId||!payload.categoryId||!payload.amount) { toast('Điền đủ thông tin bắt buộc (*)','warn'); return; }
@@ -4862,6 +4890,7 @@ const ALL_PAGES = {
   'tax-report':       () => renderTaxReport(),
   // Consolidated
   consolidated:       () => renderConsolidated(),
+  'payroll-fund':     () => renderPayrollFund(),
 };
 
 const ALL_TITLES = {
@@ -4880,6 +4909,7 @@ const ALL_TITLES = {
   'sm-dashboard':'Quản lý tàu (Ship Management)',
   ga:'Hoạt động chung (Corporate Center)', consolidated:'Báo cáo tổng hợp P&L',
   'ga-cats':'Danh mục G&A',
+  'payroll-fund':'Quỹ lương dự án (T/Q)',
   'tax-report':'Dự trù BCTC — Lợi nhuận chịu thuế TNDN',
 };
 
@@ -5451,14 +5481,25 @@ function openOmCostForm(e={}) {
         <input type="number" id="oce_vnd" value="${e.amountVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--teal)"/></div>
       <div class="field" style="grid-column:span 2"><label>Mô tả / Diễn giải</label>
         <input id="oce_desc" value="${e.description||''}"/></div>
+      <div class="field" style="grid-column:span 2"><label>Nguồn chi</label>
+        <select id="oce_acc">
+          <option value=""${!e.accountType?' selected':''}>(1) Ghi nhận BCTC (mặc định) — Chi phí thường, vào cả P/L &amp; BCTC</option>
+          <option value="Q"${e.accountType==='Q'?' selected':''}>(2) Chi từ quỹ lương dự án — Không vào P/L (đã trích T trước)</option>
+        </select>
+      </div>
     </div>`;
 
   openModal(e.id?'Cập nhật chi phí O&M':'Nhập chi phí O&M', html, async()=>{
     const amt=parseFloat(gv('oce_amt'))||0, fx=parseFloat(gv('oce_fx'))||1;
-    const payload={id:e.id||newId(), contractId:gv('oce_ctr'), categoryId:gv('oce_item'),
+    // Tự gán accountType=T nếu category thuộc nhóm T
+    const catId = gv('oce_item');
+    const cat = (OM_DEMO.omCostCats||[]).find(x=>x.id===catId);
+    const acctType = (cat && cat.group === 'T') ? 'T' : (gv('oce_acc') || '');
+    const payload={id:e.id||newId(), contractId:gv('oce_ctr'), categoryId:catId,
       entryDate:gv('oce_date'), month:gv('oce_month'),
       amount:amt, currency:gv('oce_cur'), fxRate:fx, amountVnd:Math.round(amt*fx),
-      description:gv('oce_desc'), createdAt:e.createdAt||new Date().toISOString()};
+      description:gv('oce_desc'), accountType: acctType,
+      createdAt:e.createdAt||new Date().toISOString()};
     if (!payload.contractId||!payload.categoryId||!payload.amount){toast('Điền đủ thông tin (*)','warn');return;}
     showLoading();try{await api('saveOmCostEntry',payload);toast('Đã lưu','ok');closeModal();renderOmCosts();}catch(e){toast('Lỗi','err');}hideLoading();
   }, 'lg');
@@ -5639,6 +5680,307 @@ async function deleteOmRevEntry(id){if(!confirm('Xoá?'))return;try{await api('d
 // ═══════════════════════════════════════════════════════
 // BÁO CÁO DỰ TRÙ BCTC — Lợi nhuận chịu thuế TNDN
 // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// PAGE: QUỸ LƯƠNG DỰ ÁN
+// Theo dõi T (trích quỹ - vào P/L) và Q (chi từ quỹ - vào BCTC)
+// ═══════════════════════════════════════════════════════
+async function renderPayrollFund() {
+  showLoading();
+  let costs=[], omCosts=[], smCosts=[], gaCosts=[], gaCats=[], vessels=[], projects=[], omContracts=[], smContracts=[];
+  try {
+    [costs, omCosts, smCosts, gaCosts, gaCats, vessels, projects, omContracts, smContracts] = await Promise.all([
+      api('getCostEntries', {}),
+      api('getOmCostEntries', {}),
+      api('getSmCosts', {}),
+      api('getGaEntries', {}),
+      api('getGaCats', {}),
+      api('getVessels', {}),
+      api('getProjects', {}),
+      api('getOmContracts', {}),
+      api('getSmContracts', {}),
+    ]);
+  } catch(e) { toast('Lỗi tải dữ liệu','err'); }
+  hideLoading();
+
+  // Gộp tất cả entries có accountType T hoặc Q
+  const all = [];
+  costs.forEach(e => {
+    if (e.accountType === 'T' || e.accountType === 'Q') {
+      const v = vessels.find(x=>x.id===e.vesselId)||{};
+      const p = projects.find(x=>x.id===e.projectId)||{};
+      all.push({
+        ...e,
+        source: 'Vessel',
+        sourceLabel: v.name + (p.name ? ` — ${p.name}` : ''),
+        projectKey: p.id || ('vessel:'+v.id),
+        projectName: p.name || v.name || '—',
+      });
+    }
+  });
+  omCosts.forEach(e => {
+    if (e.accountType === 'T' || e.accountType === 'Q') {
+      const ctr = omContracts.find(x=>x.id===e.contractId)||{};
+      all.push({
+        ...e,
+        source: 'O&M',
+        sourceLabel: ctr.name || '—',
+        projectKey: 'om:'+ctr.id,
+        projectName: ctr.name || '—',
+      });
+    }
+  });
+  smCosts.forEach(e => {
+    if (e.accountType === 'T' || e.accountType === 'Q') {
+      const ctr = smContracts.find(x=>x.id===e.contractId)||{};
+      all.push({
+        ...e,
+        source: 'Ship Mgmt',
+        sourceLabel: (ctr.vesselName||'—') + (ctr.ownerName?` (${ctr.ownerName})`:''),
+        projectKey: 'sm:'+ctr.id,
+        projectName: ctr.vesselName || '—',
+      });
+    }
+  });
+  gaCosts.forEach(e => {
+    if (e.accountType === 'T' || e.accountType === 'Q') {
+      const cat = gaCats.find(x=>x.id===e.categoryId)||{};
+      all.push({
+        ...e,
+        source: 'Corporate (G&A)',
+        sourceLabel: cat.name || '—',
+        projectKey: 'ga:'+(cat.id||e.categoryId||'misc'),
+        projectName: cat.name || 'Quản lý chung',
+      });
+    }
+  });
+
+  // Sắp xếp theo ngày
+  all.sort((a,b) => new Date(a.entryDate||'2000-01-01') - new Date(b.entryDate||'2000-01-01'));
+
+  // Tính số dư luỹ kế
+  let runningBal = 0;
+  const ledger = all.map(e => {
+    const amt = parseFloat(e.amountVnd)||0;
+    if (e.accountType === 'T') runningBal += amt;
+    else if (e.accountType === 'Q') runningBal -= amt;
+    return { ...e, balance: runningBal };
+  });
+
+  const totalT = all.filter(e=>e.accountType==='T').reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const totalQ = all.filter(e=>e.accountType==='Q').reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const balance = totalT - totalQ;
+
+  // Theo dự án
+  const byProject = {};
+  all.forEach(e => {
+    if (!byProject[e.projectKey]) byProject[e.projectKey] = { name: e.projectName, source: e.source, T:0, Q:0 };
+    if (e.accountType==='T') byProject[e.projectKey].T += parseFloat(e.amountVnd)||0;
+    if (e.accountType==='Q') byProject[e.projectKey].Q += parseFloat(e.amountVnd)||0;
+  });
+  const projectRows = Object.values(byProject).sort((a,b) => (b.T+b.Q)-(a.T+a.Q));
+
+  // Theo mảng
+  const bySource = { Vessel:{T:0,Q:0}, 'O&M':{T:0,Q:0}, 'Ship Mgmt':{T:0,Q:0}, 'Corporate (G&A)':{T:0,Q:0} };
+  all.forEach(e => {
+    if (!bySource[e.source]) bySource[e.source] = {T:0,Q:0};
+    if (e.accountType==='T') bySource[e.source].T += parseFloat(e.amountVnd)||0;
+    if (e.accountType==='Q') bySource[e.source].Q += parseFloat(e.amountVnd)||0;
+  });
+
+  document.getElementById('content').innerHTML = `
+    <div style="background:linear-gradient(135deg,#0a1628,#162d55);border-radius:var(--radius);padding:14px 20px;margin-bottom:16px;color:#fff">
+      <div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Cơ chế quỹ lương</div>
+      <div style="font-size:13px;line-height:1.7">
+        <strong>Trích quỹ (T):</strong> Bút toán nhóm <em>T</em> trong Danh mục → vào P/L để tính lợi nhuận thực dự án, <strong>không vào BCTC</strong> (chưa thực phát sinh).<br>
+        <strong>Chi từ quỹ (Q):</strong> Khi chi thực tế (lương, thưởng), chọn nguồn chi <em>"Chi từ quỹ lương"</em> → vào BCTC, <strong>không vào P/L</strong> (đã trích T trước).<br>
+        <strong>Số dư = T − Q</strong> = Số tiền đã trích nhưng chưa chi
+      </div>
+    </div>
+
+    <div class="kpi-grid cols3 mb16">
+      <div class="kpi-card accent-blue">
+        <div class="kpi-label">Tổng đã trích (T)</div>
+        <div class="kpi-value">${fmtB(totalT)}</div>
+        <div class="kpi-sub">Đã đưa vào P/L (không vào BCTC)</div>
+      </div>
+      <div class="kpi-card accent-amber">
+        <div class="kpi-label">Tổng đã chi (Q)</div>
+        <div class="kpi-value">${fmtB(totalQ)}</div>
+        <div class="kpi-sub">Đã đưa vào BCTC (không vào P/L)</div>
+      </div>
+      <div class="kpi-card ${balance>=0?'accent-green':'accent-red'}">
+        <div class="kpi-label">Số dư quỹ</div>
+        <div class="kpi-value ${balance>=0?'kpi-positive':'kpi-negative'}">${balance>=0?'+':'−'}${fmtB(Math.abs(balance))}</div>
+        <div class="kpi-sub">${balance>=0?'Còn dư trong quỹ':'⚠ Đã chi vượt quỹ'}</div>
+      </div>
+    </div>
+
+    ${balance < 0 ? `<div style="background:#fee2e2;border-left:4px solid #ef4444;color:#991b1b;border-radius:6px;padding:12px 16px;margin-bottom:16px;font-weight:600">⚠ Quỹ đã chi vượt số đã trích — Cần kiểm tra lại hoặc trích bổ sung</div>` : ''}
+
+    <!-- Theo mảng -->
+    <div class="card mb16">
+      <div class="card-header"><h3>📊 Phân bổ theo mảng kinh doanh</h3></div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Mảng</th><th class="num">Đã trích (T)</th><th class="num">Đã chi (Q)</th></tr></thead>
+          <tbody>
+            ${Object.entries(bySource).filter(([_,v])=>v.T>0||v.Q>0).map(([src,v]) => {
+              return `<tr>
+                <td style="font-weight:600">${src}</td>
+                <td class="num pos" style="font-family:var(--mono)">${v.T>0?'+'+fmtB(v.T):'—'}</td>
+                <td class="num neg" style="font-family:var(--mono)">${v.Q>0?'−'+fmtB(v.Q):'—'}</td>
+              </tr>`;
+            }).join('') || '<tr><td colspan="3"><div class="empty-state">Chưa có bút toán T/Q nào.</div></td></tr>'}
+          </tbody>
+          <tfoot style="background:var(--gray2);font-weight:700">
+            <tr>
+              <td>TỔNG QUỸ</td>
+              <td class="num pos" style="font-family:var(--mono)">+${fmtB(totalT)}</td>
+              <td class="num neg" style="font-family:var(--mono)">−${fmtB(totalQ)}</td>
+            </tr>
+          </tfoot>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- Theo dự án -->
+    ${projectRows.length > 0 ? `<div class="card mb16">
+      <div class="card-header"><h3>🚢 Phân bổ theo dự án/tàu/hợp đồng</h3></div>
+      <div class="card-body">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.5">
+          <strong>Lưu ý:</strong> Quỹ là <strong>quỹ chung</strong> của công ty. Cột "Đã trích" cho biết dự án đó đóng góp bao nhiêu vào quỹ; cột "Đã chi" cho biết tiền quỹ đã được chi cho lương/thưởng liên quan đến dự án/bộ phận đó. Hai cột <strong>không có ý nghĩa "ghép cặp"</strong> — quỹ chi tự do giữa các dự án.
+        </div>
+      </div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Dự án / Tàu / HĐ / Bộ phận</th><th>Mảng</th><th class="num">Đã trích (T) — Đóng góp quỹ</th><th class="num">Đã chi (Q) — Sử dụng quỹ</th></tr></thead>
+          <tbody>
+            ${projectRows.map(r => {
+              return `<tr>
+                <td style="font-weight:500">${r.name}</td>
+                <td><span class="badge ${r.source==='Vessel'?'badge-teal':r.source==='O&M'?'badge-blue':r.source==='Ship Mgmt'?'badge-gray':'badge-purple'}">${r.source}</span></td>
+                <td class="num pos" style="font-family:var(--mono)">${r.T>0?'+'+fmtB(r.T):'—'}</td>
+                <td class="num neg" style="font-family:var(--mono)">${r.Q>0?'−'+fmtB(r.Q):'—'}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot style="background:var(--gray2);font-weight:700">
+            <tr>
+              <td colspan="2">TỔNG QUỸ</td>
+              <td class="num pos" style="font-family:var(--mono)">+${fmtB(totalT)}</td>
+              <td class="num neg" style="font-family:var(--mono)">−${fmtB(totalQ)}</td>
+            </tr>
+          </tfoot>
+        </table></div>
+      </div>
+    </div>` : ''}
+
+    <!-- Sổ chi tiết bút toán T/Q -->
+    <div class="card">
+      <div class="card-header flex items-center justify-between">
+        <h3>📋 Sổ chi tiết bút toán T/Q theo thời gian</h3>
+        <button class="btn btn-outline btn-sm" onclick="exportPayrollFundCsv()">📊 Xuất CSV</button>
+      </div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap"><table>
+          <thead><tr>
+            <th style="width:90px">Ngày</th>
+            <th style="width:60px">Loại</th>
+            <th style="width:90px">Mảng</th>
+            <th>Dự án / Diễn giải</th>
+            <th class="num" style="width:120px">Trích (T)</th>
+            <th class="num" style="width:120px">Chi (Q)</th>
+            <th class="num" style="width:130px">Số dư luỹ kế</th>
+          </tr></thead>
+          <tbody>
+            ${ledger.length === 0 ? '<tr><td colspan="7"><div class="empty-state">Chưa có bút toán T hoặc Q nào.<br><br>Cách dùng:<br>1. Vào Vessel → Chi phí → chọn khoản mục nhóm <strong>T</strong> để trích quỹ.<br>2. Khi chi lương thật, chọn nguồn chi "<strong>Chi từ quỹ lương dự án</strong>" trên bút toán.</div></td></tr>' :
+              ledger.map(e => {
+                const amt = parseFloat(e.amountVnd)||0;
+                return `<tr>
+                  <td class="mono" style="font-size:12px">${fmtDate(e.entryDate)}</td>
+                  <td><span class="badge ${e.accountType==='T'?'badge-blue':'badge-amber'}">${e.accountType}</span></td>
+                  <td><span class="badge ${e.source==='Vessel'?'badge-teal':e.source==='O&M'?'badge-blue':e.source==='Ship Mgmt'?'badge-gray':'badge-purple'}" style="font-size:10px">${e.source}</span></td>
+                  <td style="font-size:12px"><strong>${e.sourceLabel}</strong>${e.description?` — ${e.description}`:''}</td>
+                  <td class="num pos" style="font-family:var(--mono)">${e.accountType==='T'?'+'+fmtB(amt):'—'}</td>
+                  <td class="num neg" style="font-family:var(--mono)">${e.accountType==='Q'?'−'+fmtB(amt):'—'}</td>
+                  <td class="num" style="font-family:var(--mono);font-weight:600;color:${e.balance>=0?'var(--green)':'var(--red)'}">${e.balance>=0?'':'−'}${fmtB(Math.abs(e.balance))}</td>
+                </tr>`;
+              }).join('')
+            }
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+  `;
+}
+
+async function exportPayrollFundCsv() {
+  let costs=[], omCosts=[], smCosts=[], gaCosts=[], gaCats=[], vessels=[], projects=[], omContracts=[], smContracts=[];
+  try {
+    [costs, omCosts, smCosts, gaCosts, gaCats, vessels, projects, omContracts, smContracts] = await Promise.all([
+      api('getCostEntries',{}), api('getOmCostEntries',{}), api('getSmCosts',{}),
+      api('getGaEntries',{}), api('getGaCats',{}),
+      api('getVessels',{}), api('getProjects',{}), api('getOmContracts',{}), api('getSmContracts',{})
+    ]);
+  } catch(e) { toast('Lỗi','err'); return; }
+
+  const all = [];
+  costs.forEach(e => {
+    if (e.accountType === 'T' || e.accountType === 'Q') {
+      const v = vessels.find(x=>x.id===e.vesselId)||{};
+      const p = projects.find(x=>x.id===e.projectId)||{};
+      all.push({...e, source:'Vessel', sourceLabel: v.name + (p.name?` — ${p.name}`:'')});
+    }
+  });
+  omCosts.forEach(e => {
+    if (e.accountType === 'T' || e.accountType === 'Q') {
+      const ctr = omContracts.find(x=>x.id===e.contractId)||{};
+      all.push({...e, source:'O&M', sourceLabel: ctr.name || '—'});
+    }
+  });
+  smCosts.forEach(e => {
+    if (e.accountType === 'T' || e.accountType === 'Q') {
+      const ctr = smContracts.find(x=>x.id===e.contractId)||{};
+      all.push({...e, source:'Ship Mgmt', sourceLabel: (ctr.vesselName||'—') + (ctr.ownerName?` (${ctr.ownerName})`:'')});
+    }
+  });
+  gaCosts.forEach(e => {
+    if (e.accountType === 'T' || e.accountType === 'Q') {
+      const cat = gaCats.find(x=>x.id===e.categoryId)||{};
+      all.push({...e, source:'Corporate (G&A)', sourceLabel: cat.name || '—'});
+    }
+  });
+  all.sort((a,b) => new Date(a.entryDate||'2000-01-01') - new Date(b.entryDate||'2000-01-01'));
+
+  let bal = 0;
+  const rows = all.map(e => {
+    const amt = parseFloat(e.amountVnd)||0;
+    if (e.accountType==='T') bal += amt;
+    else bal -= amt;
+    return [
+      e.entryDate || '',
+      e.accountType,
+      e.source,
+      (e.sourceLabel || '').replace(/"/g, '""'),
+      (e.description || '').replace(/"/g, '""'),
+      e.accountType==='T' ? amt : '',
+      e.accountType==='Q' ? amt : '',
+      bal,
+    ];
+  });
+  const header = ['Ngày','Loại','Mảng','Nguồn','Diễn giải','Trích (T)','Chi (Q)','Số dư luỹ kế (VNĐ)'];
+  const csv = '\uFEFF' + [header, ...rows].map(r => r.map(v =>
+    typeof v === 'string' && /[",\n]/.test(v) ? '"'+v+'"' : v
+  ).join(',')).join('\n');
+
+  const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+  const blob = new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=`quy-luong-du-an-${stamp}.csv`; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1500);
+  toast('Đã xuất CSV','ok');
+}
+
 async function renderTaxReport() {
   showLoading();
   let vesselData={totals:{totalRevVnd:0,totalMarginVnd:0},vessels:[]};
@@ -6910,6 +7252,11 @@ var GA_DEMO = {
     {id:'ga18',group:'Fin',   name:'Lãi vay ngân hàng',                unit:'tháng'},
     {id:'ga19',group:'Fin',   name:'Phí bảo lãnh / phí tín dụng',      unit:'năm'},
     {id:'ga20',group:'Fin',   name:'Lỗ chênh lệch tỷ giá',             unit:'lần'},
+    // T — Trích quỹ lương dự án (chỉ vào P/L, không vào BCTC)
+    {id:'gat1',group:'T',     name:'Trích quỹ lương từ DT cho thuê VP',unit:'%DT', accrualPct:2},
+    {id:'gat2',group:'T',     name:'Trích quỹ lương từ DT điện NLMT',  unit:'%DT', accrualPct:2},
+    {id:'gat3',group:'T',     name:'Trích quỹ lương từ DT tài chính',  unit:'%DT', accrualPct:1},
+    {id:'gat4',group:'T',     name:'Trích quỹ lương cho ban quản lý',  unit:'tháng', accrualPct:0},
   ],
   entries: [],
   // Doanh thu Corporate (cho thuê VP, điện NLMT, tài chính...)
@@ -6934,11 +7281,13 @@ const GA_GROUP_LABELS = {
   HR:'Nhân sự quản lý', Office:'Văn phòng', Mkt:'Marketing & BD',
   IT:'IT & Viễn thông', Legal:'Pháp lý & Kiểm toán',
   Depr:'Khấu hao TSCĐ', Fin:'Tài chính',
+  T:'Trích quỹ lương dự án',
   PropRev:'Doanh thu BĐS / Tài sản', FinRev:'Doanh thu tài chính', Other:'Thu nhập khác',
 };
 const GA_GROUP_COLORS = {
   HR:'badge-blue', Office:'badge-teal', Mkt:'badge-amber',
   IT:'badge-purple', Legal:'badge-gray', Depr:'badge-red', Fin:'badge-navy',
+  T:'badge-purple',
   PropRev:'badge-green', FinRev:'badge-teal', Other:'badge-gray',
 };
 
@@ -7224,12 +7573,19 @@ function openSmCostForm(e={}) {
       <div class="field"><label>Đồng tiền</label><select id="smcst_cur" onchange="smCostCompVnd()">${currencies}</select></div>
       <div class="field"><label>Tỷ giá → VNĐ</label><input type="number" id="smcst_fx" value="${e.fxRate||1}" oninput="smCostCompVnd()"/></div>
       <div class="field"><label>Số tiền VNĐ</label><input type="number" id="smcst_vnd" value="${e.amountVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--teal)"/></div>
+      <div class="field" style="grid-column:span 2"><label>Loại bút toán</label>
+        <select id="smcst_acc">
+          <option value=""${!e.accountType?' selected':''}>(1) Ghi nhận BCTC (mặc định) — Chi phí thường, vào cả P/L &amp; BCTC</option>
+          <option value="T"${e.accountType==='T'?' selected':''}>(T) Trích quỹ lương dự án — Chỉ vào P/L, không BCTC</option>
+          <option value="Q"${e.accountType==='Q'?' selected':''}>(Q) Chi từ quỹ lương dự án — Chỉ BCTC, không vào P/L</option>
+        </select>
+      </div>
     </div>`;
   openModal(e.id?'Cập nhật chi phí QT':'Nhập chi phí quản lý',html,async()=>{
     const amt=parseFloat(gv('smcst_amt'))||0, fx=parseFloat(gv('smcst_fx'))||1;
     const cur=gv('smcst_cur');
     const amtVnd=(cur==='VND')?amt:Math.round(amt*fx);
-    const payload={id:e.id||newId(),contractId:gv('smcst_ctr'),entryDate:gv('smcst_date'),month:gv('smcst_month'),amount:amt,currency:cur,fxRate:fx,amountVnd:amtVnd,description:gv('smcst_desc'),createdAt:e.createdAt||new Date().toISOString()};
+    const payload={id:e.id||newId(),contractId:gv('smcst_ctr'),entryDate:gv('smcst_date'),month:gv('smcst_month'),amount:amt,currency:cur,fxRate:fx,amountVnd:amtVnd,description:gv('smcst_desc'),accountType:gv('smcst_acc')||'',createdAt:e.createdAt||new Date().toISOString()};
     if(!payload.contractId||!payload.amount){toast('Điền đủ thông tin','warn');return;}
     showLoading();try{await api('saveSmCost',payload);toast('Đã lưu','ok');closeModal();renderSmDashboard();}catch(err){toast('Lỗi','err');}hideLoading();
   });
@@ -7936,10 +8292,20 @@ function openGaEntryForm(e={}) {
     <div class="field"><label>Tỷ giá</label><input type="number" id="ga_fx" value="${e.fxRate||1}" oninput="gaCompVnd()"/></div>
     <div class="field"><label>Số tiền VNĐ</label><input type="number" id="ga_vnd" value="${e.amountVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--teal)"/></div>
     <div class="field" style="grid-column:span 2"><label>Mô tả</label><input id="ga_desc" value="${e.description||''}"/></div>
+    <div class="field" style="grid-column:span 2"><label>Nguồn chi</label>
+      <select id="ga_acc" title="Chỉ áp dụng cho chi phí thường. Bút toán nhóm T tự động được đánh dấu T.">
+        <option value=""${!e.accountType?' selected':''}>(1) Ghi nhận BCTC (mặc định) — Chi phí thường, vào cả P/L &amp; BCTC</option>
+        <option value="Q"${e.accountType==='Q'?' selected':''}>(2) Chi từ quỹ lương dự án — Không vào P/L (đã trích T trước)</option>
+      </select>
+    </div>
   </div>`;
   openModal(e.id?'Cập nhật G&A':'Nhập chi phí G&A',html,async()=>{
     const amt=parseFloat(gv('ga_amt'))||0,fx=parseFloat(gv('ga_fx'))||1;
-    const payload={id:e.id||newId(),categoryId:gv('ga_cat'),entryDate:gv('ga_date'),month:gv('ga_month'),amount:amt,currency:gv('ga_cur'),fxRate:fx,amountVnd:Math.round(amt*fx),description:gv('ga_desc'),createdAt:e.createdAt||new Date().toISOString()};
+    const catId=gv('ga_cat');
+    // Tự động T nếu category thuộc nhóm T
+    const cat = (GA_DEMO.categories||[]).find(x=>x.id===catId);
+    const acctType = (cat && cat.group === 'T') ? 'T' : (gv('ga_acc') || '');
+    const payload={id:e.id||newId(),categoryId:catId,entryDate:gv('ga_date'),month:gv('ga_month'),amount:amt,currency:gv('ga_cur'),fxRate:fx,amountVnd:Math.round(amt*fx),description:gv('ga_desc'),accountType:acctType,createdAt:e.createdAt||new Date().toISOString()};
     if(!payload.categoryId||!payload.amount){toast('Điền đủ thông tin','warn');return;}
     showLoading();try{await api('saveGaEntry',payload);toast('Đã lưu','ok');closeModal();renderGa();}catch(e){toast('Lỗi','err');}hideLoading();
   });
