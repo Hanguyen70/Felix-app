@@ -942,7 +942,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.29-06:05'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.29-14:00'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -1325,12 +1325,23 @@ async function ghPullBlob() {
 async function manualCloudSave() {
   if (!hasCloudConfigured()) { toast('Chưa cấu hình cloud sync — vào Cài đặt','warn'); return; }
   setSyncStatus('syncing','Đang lưu cloud…');
-  try {
-    if (localStorage.getItem(SYNC_KEYS.gasUrl)) await gasPushBlob();
-    if (localStorage.getItem(SYNC_KEYS.ghToken)) await ghPushBlob();
+  let savedAny = false, lastErr = null;
+  // Ưu tiên GitHub trước (ổn định hơn)
+  if (localStorage.getItem(SYNC_KEYS.ghToken)) {
+    try { await ghPushBlob(); savedAny = true; }
+    catch(e){ lastErr = 'GitHub: '+e.message; }
+  }
+  if (localStorage.getItem(SYNC_KEYS.gasUrl)) {
+    try { await gasPushBlob(); savedAny = true; }
+    catch(e){ lastErr = (lastErr?lastErr+' | ':'')+'Drive: '+e.message; }
+  }
+  if (savedAny) {
     setSyncStatus('ok','Đã lưu cloud');
-    toast('Đã lưu lên cloud','ok');
-  } catch(e){ setSyncStatus('err','Lỗi lưu cloud'); toast('Lỗi: '+e.message,'err'); }
+    toast('Đã lưu lên cloud'+(lastErr?' (1 đích lỗi)':''),'ok');
+  } else {
+    setSyncStatus('err','Lỗi lưu cloud');
+    toast('Lỗi: '+(lastErr||'Không xác định'),'err');
+  }
   updateSyncTimestamp();
 }
 
@@ -1338,14 +1349,24 @@ async function manualCloudLoad() {
   if (!hasCloudConfigured()) { toast('Chưa cấu hình cloud sync — vào Cài đặt','warn'); return; }
   if (!confirm('Tải dữ liệu từ cloud về sẽ GHI ĐÈ dữ liệu hiện tại trên thiết bị này. Tiếp tục?')) return;
   setSyncStatus('syncing','Đang tải cloud…');
-  try {
-    // Ưu tiên GAS, nếu không có thì GitHub
-    if (localStorage.getItem(SYNC_KEYS.gasUrl)) await gasPullBlob();
-    else if (localStorage.getItem(SYNC_KEYS.ghToken)) await ghPullBlob();
+  // Ưu tiên GitHub trước, nếu lỗi thì fallback GAS
+  let loaded = false, lastErr = null;
+  if (localStorage.getItem(SYNC_KEYS.ghToken)) {
+    try { await ghPullBlob(); loaded = true; }
+    catch(e) { lastErr = 'GitHub: '+e.message; }
+  }
+  if (!loaded && localStorage.getItem(SYNC_KEYS.gasUrl)) {
+    try { await gasPullBlob(); loaded = true; }
+    catch(e) { lastErr = (lastErr?lastErr+' | ':'')+'Drive: '+e.message; }
+  }
+  if (loaded) {
     setSyncStatus('ok','Đã tải cloud');
     toast('Đã tải dữ liệu — đang reload','ok');
     setTimeout(()=>location.reload(), 800);
-  } catch(e){ setSyncStatus('err','Lỗi tải cloud'); toast('Lỗi: '+e.message,'err'); }
+  } else {
+    setSyncStatus('err','Lỗi tải cloud');
+    toast('Lỗi: '+(lastErr||'Không xác định'),'err');
+  }
 }
 
 function hasCloudConfigured() {
@@ -1713,16 +1734,217 @@ function buildDemoDashboard(D, p) {
   };
 }
 function buildDemoProject(D, p) {
-  const proj = D.projects.find(x=>x.id===p.projectId)||D.projects[0];
+  const proj = D.projects.find(x=>x.id===p.projectId);
+  if (!proj) return { project:null, summary:{}, catBreakdown:[], costEntries:[], revEntries:[] };
+
+  // Lọc đúng dữ liệu của dự án này
+  const cEntries = D.costEntries.filter(r => r.projectId === proj.id);
+  const rEntries = D.revEntries.filter(r => r.projectId === proj.id && !r.isPlan && r.isPlan!=='true');
+  const pEntries = D.revEntries.filter(r => r.projectId === proj.id && (r.isPlan===true || r.isPlan==='true'));
+
+  // Loại bỏ Q (chi từ quỹ — đã trích T trước, không tính trùng vào P/L)
+  const cEntriesPL = cEntries.filter(r => r.accountType !== 'Q');
+
+  // Số ngày dự án = TỔNG 4 trường thời gian chi tiết của dự án
+  // (Transit + MOB/Demob + Standby + Onfield)
+  const transitDays = parseFloat(proj.transitDays)||0;
+  const mobDays = parseFloat(proj.mobDemobDays)||0;
+  const standbyDays = parseFloat(proj.standbyDays)||0;
+  const onfieldDays = parseFloat(proj.onfieldDays)||0;
+  const projectDays = transitDays + mobDays + standbyDays + onfieldDays;
+
+  // Tổng doanh thu thực
+  const totalRevVnd = rEntries.reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
+  const planRevVnd  = pEntries.reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
+
+  // Phân loại chi phí theo nhóm category
+  const cats = D.costCats || [];
+  const groupTotals = {};
+  cEntriesPL.forEach(r => {
+    const cat = cats.find(c => c.id === r.categoryId);
+    const grp = cat ? cat.group : 'Khác';
+    const grpLabel = cat ? (cat.groupLabel || grp) : 'Khác';
+    if (!groupTotals[grp]) groupTotals[grp] = { group:grp, groupLabel:grpLabel, total:0, items:{} };
+    const amt = parseFloat(r.amountVnd) || 0;
+    groupTotals[grp].total += amt;
+    const itemName = cat ? cat.name : (r.description || 'Không phân loại');
+    if (!groupTotals[grp].items[itemName]) groupTotals[grp].items[itemName] = { catId: r.categoryId, name: itemName, total: 0 };
+    groupTotals[grp].items[itemName].total += amt;
+  });
+
+  const catBreakdown = Object.values(groupTotals)
+    .map(g => ({ ...g, items: Object.values(g.items).sort((a,b) => b.total - a.total) }))
+    .sort((a,b) => b.total - a.total);
+
+  const totalOpexVnd = cEntriesPL
+    .filter(r => { const cat = cats.find(c => c.id === r.categoryId); return cat && (cat.group === 'A' || cat.group === 'B'); })
+    .reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
+  const totalFuelVnd = cEntriesPL
+    .filter(r => { const cat = cats.find(c => c.id === r.categoryId); return cat && cat.group === 'C'; })
+    .reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
+  const totalDVnd = cEntriesPL
+    .filter(r => { const cat = cats.find(c => c.id === r.categoryId); return cat && cat.group === 'D'; })
+    .reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
+  const totalProjectCostVnd = cEntriesPL.reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
+
+  const projectMarginVnd = totalRevVnd - totalProjectCostVnd;
+  const projectMarginPct = totalRevVnd ? (projectMarginVnd / totalRevVnd * 100) : 0;
+
+  // Daily rates (chia theo số ngày dự án)
+  const days = projectDays || 1;
+  const dailyRevRate    = totalRevVnd / days;
+  const dailyOpexCost   = totalOpexVnd / days;
+  const dailyFuelCost   = totalFuelVnd / days;
+  const dailyTotalCost  = totalProjectCostVnd / days;
+
   return {
     project: proj,
-    summary:{projectDays:64.4,totalRevVnd:3800000000,planRevVnd:3500000000,totalOpexVnd:1200000000,totalFuelVnd:420000000,totalDVnd:180000000,allocatedForProject:141200000,totalProjectCostVnd:1941200000,projectMarginVnd:1858800000,projectMarginPct:48.9,dailyRevRate:59006000,dailyOpexCost:18634000,dailyFuelCost:6521000,dailyTotalCost:30142000},
-    catBreakdown:[
-      {group:'A',groupLabel:'Hàng hải',total:1200000000,items:[{catId:'c1',name:'Lương thuyền viên',total:1000000000},{catId:'c2',name:'Chi phí cảng',total:200000000}]},
-      {group:'C',groupLabel:'Nhiên liệu',total:420000000,items:[{catId:'c4',name:'Dầu DO',total:420000000}]},
-    ],
-    costEntries: D.costEntries.filter(r=>r.projectId===p.projectId),
-    revEntries:  D.revEntries.filter(r=>r.projectId===p.projectId),
+    summary: {
+      projectDays: +projectDays.toFixed(1),
+      totalRevVnd, planRevVnd,
+      totalOpexVnd, totalFuelVnd, totalDVnd,
+      allocatedForProject: 0,
+      totalProjectCostVnd,
+      projectMarginVnd,
+      projectMarginPct: +projectMarginPct.toFixed(1),
+      dailyRevRate: Math.round(dailyRevRate),
+      dailyOpexCost: Math.round(dailyOpexCost),
+      dailyFuelCost: Math.round(dailyFuelCost),
+      dailyTotalCost: Math.round(dailyTotalCost),
+    },
+    catBreakdown,
+    costEntries: cEntries,
+    revEntries: rEntries,
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// BUILD DEMO ANNUAL — Báo cáo năm cho 1 tàu
+// ═══════════════════════════════════════════════════════
+function buildDemoAnnual(D, p) {
+  const year = parseInt(p.year || new Date().getFullYear());
+  const vId = p.vesselId;
+  const vessel = D.vessels.find(v => v.id === vId);
+  if (!vessel) return _emptyAnnual(year, null);
+
+  const isLeap = (year%4===0 && year%100!==0) || year%400===0;
+  const daysInYear = isLeap ? 366 : 365;
+
+  // Lọc theo tàu + năm
+  const allCosts = (D.costEntries||[]).filter(r => r.vesselId === vId && (r.entryDate||'').startsWith(String(year)));
+  const allRevs = (D.revEntries||[]).filter(r => r.vesselId === vId && (r.entryDate||'').startsWith(String(year)) && !r.isPlan && r.isPlan!=='true');
+
+  // Loại bỏ Q (đã trích T trước)
+  const costsPL = allCosts.filter(r => r.accountType !== 'Q');
+
+  // Lấy projects của tàu này
+  const vesselProjects = (D.projects||[]).filter(p => p.vesselId === vId);
+
+  // Tính onhire/offhire từ projects (project days = transit+mob+standby+onfield)
+  let onhireDays = 0;
+  vesselProjects.forEach(proj => {
+    const ps = new Date(proj.startDate||'2000-01-01');
+    const pe = new Date(proj.endDate||'2099-12-31');
+    // Chỉ tính nếu dự án nằm trong năm
+    if (pe.getFullYear() < year || ps.getFullYear() > year) return;
+    const days = (parseFloat(proj.transitDays)||0) + (parseFloat(proj.mobDemobDays)||0) + (parseFloat(proj.standbyDays)||0) + (parseFloat(proj.onfieldDays)||0);
+    onhireDays += days;
+  });
+  // Đảm bảo không vượt quá số ngày trong năm
+  onhireDays = Math.min(onhireDays, daysInYear);
+  const offhireDays = parseFloat(p.offhireDays)||0;
+  const commercialDays = Math.max(0, daysInYear - onhireDays - offhireDays);
+
+  // Doanh thu năm
+  const totalRevVnd = allRevs.reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
+
+  // Phân nhóm chi phí
+  const cats = D.costCats || [];
+  const groupTotals = {};
+  let totalOpexVnd = 0, totalFuelVnd = 0, totalDVnd = 0, totalEVnd = 0, totalFVnd = 0;
+  costsPL.forEach(r => {
+    const cat = cats.find(c => c.id === r.categoryId);
+    const grp = cat ? cat.group : 'Khác';
+    const grpLabel = cat ? (cat.groupLabel || grp) : 'Khác';
+    if (!groupTotals[grp]) groupTotals[grp] = { group:grp, groupLabel:grpLabel, total:0, items:{} };
+    const amt = parseFloat(r.amountVnd) || 0;
+    groupTotals[grp].total += amt;
+    const itemName = cat ? cat.name : (r.description || 'Không phân loại');
+    if (!groupTotals[grp].items[itemName]) groupTotals[grp].items[itemName] = { name: itemName, total: 0 };
+    groupTotals[grp].items[itemName].total += amt;
+
+    if (grp === 'A' || grp === 'B') totalOpexVnd += amt;
+    if (grp === 'C') totalFuelVnd += amt;
+    if (grp === 'D') totalDVnd += amt;
+    if (grp === 'E') totalEVnd += amt;
+    if (grp === 'F') totalFVnd += amt;
+  });
+
+  const catBreakdown = Object.values(groupTotals)
+    .map(g => ({ ...g, items: Object.values(g.items).sort((a,b) => b.total - a.total) }))
+    .sort((a,b) => b.total - a.total);
+
+  const totalAnnualCost = costsPL.reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
+  const annualMarginVnd = totalRevVnd - totalAnnualCost;
+  const annualMarginPct = totalRevVnd ? (annualMarginVnd / totalRevVnd * 100) : 0;
+
+  // Phân bổ F theo onhire/offhire/commercial
+  const fOnhire = daysInYear ? totalFVnd * onhireDays / daysInYear : 0;
+  const fOffhire = daysInYear ? totalFVnd * offhireDays / daysInYear : 0;
+  const fCommercial = daysInYear ? totalFVnd * commercialDays / daysInYear : 0;
+
+  // Margin theo dự án
+  const projectMargins = vesselProjects.map(proj => {
+    const projCosts = costsPL.filter(r => r.projectId === proj.id);
+    const projRevs = allRevs.filter(r => r.projectId === proj.id);
+    const days = (parseFloat(proj.transitDays)||0) + (parseFloat(proj.mobDemobDays)||0) + (parseFloat(proj.standbyDays)||0) + (parseFloat(proj.onfieldDays)||0);
+    const revVnd = projRevs.reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
+    const costVnd = projCosts.reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
+    const marginVnd = revVnd - costVnd;
+    const marginPct = revVnd ? marginVnd/revVnd*100 : 0;
+    return { name: proj.name, client: proj.client, days, revVnd, costVnd, marginVnd, marginPct };
+  }).filter(p => p.days > 0 || p.revVnd > 0 || p.costVnd > 0);
+
+  // Daily rates
+  const dailyRevRate = onhireDays ? totalRevVnd / onhireDays : 0;
+  const dailyOpexCost = onhireDays ? totalOpexVnd / onhireDays : 0;
+  const dailyFuelCost = onhireDays ? totalFuelVnd / onhireDays : 0;
+  const dailyProjectCost = onhireDays ? (totalOpexVnd + totalFuelVnd + totalDVnd + fOnhire) / onhireDays : 0;
+  const dailyOffhireCost = offhireDays ? fOffhire / offhireDays : 0;
+  const dailyCommercialCost = commercialDays ? (totalEVnd + fCommercial) / commercialDays : 0;
+
+  return {
+    vessel, year,
+    days: { daysInYear, onhireDays: +onhireDays.toFixed(1), offhireDays, commercialDays: +commercialDays.toFixed(1) },
+    revenue: { totalRevVnd },
+    costs: {
+      totalAnnualCost,
+      totalOpexVnd, totalFuelVnd, totalDVnd, totalEVnd, totalFVnd,
+      fOnhire: Math.round(fOnhire), fOffhire: Math.round(fOffhire), fCommercial: Math.round(fCommercial),
+    },
+    margin: { annualMarginVnd, annualMarginPct: +annualMarginPct.toFixed(1) },
+    dailyRates: {
+      dailyRevRate: Math.round(dailyRevRate),
+      dailyOpexCost: Math.round(dailyOpexCost),
+      dailyFuelCost: Math.round(dailyFuelCost),
+      dailyProjectCost: Math.round(dailyProjectCost),
+      dailyOffhireCost: Math.round(dailyOffhireCost),
+      dailyCommercialCost: Math.round(dailyCommercialCost),
+    },
+    projectMargins,
+    catBreakdown,
+  };
+}
+function _emptyAnnual(year, vessel) {
+  return {
+    vessel, year,
+    days: { daysInYear:365, onhireDays:0, offhireDays:0, commercialDays:365 },
+    revenue: { totalRevVnd:0 },
+    costs: { totalAnnualCost:0, totalOpexVnd:0, totalFuelVnd:0, totalDVnd:0, totalEVnd:0, totalFVnd:0, fOnhire:0, fOffhire:0, fCommercial:0 },
+    margin: { annualMarginVnd:0, annualMarginPct:0 },
+    dailyRates: { dailyRevRate:0, dailyOpexCost:0, dailyFuelCost:0, dailyProjectCost:0, dailyOffhireCost:0, dailyCommercialCost:0 },
+    projectMargins: [],
+    catBreakdown: [],
   };
 }
 function buildDemoUtil(D, p) {
