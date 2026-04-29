@@ -944,7 +944,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.29-15:05'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.29-15:20'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -2681,7 +2681,7 @@ async function renderProjects() {
                   <td>${p.location||'—'}</td>
                   <td class="mono">${fmtDT(p.onhireAt)}</td>
                   <td class="mono">${fmtDT(p.offhireAt)}</td>
-                  <td class="num">${fmtDays(p.totalDays)}</td>
+                  <td class="num">${fmtDays(p.totalDays || ((parseFloat(p.transitDays)||0) + (parseFloat(p.mobDemobDays)||0) + (parseFloat(p.standbyDays)||0) + (parseFloat(p.onfieldDays)||0)))}</td>
                   <td>${statusBadge(p.status)}</td>
                   <td class="row-actions">
                     <button class="btn btn-ghost btn-xs" onclick="openProjectForm(${JSON.stringify(p).replace(/"/g,'&quot;')})">✏️</button>
@@ -2726,12 +2726,18 @@ function openProjectForm(p={}) {
     <div class="field"><label>Ghi chú</label><textarea id="fnotes">${p.notes||''}</textarea></div>`;
 
   openModal(isEdit?'Cập nhật dự án':'Thêm dự án mới', html, async()=>{
+    const transit  = parseFloat(gv('ftransit'))||0;
+    const mob      = parseFloat(gv('fmob'))||0;
+    const standby  = parseFloat(gv('fstandby'))||0;
+    const onfield  = parseFloat(gv('fonfield'))||0;
+    const totalDays= +(transit + mob + standby + onfield).toFixed(2);
     const payload = {
       id: p.id||newId(), vesselId:gv('fv'), name:gv('fname'), client:gv('fclient'),
       contractNo:gv('fcontract'), location:gv('floc'),
       onhireAt:gv('fonhire'), offhireAt:gv('foffhire'),
-      transitDays:gv('ftransit'), mobDemobDays:gv('fmob'),
-      standbyDays:gv('fstandby'), onfieldDays:gv('fonfield'),
+      transitDays: transit, mobDemobDays: mob,
+      standbyDays: standby, onfieldDays: onfield,
+      totalDays,
       status:gv('fstatus'), notes:gv('fnotes'), createdAt: p.createdAt||new Date().toISOString()
     };
     if (!payload.vesselId||!payload.name) { toast('Vui lòng điền đủ thông tin bắt buộc','warn'); return; }
