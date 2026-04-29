@@ -944,7 +944,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.29-14:30'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.29-14:50'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -1667,13 +1667,13 @@ function _demoDataCore(action, p, DEMO) {
     case 'getAnnualPlan':  return cloneFilter(DEMO.annualPlan, r => (!p.vesselId||r.vesselId===p.vesselId));
     case 'initSheets':     return {message:'Demo mode — không kết nối Sheets'};
     case 'saveVessel':     { const i=DEMO.vessels.findIndex(r=>r.id===p.id); if(i>=0)DEMO.vessels[i]=p; else DEMO.vessels.push({...p,id:p.id||newId()}); return p; }
-    case 'saveCostEntry':  DEMO.costEntries.push({...p,id:p.id||newId()}); return p;
-    case 'saveRevEntry':   DEMO.revEntries.push({...p,id:p.id||newId()}); return p;
-    case 'saveProject':    DEMO.projects.push({...p,id:p.id||newId()}); return p;
-    case 'saveFxRate':     DEMO.fxRates.push({...p,id:p.id||newId()}); return p;
-    case 'saveCapex':      DEMO.capex.push({...p,id:p.id||newId()}); return p;
-    case 'saveCostCat':    DEMO.costCats.push({...p,id:p.id||newId()}); return p;
-    case 'saveRevCat':     DEMO.revCats.push({...p,id:p.id||newId()}); return p;
+    case 'saveCostEntry':  { const i=DEMO.costEntries.findIndex(r=>r.id===p.id); if(i>=0)DEMO.costEntries[i]=p; else DEMO.costEntries.push({...p,id:p.id||newId()}); return p; }
+    case 'saveRevEntry':   { const i=DEMO.revEntries.findIndex(r=>r.id===p.id); if(i>=0)DEMO.revEntries[i]=p; else DEMO.revEntries.push({...p,id:p.id||newId()}); return p; }
+    case 'saveProject':    { const i=DEMO.projects.findIndex(r=>r.id===p.id); if(i>=0)DEMO.projects[i]=p; else DEMO.projects.push({...p,id:p.id||newId()}); return p; }
+    case 'saveFxRate':     { const i=DEMO.fxRates.findIndex(r=>r.id===p.id); if(i>=0)DEMO.fxRates[i]=p; else DEMO.fxRates.push({...p,id:p.id||newId()}); return p; }
+    case 'saveCapex':      { const i=DEMO.capex.findIndex(r=>r.id===p.id); if(i>=0)DEMO.capex[i]=p; else DEMO.capex.push({...p,id:p.id||newId()}); return p; }
+    case 'saveCostCat':    { const i=DEMO.costCats.findIndex(r=>r.id===p.id); if(i>=0)DEMO.costCats[i]=p; else DEMO.costCats.push({...p,id:p.id||newId()}); return p; }
+    case 'saveRevCat':     { const i=DEMO.revCats.findIndex(r=>r.id===p.id); if(i>=0)DEMO.revCats[i]=p; else DEMO.revCats.push({...p,id:p.id||newId()}); return p; }
     case 'saveAnnualPlan': { const idx=DEMO.annualPlan.findIndex(r=>r.id===p.id); if(idx>=0)DEMO.annualPlan[idx]=p;else DEMO.annualPlan.push({...p,id:p.id||newId()}); return p; }
     case 'deleteVessel':   { const i=DEMO.vessels.findIndex(r=>r.id===p.id); if(i>=0)DEMO.vessels.splice(i,1); return {deleted:true}; }
     case 'deleteCostEntry':{ const i=DEMO.costEntries.findIndex(r=>r.id===p.id); if(i>=0)DEMO.costEntries.splice(i,1); return {deleted:true}; }
