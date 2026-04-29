@@ -928,6 +928,85 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // AES-256-GCM ENCRYPTION LAYER
 // Mã hoá blob trước khi sync lên cloud
 // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// VERSION CHECKER — tự động báo khi có bản mới trên GitHub
+// ═══════════════════════════════════════════════════════
+const FELIX_VERSION = '2026.04.29-04:20'; // Cập nhật mỗi lần em build file mới
+const VERSION_CHECK_KEY = 'felix_last_version_check';
+const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
+const VERSION_FILE = 'index.html';
+const VERSION_CHECK_INTERVAL = 1000 * 60 * 30; // Check mỗi 30 phút
+
+async function checkForUpdate() {
+  // Skip nếu mới check trong 30 phút qua
+  const lastCheck = parseInt(localStorage.getItem(VERSION_CHECK_KEY) || '0');
+  if (Date.now() - lastCheck < VERSION_CHECK_INTERVAL) return;
+
+  try {
+    // Gọi GitHub API lấy commit mới nhất ảnh hưởng đến index.html
+    const url = `https://api.github.com/repos/${VERSION_REPO}/commits?path=${VERSION_FILE}&per_page=1`;
+    const resp = await fetch(url);
+    if (!resp.ok) return;
+    const commits = await resp.json();
+    if (!Array.isArray(commits) || commits.length === 0) return;
+    const latest = commits[0];
+    const latestTime = new Date(latest.commit.author.date).getTime();
+    const currentTime = _parseVersionTime(FELIX_VERSION);
+
+    localStorage.setItem(VERSION_CHECK_KEY, String(Date.now()));
+
+    // Nếu commit mới hơn version đang chạy ít nhất 5 phút → có bản mới
+    if (latestTime > currentTime + 5*60*1000) {
+      _showUpdateBanner(latest);
+    }
+  } catch(e) {
+    console.warn('[version check]', e.message);
+  }
+}
+
+function _parseVersionTime(v) {
+  // FELIX_VERSION format: 'YYYY.MM.DD-HH:MM'
+  const m = v.match(/^(\d{4})\.(\d{2})\.(\d{2})-(\d{2}):(\d{2})$/);
+  if (!m) return 0;
+  return new Date(Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5])).getTime();
+}
+
+function _showUpdateBanner(commit) {
+  // Tránh hiện trùng banner
+  if (document.getElementById('felix-update-banner')) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'felix-update-banner';
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:linear-gradient(90deg,#0d9488,#14b8a6);color:#fff;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.15);font-size:13px';
+  const msg = commit.commit.message ? commit.commit.message.split('\n')[0].substring(0, 80) : 'Cập nhật mới';
+  banner.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:18px">🔄</span>
+      <div>
+        <div style="font-weight:600">Có phiên bản FELIX mới!</div>
+        <div style="font-size:11px;opacity:.85">${msg}</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button onclick="_doUpdateReload()" style="background:#fff;color:#0d9488;border:none;padding:6px 14px;border-radius:6px;font-weight:600;cursor:pointer;font-size:12px">Cập nhật ngay</button>
+      <button onclick="document.getElementById('felix-update-banner').remove()" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px">Để sau</button>
+    </div>`;
+  document.body.appendChild(banner);
+}
+
+function _doUpdateReload() {
+  // Hard reload bypass cache
+  if ('caches' in window) {
+    caches.keys().then(names => names.forEach(n => caches.delete(n)));
+  }
+  // Reload với cache bypass — thêm timestamp vào URL
+  const u = new URL(location.href);
+  u.searchParams.set('_v', Date.now());
+  location.replace(u.toString());
+}
+window._doUpdateReload = _doUpdateReload;
+
+
 const CRYPTO_KEYS = {
   enabled:       'felix_crypto_enabled',     // 'on' | 'off'
   password:      'felix_crypto_password',    // Mật khẩu đã được anh nhập (lưu trong localStorage máy này)
@@ -2002,6 +2081,11 @@ async function init() {
       (localStorage.getItem(SYNC_KEYS.autoGas) === 'on' || localStorage.getItem(SYNC_KEYS.autoGh) === 'on')) {
     startAutoSync();
   }
+
+  // Tự động kiểm tra phiên bản mới (sau 3s để không block load đầu)
+  setTimeout(()=>checkForUpdate(), 3000);
+  // Check định kỳ mỗi 30 phút
+  setInterval(checkForUpdate, VERSION_CHECK_INTERVAL);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -3826,13 +3910,48 @@ async function renderSettings() {
     <div class="card">
       <div class="card-header"><h3>Thông tin phiên bản</h3></div>
       <div class="card-body" style="font-size:13px;color:var(--text2)">
-        <p><strong>Marine Ops Management System</strong> v1.0</p>
+        <p><strong>FELIX — Marine Ops Management System</strong></p>
+        <p class="mt4">Phiên bản: <span class="mono" style="background:var(--gray1);padding:2px 6px;border-radius:4px">${FELIX_VERSION}</span></p>
         <p class="mt4 text-muted">Seahorse Marine &amp; Energy JSC — ${new Date().getFullYear()}</p>
         <p class="mt8">Đang chạy ở chế độ: <span class="badge ${API_URL?'badge-green':'badge-amber'}">${API_URL?'Kết nối Sheets':'Demo (offline)'}</span></p>
+        <div class="mt12">
+          <button class="btn btn-outline btn-sm" onclick="manualCheckUpdate()">🔄 Kiểm tra phiên bản mới</button>
+          <span id="version-check-result" style="margin-left:10px;font-size:12px"></span>
+        </div>
       </div>
     </div>`;
   // Cập nhật thông tin localStorage
   setTimeout(()=>{ updateLsStats(); renderCryptoCard(); }, 50);
+}
+
+async function manualCheckUpdate() {
+  const el = document.getElementById('version-check-result');
+  if (el) el.textContent = '⏳ Đang kiểm tra...';
+  // Force check (xoá cache)
+  localStorage.removeItem(VERSION_CHECK_KEY);
+  try {
+    const url = `https://api.github.com/repos/${VERSION_REPO}/commits?path=${VERSION_FILE}&per_page=1`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('GitHub API lỗi');
+    const commits = await resp.json();
+    if (!commits.length) {
+      if (el) el.innerHTML = '<span style="color:var(--text3)">Không tìm thấy commit</span>';
+      return;
+    }
+    const latest = commits[0];
+    const latestTime = new Date(latest.commit.author.date).getTime();
+    const currentTime = _parseVersionTime(FELIX_VERSION);
+    localStorage.setItem(VERSION_CHECK_KEY, String(Date.now()));
+
+    if (latestTime > currentTime + 5*60*1000) {
+      if (el) el.innerHTML = '<span style="color:var(--amber);font-weight:600">🔄 Có bản mới! Bấm "Cập nhật ngay" trên banner đầu trang</span>';
+      _showUpdateBanner(latest);
+    } else {
+      if (el) el.innerHTML = '<span style="color:var(--green);font-weight:600">✓ Đang dùng bản mới nhất</span>';
+    }
+  } catch(e) {
+    if (el) el.innerHTML = '<span style="color:var(--red)">Lỗi: '+e.message+'</span>';
+  }
 }
 
 function updateLsStats(){
