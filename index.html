@@ -1729,26 +1729,39 @@ function _demoDataCore(action, p, DEMO) {
     case 'getCostCats':    return [...DEMO.costCats];
     case 'getRevCats':     return [...DEMO.revCats];
     case 'getProjects':    {
-      // Filter theo vesselId và year (dự án "có liên quan" trong năm Y nếu startDate.year ≤ Y ≤ endDate.year)
-      // Nếu dự án không có startDate/endDate → fallback theo contractDate hoặc tạo
+      // Filter theo vesselId và year. Dự án "có liên quan" trong năm Y nếu:
+      //   onhireAt.year ≤ Y ≤ offhireAt.year
+      // (UI lưu thời điểm vào/rời dự án ở 2 field này)
+      // Fallback: startDate, contractDate, createdAt
+      const getDateField = (r, ...fields) => {
+        for (const f of fields) {
+          if (r[f]) return String(r[f]);
+        }
+        return null;
+      };
+      const getYearOf = (r, ...fields) => {
+        const d = getDateField(r, ...fields);
+        return d ? parseInt(d.slice(0,4)) : null;
+      };
+
       const filtered = DEMO.projects.filter(r => {
         if (p.vesselId && r.vesselId !== p.vesselId) return false;
         if (!p.year) return true;
         const Y = parseInt(p.year);
-        const startYr = r.startDate ? parseInt(String(r.startDate).slice(0,4)) : null;
-        const endYr   = r.endDate   ? parseInt(String(r.endDate).slice(0,4))   : null;
+        const startYr = getYearOf(r, 'onhireAt', 'startDate');
+        const endYr   = getYearOf(r, 'offhireAt', 'endDate');
         if (startYr && endYr) return Y >= startYr && Y <= endYr;
-        if (startYr) return Y >= startYr;       // chưa có endDate → vẫn đang chạy
+        if (startYr) return Y >= startYr;       // chưa kết thúc → vẫn liên quan mọi năm sau
         if (endYr)   return Y <= endYr;
-        // Fallback: contractDate hoặc id
-        const fbYr = r.contractDate ? parseInt(String(r.contractDate).slice(0,4)) : null;
+        // Fallback: contractDate hoặc createdAt
+        const fbYr = getYearOf(r, 'contractDate', 'createdAt');
         return fbYr ? fbYr === Y : true;
       });
-      // Sort: năm mới nhất → cũ nhất, cùng năm thì startDate mới nhất trước
+      // Sort: onhireAt DESC (mới nhất trên cùng), fallback startDate, contractDate, createdAt
       filtered.sort((a, b) => {
-        const dA = a.startDate || a.contractDate || '0000';
-        const dB = b.startDate || b.contractDate || '0000';
-        return dB.localeCompare(dA);  // descending
+        const dA = a.onhireAt || a.startDate || a.contractDate || a.createdAt || '0000';
+        const dB = b.onhireAt || b.startDate || b.contractDate || b.createdAt || '0000';
+        return String(dB).localeCompare(String(dA));
       });
       return filtered.map(r => ({...r}));
     }
@@ -3011,6 +3024,13 @@ async function renderProjects() {
     projects = await api('getProjects',{vesselId:S.vesselId,year:S.year});
   } catch(e){ toast('Lỗi: '+e.message,'err'); }
   hideLoading();
+
+  // Defensive sort client-side: onhireAt DESC. Đảm bảo thứ tự đúng kể cả khi backend không sort.
+  (projects || []).sort((a, b) => {
+    const dA = a.onhireAt || a.startDate || a.contractDate || a.createdAt || '0000';
+    const dB = b.onhireAt || b.startDate || b.contractDate || b.createdAt || '0000';
+    return String(dB).localeCompare(String(dA));
+  });
 
   const vesselName = v => (S.vessels.find(x=>x.id===v)||{}).name||v;
   const statusBadge = s => {
