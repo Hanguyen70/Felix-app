@@ -948,7 +948,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.30-02:55'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.30-03:30'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -9361,6 +9361,9 @@ async function renderConsolidated() {
       <div style="font-size:11px;opacity:.55;text-align:right">Phương pháp:<br><strong style="opacity:1">Bình quân gia quyền</strong><br>(Weighted Average)</div>
     </div>
 
+    <!-- BẢNG TỔNG HỢP KẾ HOẠCH & TIẾN ĐỘ -->
+    <div id="dash-progress-container" class="mb16"></div>
+
     <!-- KPI cards — dual currency -->
     <div class="kpi-grid cols4 mb16">
       <div class="kpi-card accent-teal">
@@ -9564,6 +9567,253 @@ async function renderConsolidated() {
       }
     });
   },120);
+
+  // Render bảng tổng hợp KH vs TT
+  setTimeout(() => _renderProgressTable(), 50);
+}
+
+// Bảng tổng hợp Kế hoạch vs Tiến độ thực hiện
+let _S_PROGRESS_PERIOD = 'year';     // 'year' | 'quarter' | 'month'
+let _S_PROGRESS_QUARTER = Math.floor((new Date().getMonth())/3) + 1;
+let _S_PROGRESS_MONTH = new Date().getMonth() + 1;
+
+async function _renderProgressTable() {
+  const container = document.getElementById('dash-progress-container');
+  if (!container) return;
+
+  // Đặt khung kỳ thời gian
+  const year = S.year;
+  const today = new Date();
+  let periodStart, periodEnd, periodLabel, periodTotal, periodElapsed;
+
+  if (_S_PROGRESS_PERIOD === 'year') {
+    periodStart = new Date(year, 0, 1);
+    periodEnd = new Date(year, 11, 31, 23, 59, 59);
+    periodLabel = `Năm ${year}`;
+    const isLeap = (year%4===0 && year%100!==0) || year%400===0;
+    periodTotal = isLeap ? 366 : 365;
+    if (today < periodStart) periodElapsed = 0;
+    else if (today > periodEnd) periodElapsed = periodTotal;
+    else periodElapsed = Math.min(periodTotal, Math.ceil((today-periodStart)/86400000));
+  } else if (_S_PROGRESS_PERIOD === 'quarter') {
+    const q = _S_PROGRESS_QUARTER;
+    periodStart = new Date(year, (q-1)*3, 1);
+    periodEnd = new Date(year, q*3, 0, 23, 59, 59);
+    periodLabel = `Q${q}/${year}`;
+    periodTotal = Math.ceil((periodEnd - periodStart) / 86400000) + 1;
+    if (today < periodStart) periodElapsed = 0;
+    else if (today > periodEnd) periodElapsed = periodTotal;
+    else periodElapsed = Math.min(periodTotal, Math.ceil((today-periodStart)/86400000));
+  } else {
+    const m = _S_PROGRESS_MONTH;
+    periodStart = new Date(year, m-1, 1);
+    periodEnd = new Date(year, m, 0, 23, 59, 59);
+    periodLabel = `T${m}/${year}`;
+    periodTotal = Math.ceil((periodEnd - periodStart) / 86400000) + 1;
+    if (today < periodStart) periodElapsed = 0;
+    else if (today > periodEnd) periodElapsed = periodTotal;
+    else periodElapsed = Math.min(periodTotal, Math.ceil((today-periodStart)/86400000));
+  }
+  const timeProgressPct = periodTotal ? (periodElapsed/periodTotal)*100 : 0;
+
+  // Helper: lọc entries theo kỳ
+  const inPeriod = (e) => {
+    const d = e.entryDate || e.month;
+    if (!d) return false;
+    const dt = new Date(d.length === 7 ? d+'-15' : d);
+    return dt >= periodStart && dt <= periodEnd;
+  };
+
+  // Lấy dữ liệu thực tế
+  let allCosts=[], allRevs=[], omRevs=[], omCosts=[], smPass=[], smCosts=[], gaEntries=[], gaRevs=[];
+  let omPlans=[], annualPlans=[], omContracts=[];
+  try {
+    [allCosts, allRevs, omRevs, omCosts, smPass, smCosts, gaEntries, gaRevs, omContracts] = await Promise.all([
+      api('getCostEntries', {}),
+      api('getRevEntries', {}),
+      api('getOmRevEntries', {}),
+      api('getOmCostEntries', {}),
+      api('getSmPassthrough', {}).catch(()=>[]),
+      api('getSmCosts', {}).catch(()=>[]),
+      api('getGaEntries', {}).catch(()=>[]),
+      api('getGaRevEntries', {}).catch(()=>[]),
+      api('getOmContracts', {}).catch(()=>[]),
+    ]);
+    omPlans = OM_DEMO.omPlans || [];
+    annualPlans = DEMO.annualPlan || [];
+  } catch(e) { console.warn(e); }
+
+  // ─── VESSEL ───
+  const vesselRevs_inP = allRevs.filter(r => inPeriod(r) && !r.isPlan && r.isPlan!=='true');
+  const vesselCosts_inP = allCosts.filter(e => inPeriod(e) && e.accountType !== 'Q');
+  const vesselTtRev = vesselRevs_inP.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
+  const vesselTtCost = vesselCosts_inP.reduce((s,c) => s+(parseFloat(c.amountVnd)||0), 0);
+  const vesselTtMargin = vesselTtRev - vesselTtCost;
+  // KH: từ annualPlan (cột revPlan) — nhân theo tỷ lệ kỳ trong năm
+  const vesselYearPlanRev = (annualPlans||[]).filter(p => p.year === year)
+    .reduce((s,p) => s + (parseFloat(p.revPlan)||0), 0);
+  const vesselYearPlanCost = (annualPlans||[]).filter(p => p.year === year)
+    .reduce((s,p) => s + (parseFloat(p.costPlan)||0), 0);
+  const periodFraction = periodTotal / (((year%4===0 && year%100!==0) || year%400===0) ? 366 : 365);
+  const vesselPlanRev = vesselYearPlanRev * periodFraction;
+  const vesselPlanCost = vesselYearPlanCost * periodFraction;
+  const vesselPlanMargin = vesselPlanRev - vesselPlanCost;
+
+  // ─── O&M ───
+  const omRevs_inP = omRevs.filter(r => inPeriod(r) && !r.isPlan && r.isPlan!=='true');
+  const omCosts_inP = omCosts.filter(e => inPeriod(e) && e.accountType !== 'Q');
+  const omTtRev = omRevs_inP.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
+  const omTtCost = omCosts_inP.reduce((s,c) => s+(parseFloat(c.amountVnd)||0), 0);
+  const omTtMargin = omTtRev - omTtCost;
+  // KH: tổng từ omPlans cho phần overlap với kỳ
+  let omPlanRev = 0, omPlanCost = 0;
+  omPlans.forEach(plan => {
+    const ctr = omContracts.find(c => c.id === plan.contractId);
+    if (!ctr || !ctr.startDate) return;
+    if (plan.mode === 'monthly' && plan.monthlyData) {
+      const fx = parseFloat(plan.fxRate)||1;
+      Object.entries(plan.monthlyData).forEach(([ym, v]) => {
+        const ymDate = new Date(ym + '-15');
+        if (ymDate >= periodStart && ymDate <= periodEnd) {
+          omPlanRev += (parseFloat(v.rev)||0) * fx;
+          omPlanCost += (parseFloat(v.cost)||0) * fx;
+        }
+      });
+    } else {
+      // Total mode → chia đều
+      const totalMonths = (typeof omContractMonths === 'function') ? omContractMonths(ctr) : 12;
+      if (totalMonths > 0) {
+        const monthlyRev = (parseFloat(plan.planRevenueVND)||0) / totalMonths;
+        const monthlyCost = (parseFloat(plan.planCostVND)||0) / totalMonths;
+        const cs = new Date(ctr.startDate);
+        for (let i=0; i<totalMonths; i++) {
+          const d = new Date(cs.getFullYear(), cs.getMonth()+i, 15);
+          if (d >= periodStart && d <= periodEnd) {
+            omPlanRev += monthlyRev;
+            omPlanCost += monthlyCost;
+          }
+        }
+      }
+    }
+  });
+  const omPlanMargin = omPlanRev - omPlanCost;
+
+  // ─── SHIP MGMT ───
+  const smPass_inP = smPass.filter(e => inPeriod(e));
+  const smCosts_inP = smCosts.filter(e => inPeriod(e) && e.accountType !== 'Q');
+  const smTtRev = smPass_inP.filter(e => e.type === 'mgmt_fee').reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+  const smTtCost = smCosts_inP.reduce((s,c) => s+(parseFloat(c.amountVnd)||0), 0);
+  const smTtMargin = smTtRev - smTtCost;
+  const smPlanRev = 0; // SM chưa có module KH năm
+  const smPlanCost = 0;
+  const smPlanMargin = 0;
+
+  // ─── CORPORATE (G&A) ───
+  const gaRevs_inP = gaRevs.filter(e => inPeriod(e));
+  const gaEntries_inP = gaEntries.filter(e => inPeriod(e) && e.accountType !== 'Q');
+  const corpTtRev = gaRevs_inP.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+  const corpTtCost = gaEntries_inP.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+  const corpTtMargin = corpTtRev - corpTtCost;
+  const corpPlanRev = 0;
+  const corpPlanCost = 0;
+  const corpPlanMargin = 0;
+
+  // ─── TỔNG ───
+  const totalTtRev = vesselTtRev + omTtRev + smTtRev + corpTtRev;
+  const totalPlanRev = vesselPlanRev + omPlanRev + smPlanRev + corpPlanRev;
+  const totalTtMargin = vesselTtMargin + omTtMargin + smTtMargin + corpTtMargin;
+  const totalPlanMargin = vesselPlanMargin + omPlanMargin + smPlanMargin + corpPlanMargin;
+
+  // Helper render dòng
+  const evalProgress = (ttRev, planRev) => {
+    if (!planRev) return { pct: 0, diff: 0, status: 'gray', label: '— (chưa có KH)' };
+    const pct = ttRev / planRev * 100;
+    const diff = pct - timeProgressPct;
+    if (diff >= 5) return { pct, diff, status: 'green', label: `🟢 Vượt ${diff.toFixed(0)}%` };
+    if (diff <= -5) return { pct, diff, status: 'red', label: `🔴 Chậm ${Math.abs(diff).toFixed(0)}%` };
+    return { pct, diff, status: 'amber', label: `🟡 Đúng tiến độ` };
+  };
+
+  const renderRow = (key, label, icon, ttRev, planRev, ttMargin, planMargin) => {
+    const ev = evalProgress(ttRev, planRev);
+    const ttMgPct = ttRev ? ttMargin/ttRev*100 : 0;
+    const planMgPct = planRev ? planMargin/planRev*100 : 0;
+    const navTarget = key === 'vessel' ? 'report-annual'
+                    : key === 'om' ? 'om-dashboard'
+                    : key === 'sm' ? 'sm-dashboard'
+                    : key === 'corp' ? 'ga'
+                    : null;
+    const clickAttr = navTarget ? `onclick="S.page='${navTarget}';nav_(document.querySelector('[data-page=${navTarget}]'))"` : '';
+    const cursor = navTarget ? 'cursor:pointer' : '';
+    return `<tr ${clickAttr} style="${cursor}">
+      <td style="font-weight:600">${icon} ${label}</td>
+      <td class="num" style="font-family:var(--mono);color:var(--text3)">${planRev>0?fmtB(planRev):'—'}</td>
+      <td class="num" style="font-family:var(--mono);font-weight:600">${fmtB(ttRev)}</td>
+      <td class="num" style="font-family:var(--mono)">${planRev>0?pct(ev.pct):'—'}</td>
+      <td class="num" style="font-family:var(--mono);color:var(--text3)">${planMargin!==0?fmtB(planMargin):'—'}<div style="font-size:10px">${planRev>0?pct(planMgPct):''}</div></td>
+      <td class="num" style="font-family:var(--mono);font-weight:600;color:${ttMargin>=0?'var(--green)':'var(--red)'}">${fmtB(ttMargin)}<div style="font-size:10px">${ttRev?pct(ttMgPct):''}</div></td>
+      <td><span class="badge ${ev.status==='green'?'badge-green':ev.status==='red'?'badge-red':ev.status==='amber'?'badge-amber':'badge-gray'}" style="font-size:11px">${ev.label}</span></td>
+    </tr>`;
+  };
+
+  // Period selector
+  const yearOpts = [];
+  for (let y=today.getFullYear()+1; y>=today.getFullYear()-3; y--) {
+    yearOpts.push(`<option value="${y}"${y===year?' selected':''}>${y}</option>`);
+  }
+  const quarterBtns = [1,2,3,4].map(q =>
+    `<button class="btn ${_S_PROGRESS_QUARTER===q?'btn-primary':'btn-outline'} btn-xs" onclick="_S_PROGRESS_QUARTER=${q};_S_PROGRESS_PERIOD='quarter';_renderProgressTable()">Q${q}</button>`).join('');
+  const monthOpts = [];
+  for (let m=1; m<=12; m++) monthOpts.push(`<option value="${m}"${m===_S_PROGRESS_MONTH?' selected':''}>T${m}</option>`);
+
+  container.innerHTML = `
+    <div class="card">
+      <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div>
+          <h3 style="margin:0">📊 Kế hoạch &amp; Tiến độ — ${periodLabel}</h3>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">Đã qua ${pct(timeProgressPct)} kỳ · Click dòng để mở báo cáo chi tiết</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div class="flex gap8" style="border:1px solid var(--gray3);border-radius:6px;padding:2px">
+            <button class="btn ${_S_PROGRESS_PERIOD==='year'?'btn-primary':'btn-ghost'} btn-xs" onclick="_S_PROGRESS_PERIOD='year';_renderProgressTable()">Năm</button>
+            <button class="btn ${_S_PROGRESS_PERIOD==='quarter'?'btn-primary':'btn-ghost'} btn-xs" onclick="_S_PROGRESS_PERIOD='quarter';_renderProgressTable()">Quý</button>
+            <button class="btn ${_S_PROGRESS_PERIOD==='month'?'btn-primary':'btn-ghost'} btn-xs" onclick="_S_PROGRESS_PERIOD='month';_renderProgressTable()">Tháng</button>
+          </div>
+          ${_S_PROGRESS_PERIOD==='quarter' ? `<div class="flex gap8">${quarterBtns}</div>` : ''}
+          ${_S_PROGRESS_PERIOD==='month' ? `<select onchange="_S_PROGRESS_MONTH=parseInt(this.value);_renderProgressTable()" style="font-size:12px;padding:4px 8px">${monthOpts.join('')}</select>` : ''}
+        </div>
+      </div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap"><table>
+          <thead><tr>
+            <th>Mảng</th>
+            <th class="num" style="width:110px">KH Doanh thu</th>
+            <th class="num" style="width:110px">TT Doanh thu</th>
+            <th class="num" style="width:80px">% đạt KH</th>
+            <th class="num" style="width:110px">KH Margin</th>
+            <th class="num" style="width:110px">TT Margin</th>
+            <th style="width:130px">Đánh giá</th>
+          </tr></thead>
+          <tbody>
+            ${renderRow('vessel', 'Vessel — Vận hành tàu', '🚢', vesselTtRev, vesselPlanRev, vesselTtMargin, vesselPlanMargin)}
+            ${renderRow('om', 'O&M — Tư vấn vận hành', '🏥', omTtRev, omPlanRev, omTtMargin, omPlanMargin)}
+            ${renderRow('sm', 'Ship Management', '⚓', smTtRev, smPlanRev, smTtMargin, smPlanMargin)}
+            ${renderRow('corp', 'Corporate — Quản lý chung', '🏢', corpTtRev, corpPlanRev, corpTtMargin, corpPlanMargin)}
+          </tbody>
+          <tfoot style="background:var(--gray2);font-weight:700">
+            <tr>
+              <td>TỔNG CÔNG TY</td>
+              <td class="num" style="font-family:var(--mono);color:var(--text3)">${totalPlanRev>0?fmtB(totalPlanRev):'—'}</td>
+              <td class="num" style="font-family:var(--mono)">${fmtB(totalTtRev)}</td>
+              <td class="num" style="font-family:var(--mono)">${totalPlanRev>0?pct(totalTtRev/totalPlanRev*100):'—'}</td>
+              <td class="num" style="font-family:var(--mono);color:var(--text3)">${totalPlanMargin!==0?fmtB(totalPlanMargin):'—'}</td>
+              <td class="num" style="font-family:var(--mono);color:${totalTtMargin>=0?'var(--green)':'var(--red)'}">${fmtB(totalTtMargin)}</td>
+              <td>${(()=>{const ev=evalProgress(totalTtRev,totalPlanRev);return `<span class="badge ${ev.status==='green'?'badge-green':ev.status==='red'?'badge-red':ev.status==='amber'?'badge-amber':'badge-gray'}" style="font-size:11px">${ev.label}</span>`;})()}</td>
+            </tr>
+          </tfoot>
+        </table></div>
+      </div>
+    </div>`;
 }
 
 
