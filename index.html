@@ -952,7 +952,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.30-05:50'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.30-06:25'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -2057,8 +2057,43 @@ function _emptyAnnual(year, vessel) {
   };
 }
 function buildDemoUtil(D, p) {
-  const year=parseInt(p.year||2024);
-  return {year,daysInYear:366,vessels:[]};
+  const year = parseInt(p.year || new Date().getFullYear());
+  const isLeap = (year%4===0 && year%100!==0) || year%400===0;
+  const daysInYear = isLeap ? 366 : 365;
+  const yStart = new Date(year, 0, 1);
+  const yEnd = new Date(year, 11, 31, 23, 59, 59);
+
+  const vessels = (D.vessels||[]).map(v => {
+    // Tính onhire/projects từ dự án trong năm
+    let onhireDays = 0;
+    const vProjects = (D.projects||[]).filter(prj => prj.vesselId === v.id);
+    let projectCount = 0;
+    vProjects.forEach(prj => {
+      if (!prj.startDate) return;
+      const ps = new Date(prj.startDate);
+      const pe = prj.endDate ? new Date(prj.endDate) : new Date();
+      if (pe < yStart || ps > yEnd) return;
+      projectCount++;
+      const days = (parseFloat(prj.transitDays)||0) + (parseFloat(prj.mobDemobDays)||0)
+                 + (parseFloat(prj.standbyDays)||0) + (parseFloat(prj.onfieldDays)||0);
+      onhireDays += days;
+    });
+    onhireDays = Math.min(onhireDays, daysInYear);
+    const offhireDays = 0; // Có thể nhập thủ công sau
+    const commercialDays = Math.max(0, daysInYear - onhireDays - offhireDays);
+    const utilPct = daysInYear ? onhireDays/daysInYear*100 : 0;
+
+    return {
+      id: v.id, name: v.name, imo: v.imo,
+      onhireDays: +onhireDays.toFixed(1),
+      offhireDays: +offhireDays.toFixed(1),
+      commercialDays: +commercialDays.toFixed(1),
+      utilisationPct: +utilPct.toFixed(1),
+      projectCount,
+    };
+  });
+
+  return { year, daysInYear, vessels };
 }
 function buildDemoPlanVsActual(D, p) {
   const vId = p.vesselId || (D.vessels[0]||{}).id || '';
@@ -2137,26 +2172,49 @@ function _calcVesselYearStats(D, vId, year) {
 }
 
 function buildDemoCapexReport(D, p) {
-  const vId = p.vesselId||'v1';
-  const vessel = D.vessels.find(v=>v.id===vId)||D.vessels[0];
-  const capexRows = D.capex.filter(c=>c.vesselId===vId);
+  const vId = p.vesselId || (D.vessels[0]||{}).id || '';
+  const vessel = D.vessels.find(v=>v.id===vId) || D.vessels[0] || {};
+  const capexRows = (D.capex||[]).filter(c => c.vesselId === vId);
   const purchaseCost = parseFloat(vessel.purchaseCost||0);
-  const totalCapexEntries = capexRows.reduce((s,r)=>s+(parseFloat(r.amountVnd)||0),0);
+  const totalCapexEntries = capexRows.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
   const totalCapexVnd = purchaseCost + totalCapexEntries;
-  const timeline = [
-    {year:2019,annualRev:0,annualCost:800000000,annualMargin:-800000000,cumulativeMargin:-800000000},
-    {year:2020,annualRev:8500000000,annualCost:5200000000,annualMargin:3300000000,cumulativeMargin:2500000000},
-    {year:2021,annualRev:9200000000,annualCost:5800000000,annualMargin:3400000000,cumulativeMargin:5900000000},
-    {year:2022,annualRev:11000000000,annualCost:6500000000,annualMargin:4500000000,cumulativeMargin:10400000000},
-    {year:2023,annualRev:12500000000,annualCost:7200000000,annualMargin:5300000000,cumulativeMargin:15700000000},
-    {year:2024,annualRev:10000000000,annualCost:4080000000,annualMargin:5920000000,cumulativeMargin:21620000000},
-  ];
-  const breakevenYear = timeline.find(t=>t.cumulativeMargin>=totalCapexVnd)?.year||null;
-  const cumulativeMargin = timeline[timeline.length-1]?.cumulativeMargin||0;
+
+  // Tính timeline từ dữ liệu thực — quét các năm có giao dịch
+  const yearsWithData = new Set();
+  (D.revEntries||[]).filter(r => r.vesselId === vId && !r.isPlan && r.isPlan !== 'true').forEach(r => {
+    const y = (r.entryDate||'').slice(0, 4);
+    if (y) yearsWithData.add(parseInt(y));
+  });
+  (D.costEntries||[]).filter(e => e.vesselId === vId && e.accountType !== 'Q').forEach(e => {
+    const y = (e.entryDate||'').slice(0, 4);
+    if (y) yearsWithData.add(parseInt(y));
+  });
+
+  const sortedYears = Array.from(yearsWithData).sort((a,b) => a-b);
+  let cumulative = 0;
+  const timeline = sortedYears.map(year => {
+    const yPrefix = String(year);
+    const yRevs = (D.revEntries||[]).filter(r =>
+      r.vesselId === vId && !r.isPlan && r.isPlan !== 'true' &&
+      (r.entryDate||'').startsWith(yPrefix)
+    );
+    const yCosts = (D.costEntries||[]).filter(e =>
+      e.vesselId === vId && e.accountType !== 'Q' &&
+      (e.entryDate||'').startsWith(yPrefix)
+    );
+    const annualRev = yRevs.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
+    const annualCost = yCosts.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+    const annualMargin = annualRev - annualCost;
+    cumulative += annualMargin;
+    return { year, annualRev, annualCost, annualMargin, cumulativeMargin: cumulative };
+  });
+
+  const breakevenYear = timeline.find(t => t.cumulativeMargin >= totalCapexVnd)?.year || null;
+  const cumulativeMargin = timeline[timeline.length-1]?.cumulativeMargin || 0;
   return {
     vessel, totalCapexVnd, purchaseCost,
     totalCapexEntries, capexRows,
-    breakevenYear, remainingToBreakeven: Math.max(0,totalCapexVnd-cumulativeMargin),
+    breakevenYear, remainingToBreakeven: Math.max(0, totalCapexVnd - cumulativeMargin),
     cumulativeMargin, timeline,
   };
 }
@@ -4322,6 +4380,28 @@ async function renderSettings() {
       </div>
     </div>
 
+    <!-- ── QUẢN LÝ DỮ LIỆU ── -->
+    <div class="card mb16" style="border-left:4px solid var(--red)">
+      <div class="card-header"><h3>🗑 Quản lý dữ liệu</h3></div>
+      <div class="card-body">
+        <p style="font-size:13px;color:var(--ink3);margin-bottom:12px;line-height:1.6">
+          Sử dụng các nút bên dưới để dọn dẹp dữ liệu cũ. <strong>Cẩn thận:</strong> các thao tác này không thể hoàn tác. Hãy <strong>backup CSV</strong> trước.
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">
+          <button class="btn btn-outline btn-sm" onclick="resetDemoDataKeepCats()" style="border-color:var(--amber);color:var(--amber)">
+            🧹 Xoá dữ liệu giả (giữ danh mục)
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="wipeAllData()" style="border-color:var(--red);color:var(--red)">
+            ⚠ Xoá TẤT CẢ dữ liệu (về trạng thái mới cài)
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:10px;line-height:1.6">
+          • <strong>Xoá dữ liệu giả</strong>: Xoá kế hoạch demo (BSR, LSP 2024) còn sót nếu có. Giữ nguyên: tàu, dự án, doanh thu, chi phí, danh mục — tất cả dữ liệu anh đã nhập.<br>
+          • <strong>Xoá TẤT CẢ</strong>: Reset hoàn toàn về trạng thái như mới cài. Tự backup CSV trước nếu cần lưu.
+        </div>
+      </div>
+    </div>
+
     <!-- ── AUTO-LOCK BẢO MẬT ── -->
     <div class="card mb16" style="border-left:4px solid var(--blue)">
       <div class="card-header"><h3>🔒 Tự động khoá phiên (Auto-lock)</h3></div>
@@ -4558,6 +4638,56 @@ function autoLockSave() {
     if (min === 0) st.innerHTML = '<span style="color:var(--amber)">⚠ Auto-lock đang TẮT</span>';
     else st.innerHTML = `<span style="color:var(--green)">✓ Sẽ tự khoá sau ${min} phút không hoạt động</span>`;
   }
+}
+
+// ─── Quản lý dữ liệu ──────────────────────────────────────
+function resetDemoDataKeepCats() {
+  if (!confirm(
+    'XOÁ các bút toán demo còn sót (vd: KH BSR Dung Quất 2024, KH LSP Long Sơn 2024)?\n\n' +
+    'Giữ nguyên:\n' +
+    '• Tất cả tàu, dự án, doanh thu, chi phí ANH đã nhập\n' +
+    '• Danh mục chi phí/doanh thu (anh có thể tự chỉnh sau)\n\n' +
+    'Có thể bấm "OK" an toàn vì sẽ chỉ xoá demo data, không đụng dữ liệu của anh.'
+  )) return;
+
+  // Xoá KH demo trong OM_DEMO.omPlans nếu có id 'opl1' hoặc 'opl2' (KH giả 2024)
+  let removed = 0;
+  if (OM_DEMO && Array.isArray(OM_DEMO.omPlans)) {
+    const before = OM_DEMO.omPlans.length;
+    OM_DEMO.omPlans = OM_DEMO.omPlans.filter(p =>
+      p.id !== 'opl1' && p.id !== 'opl2' &&
+      !(p.notes && p.notes.includes('KH năm 2024 - HĐ BSR Dung Quất')) &&
+      !(p.notes && p.notes.includes('KH năm 2024 - HĐ LSP Long Sơn'))
+    );
+    removed = before - OM_DEMO.omPlans.length;
+  }
+
+  // Lưu lại
+  if (typeof _lsSaveAll === 'function') _lsSaveAll();
+  toast(`Đã xoá ${removed} bút toán demo. Vui lòng tải lại trang.`, 'ok');
+  setTimeout(() => location.reload(), 1500);
+}
+
+function wipeAllData() {
+  const confirmText = 'XOA TAT CA';
+  const input = prompt(
+    '⚠ NGUY HIỂM: Xoá toàn bộ dữ liệu sẽ XOÁ:\n' +
+    '• Tất cả tàu, dự án, doanh thu, chi phí\n' +
+    '• Tất cả hợp đồng O&M, Ship Mgmt, Corporate\n' +
+    '• Tất cả tỷ giá, kế hoạch, đầu tư, capex\n' +
+    '• Quỹ lương, kho nhiên liệu\n\n' +
+    'Danh mục mặc định sẽ được tạo lại.\n\n' +
+    `Để xác nhận, gõ chính xác: ${confirmText}`
+  );
+  if (input !== confirmText) {
+    toast('Đã huỷ — không gõ đúng xác nhận', 'warn');
+    return;
+  }
+
+  // Xoá storage chính (tất cả data trong 1 key)
+  localStorage.removeItem(LS_KEY);
+  toast('Đã xoá tất cả. Vui lòng tải lại trang.', 'ok');
+  setTimeout(() => location.reload(), 1500);
 }
 
 function updateLsStats(){
@@ -5663,26 +5793,7 @@ var OM_DEMO = {
   ],
   omCostEntries: [],
   // Kế hoạch theo hợp đồng (monthly breakdown)
-  omPlans: [
-    // HĐ om1 — BSR Dung Quất: 12 tháng, 850tr/tháng
-    {id:'opl1',contractId:'om1',year:2024,
-     planRevenue:10200000000,   // 12 × 850tr
-     planCost:7140000000,       // ~70% cost ratio
-     planMarginPct:30,
-     planMonths:12,
-     monthlyPlanRev:850000000,
-     monthlyPlanCost:595000000,
-     notes:'KH năm 2024 - HĐ BSR Dung Quất'},
-    // HĐ om2 — LSP Long Sơn: 7 tháng T6-T12, 1.2tỷ/tháng
-    {id:'opl2',contractId:'om2',year:2024,
-     planRevenue:8400000000,    // 7 × 1.2tỷ
-     planCost:6300000000,       // ~75% cost ratio
-     planMarginPct:25,
-     planMonths:7,
-     monthlyPlanRev:1200000000,
-     monthlyPlanCost:900000000,
-     notes:'KH năm 2024 - HĐ LSP Long Sơn (T6-T12)'},
-  ],
+  omPlans: [],
   omRevEntries: [],
 };
 // Khôi phục dữ liệu OM đã lưu trong localStorage (nếu có)
@@ -9676,10 +9787,13 @@ async function renderConsolidated() {
               </td>
             </tr>
             ${vessels.map(v=>unitRow(
-              v.vesselName,
-              `<span class="${v.vesselType==='Dịch vụ'?'tag-service':'tag-technical'}">${v.vesselType}</span>`,
-              v.totalRevVnd||0, (v.totalRevVnd||0)-(v.annualMarginVnd||0),
-              v.annualMarginVnd||0, v.annualMarginPct||0, totalRev
+              v.name || v.vesselName || '—',
+              v.vesselType ? `<span class="${v.vesselType==='Dịch vụ'?'tag-service':'tag-technical'}">${v.vesselType}</span>` : '',
+              v.totalRevVnd||0,
+              v.totalCostVnd || ((v.totalRevVnd||0)-(v.totalMarginVnd||v.annualMarginVnd||0)),
+              v.totalMarginVnd || v.annualMarginVnd || 0,
+              v.marginPct || v.annualMarginPct || 0,
+              totalRev
             )).join('')}
             ${segRow('Cộng mảng Tàu', vesselRev, vesselCost, vesselMarg, vesselMargPct, totalRev,
               `<span class="badge badge-teal" style="font-size:10px">${fmtUsdK(u(vesselRev))}</span>`)}
