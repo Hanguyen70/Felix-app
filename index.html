@@ -952,7 +952,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.30-06:25'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.30-08:00'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -1740,6 +1740,9 @@ function _demoDataCore(action, p, DEMO) {
     case 'getSmCosts':         return SM_DEMO.smCosts.filter(e=>(!p.contractId||e.contractId===p.contractId)&&(!p.year||e.entryDate?.startsWith(String(p.year))));
     case 'saveSmCost':         { const i=SM_DEMO.smCosts.findIndex(e=>e.id===p.id); i>=0?SM_DEMO.smCosts[i]=p:SM_DEMO.smCosts.push({...p,id:p.id||newId()}); return p; }
     case 'deleteSmCost':       { const i=SM_DEMO.smCosts.findIndex(e=>e.id===p.id); if(i>=0)SM_DEMO.smCosts.splice(i,1); return {deleted:true}; }
+    case 'getSmRevEntries':    return (SM_DEMO.smRevEntries||[]).filter(e=>(!p.contractId||e.contractId===p.contractId)&&(!p.year||e.entryDate?.startsWith(String(p.year))));
+    case 'saveSmRevEntry':     { if(!SM_DEMO.smRevEntries) SM_DEMO.smRevEntries=[]; const i=SM_DEMO.smRevEntries.findIndex(e=>e.id===p.id); i>=0?SM_DEMO.smRevEntries[i]=p:SM_DEMO.smRevEntries.push({...p,id:p.id||newId()}); return p; }
+    case 'deleteSmRevEntry':   { if(!SM_DEMO.smRevEntries) SM_DEMO.smRevEntries=[]; const i=SM_DEMO.smRevEntries.findIndex(e=>e.id===p.id); if(i>=0)SM_DEMO.smRevEntries.splice(i,1); return {deleted:true}; }
     case 'getGaCats':          return [...GA_DEMO.categories];
     case 'getGaRevCats':       return [...(GA_DEMO.revCategories||[])];
     case 'getGaRevEntries':    return (GA_DEMO.revEntries||[]).filter(e=>(!p.year||e.entryDate?.startsWith(String(p.year))));
@@ -2564,9 +2567,9 @@ async function init() {
 // ═══════════════════════════════════════════════════════
 async function renderDashboard() {
   showLoading();
-  let vesselData, omRevs, omCosts, omContracts, smEntries, smContracts, gaEntries, gaRevEntries;
+  let vesselData, omRevs, omCosts, omContracts, smEntries, smContracts, gaEntries, gaRevEntries, smRevEntries;
   try {
-    [vesselData, omRevs, omCosts, omContracts, smEntries, smContracts, gaEntries, gaRevEntries] =
+    [vesselData, omRevs, omCosts, omContracts, smEntries, smContracts, gaEntries, gaRevEntries, smRevEntries] =
       await Promise.allSettled([
         api('getDashboard',    {year:S.year}),
         api('getOmRevEntries', {year:S.year}),
@@ -2576,7 +2579,8 @@ async function renderDashboard() {
         api('getSmContracts',  {}),
         api('getGaEntries',    {year:S.year}),
         api('getGaRevEntries', {year:S.year}),
-      ]).then(r=>r.map((x,i)=>x.status==='fulfilled'?x.value:[{},{totals:{totalRevVnd:0,totalMarginVnd:0},vessels:[]},'','','','','','',''][i]));
+        api('getSmRevEntries', {year:S.year}),
+      ]).then(r=>r.map((x,i)=>x.status==='fulfilled'?x.value:[{},{totals:{totalRevVnd:0,totalMarginVnd:0},vessels:[]},'','','','','','','',[]][i]));
   } catch(e){ toast('Lỗi','err'); }
   hideLoading();
 
@@ -2592,7 +2596,7 @@ async function renderDashboard() {
   const omMargin  = omRevAct - omCostAmt;
   const omMargPct = omRevAct ? omMargin/omRevAct*100 : 0;
 
-  const smFees    = (Array.isArray(smEntries)?smEntries:[]).filter(e=>e.type==='mgmt_fee').reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const smFees    = (Array.isArray(smRevEntries)?smRevEntries:[]).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const gaTotal   = (Array.isArray(gaEntries)?gaEntries:[]).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const gaRevTotal= (Array.isArray(gaRevEntries)?gaRevEntries:[]).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
 
@@ -2765,24 +2769,24 @@ async function renderDashboard() {
             <div style="padding:16px 20px;border-bottom:1px solid var(--border2)">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
                 <div>
-                  <div style="font-size:13px;font-weight:600;color:var(--ink)">${v.vesselName}</div>
-                  <span class="${v.vesselType==='Dịch vụ'?'tag-service':'tag-technical'}">${v.vesselType}</span>
+                  <div style="font-size:13px;font-weight:600;color:var(--ink)">${v.name || v.vesselName || '—'}</div>
+                  ${v.imo ? `<span style="font-size:11px;color:var(--text3);font-family:var(--mono)">IMO: ${v.imo}</span>` : ''}
                 </div>
                 <div style="text-align:right">
-                  <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${v.utilisationPct>=50?'var(--teal)':'var(--amber)'}">
-                    ${pct(v.utilisationPct)}
+                  <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${(v.utilPct||v.utilisationPct||0)>=50?'var(--teal)':'var(--amber)'}">
+                    ${pct(v.utilPct || v.utilisationPct || 0)}
                   </div>
                   <div style="font-size:10px;color:var(--ink4)">Utilisation</div>
                 </div>
               </div>
               <div class="progress-wrap" style="height:6px;margin-bottom:10px">
-                <div class="progress-bar ${v.utilisationPct<30?'danger':v.utilisationPct<50?'warn':''}"
-                  style="width:${Math.min(100,v.utilisationPct)}%"></div>
+                <div class="progress-bar ${(v.utilPct||v.utilisationPct||0)<30?'danger':(v.utilPct||v.utilisationPct||0)<50?'warn':''}"
+                  style="width:${Math.min(100, v.utilPct||v.utilisationPct||0)}%"></div>
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
-                <div><div class="kpi-label">Revenue</div><div style="font-size:13px;font-weight:600;font-family:var(--mono)">${fmtB(v.totalRevVnd)}</div></div>
-                <div><div class="kpi-label">Margin</div><div style="font-size:13px;font-weight:600;font-family:var(--mono);color:${v.annualMarginPct>0?'var(--green)':'var(--red)'}">${pct(v.annualMarginPct)}</div></div>
-                <div><div class="kpi-label">Projects</div><div style="font-size:13px;font-weight:600">${v.projectCount}</div></div>
+                <div><div class="kpi-label">Revenue</div><div style="font-size:13px;font-weight:600;font-family:var(--mono)">${fmtB(v.totalRevVnd||0)}</div></div>
+                <div><div class="kpi-label">Margin</div><div style="font-size:13px;font-weight:600;font-family:var(--mono);color:${(v.marginPct||v.annualMarginPct||0)>0?'var(--green)':'var(--red)'}">${pct(v.marginPct || v.annualMarginPct || 0)}</div></div>
+                <div><div class="kpi-label">Projects</div><div style="font-size:13px;font-weight:600">${v.projectCount||0}</div></div>
               </div>
             </div>`).join('')}
         </div>
@@ -5147,8 +5151,8 @@ async function renderUtilisation() {
     return `
       <tr>
         <td style="white-space:nowrap;min-width:160px">
-          <strong style="font-size:12px">${v.vesselName}</strong><br>
-          <span class="${v.vesselType==='Dịch vụ'?'tag-service':'tag-technical'}" style="font-size:10px">${v.vesselType}</span>
+          <strong style="font-size:12px">${v.name || v.vesselName || '—'}</strong>
+          ${v.imo ? `<br><span style="font-size:10px;color:var(--text3);font-family:var(--mono)">IMO: ${v.imo}</span>` : ''}
         </td>
         <td class="num" style="white-space:nowrap;color:${utilColor};font-family:var(--mono);font-weight:600">${pct(v.utilisationPct)}</td>
         <td class="num">${fmtDays(v.onhireDays)}</td>
@@ -5223,7 +5227,7 @@ async function renderUtilisation() {
     new Chart(ctx, {
       type: 'bar',
       data: {
-        labels: util.vessels.map(v=>v.vesselName),
+        labels: util.vessels.map(v => v.name || v.vesselName || '—'),
         datasets: [
           {label:'Onhire (ngày)',data:util.vessels.map(v=>+v.onhireDays.toFixed(1)),backgroundColor:'rgba(13,148,136,.75)',borderRadius:4},
           {label:'Offhire (ngày)',data:util.vessels.map(v=>+v.offhireDays.toFixed(1)),backgroundColor:'rgba(220,38,38,.45)',borderRadius:4},
@@ -6724,6 +6728,9 @@ function calcDeprForYear(inv, year) {
 }
 
 let _S_INV_YEAR = new Date().getFullYear();
+let _S_CONS_TAB = 'year';        // 'year' | 'compare' | 'cumulative'
+let _S_CONS_FROM = new Date().getFullYear() - 2;
+let _S_CONS_TO = new Date().getFullYear();
 
 async function renderInvestments() {
   showLoading();
@@ -7145,9 +7152,9 @@ async function exportInvestmentsCsv() {
 async function renderTaxReport() {
   showLoading();
   let vesselData={totals:{totalRevVnd:0,totalMarginVnd:0},vessels:[]};
-  let omRevs=[],omCosts=[],smEntries=[],smCosts=[],gaEntries=[],gaRevEntries=[],fixedAssets=[],taxAdj=[],investments=[];
+  let omRevs=[],omCosts=[],smEntries=[],smCosts=[],gaEntries=[],gaRevEntries=[],fixedAssets=[],taxAdj=[],investments=[],smRevEntries=[];
   try {
-    [vesselData,omRevs,omCosts,smEntries,smCosts,gaEntries,gaRevEntries,fixedAssets,taxAdj,investments] = await Promise.all([
+    [vesselData,omRevs,omCosts,smEntries,smCosts,gaEntries,gaRevEntries,fixedAssets,taxAdj,investments,smRevEntries] = await Promise.all([
       api('getDashboard',{year:S.year}),
       api('getOmRevEntries',{year:S.year}),
       api('getOmCostEntries',{year:S.year}),
@@ -7158,6 +7165,7 @@ async function renderTaxReport() {
       api('getFixedAssets',{}),
       api('getGaTaxAdj',{year:S.year}),
       api('getInvestments',{}),
+      api('getSmRevEntries',{year:S.year}),
     ]);
   } catch(e){ toast('Lỗi: '+e.message,'err'); }
   hideLoading();
@@ -7167,7 +7175,7 @@ async function renderTaxReport() {
   // Revenues
   const vesselRev = vesselData.totals.totalRevVnd||0;
   const omRevAct  = omRevs.filter(r=>!r.isPlan&&r.isPlan!=='true').reduce((s,r)=>s+(parseFloat(r.amountVnd)||0),0);
-  const smFees    = smEntries.filter(e=>e.type==='mgmt_fee').reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const smFees    = (smRevEntries||[]).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const corpRev   = gaRevEntries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const totalRev  = vesselRev + omRevAct + smFees + corpRev;
 
@@ -8401,6 +8409,7 @@ var SM_DEMO = {
   ],
   passthroughEntries: [],
   smCosts: [],
+  smRevEntries: [], // Doanh thu phí quản lý thực thu (tính vào BCTC + P&L)
 };
 // Khôi phục dữ liệu SM đã lưu trong localStorage (nếu có)
 _restoreNamedStore('SM_DEMO', SM_DEMO);
@@ -8499,27 +8508,34 @@ function fmtCurrency(amount, currency){
 
 async function renderSmDashboard() {
   showLoading();
-  let contracts=[], entries=[];
-  try { [contracts,entries]=await Promise.all([api('getSmContracts',{}),api('getSmPassthrough',{year:S.year})]); } catch(e){toast('Lỗi','err');}
+  let contracts=[], entries=[], smRevs=[];
+  try {
+    [contracts, entries, smRevs] = await Promise.all([
+      api('getSmContracts', {}),
+      api('getSmPassthrough', {year:S.year}),
+      api('getSmRevEntries', {year:S.year}),
+    ]);
+  } catch(e){ toast('Lỗi','err'); }
   hideLoading();
-  const fees=entries.filter(e=>e.type==='mgmt_fee');
-  const thuHo=entries.filter(e=>e.type==='thu_ho');
-  const chiHo=entries.filter(e=>e.type==='chi_ho');
-  const totalFee=fees.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-  const totalThuHo=thuHo.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-  const totalChiHo=chiHo.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-  const netPT=totalThuHo-totalChiHo;
+  // Phí QT thực thu lấy từ smRevEntries (doanh thu thực)
+  const fees = smRevs;
+  const thuHo = entries.filter(e => e.type==='thu_ho');
+  const chiHo = entries.filter(e => e.type==='chi_ho');
+  const totalFee = fees.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+  const totalThuHo = thuHo.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+  const totalChiHo = chiHo.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+  const netPT = totalThuHo - totalChiHo;
 
-  const contractCards=contracts.map(c=>{
-    const cFees=fees.filter(e=>e.contractId===c.id);
-    const cThuHo=thuHo.filter(e=>e.contractId===c.id).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-    const cChiHo=chiHo.filter(e=>e.contractId===c.id).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-    const balance = cThuHo - cChiHo; // Số dư công nợ chủ tàu (>0: SME giữ hộ, <0: SME ứng trước)
-    const cFee=cFees.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-    const months=smContractMonths(c);
-    const monthlyFeeVnd = parseFloat(c.monthlyFeeVnd) || (parseFloat(c.monthlyFee)||0)*(parseFloat(c.fxRate)||1);
-    const planFee=months*monthlyFeeVnd;
-    const prog=planFee?Math.min(100,cFee/planFee*100):0;
+  const contractCards = contracts.map(c => {
+    const cFees = fees.filter(e => e.contractId === c.id);
+    const cThuHo = thuHo.filter(e => e.contractId === c.id).reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+    const cChiHo = chiHo.filter(e => e.contractId === c.id).reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+    const balance = cThuHo - cChiHo;
+    const cFee = cFees.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+    const months = smContractMonths(c);
+    const monthlyFeeVnd = parseFloat(c.feePerMonthVnd) || parseFloat(c.monthlyFeeVnd) || (parseFloat(c.feePerMonth||c.monthlyFee)||0)*(parseFloat(c.fxRate)||1);
+    const planFee = months * monthlyFeeVnd;
+    const prog = planFee ? Math.min(100, cFee/planFee*100) : 0;
 
     // Cảnh báo nếu có ngưỡng và số dư thấp hơn
     const minBal = parseFloat(c.minBalance)||0;
@@ -8557,6 +8573,7 @@ async function renderSmDashboard() {
       </div>
       <div class="row-actions mt8">
         <button class="btn btn-outline btn-xs" onclick="openSmContractForm(${JSON.stringify(c).replace(/"/g,'&quot;')})">✏️ Sửa</button>
+        <button class="btn btn-primary btn-xs" onclick="openSmRevForm({contractId:'${c.id}'})" style="background:var(--teal);border-color:var(--teal)">💰 + DT QT</button>
         <button class="btn btn-outline btn-xs" onclick="openSmPassthroughForm({contractId:'${c.id}'})">+ Thu/chi hộ</button>
         <button class="btn btn-outline btn-xs" onclick="openSmCostForm({contractId:'${c.id}'})">+ CP QT</button>
         <button class="btn btn-outline btn-xs" onclick="renderSmLedger('${c.id}')">📒 Sổ công nợ</button>
@@ -8788,6 +8805,179 @@ function smCostCompVnd(){
 }
 async function deleteSmCost(id){if(!confirm('Xoá?'))return;try{await api('deleteSmCost',{id});toast('Đã xoá','ok');renderSmDashboard();}catch(e){toast('Lỗi','err');}}
 
+// ─────────────────────────────────────────────────────────
+// DOANH THU PHÍ QUẢN LÝ TÀU (smRevEntries)
+// Đây là DOANH THU thực sự của SME — vào BCTC + P&L
+// ─────────────────────────────────────────────────────────
+function openSmRevForm(e={}) {
+  const contracts = SM_DEMO.contracts || [];
+  const contract = contracts.find(c => c.id === e.contractId);
+  const cOpts = contracts.map(c => `<option value="${c.id}"${c.id===e.contractId?' selected':''}>${c.vesselName} — ${c.ownerName||'—'}</option>`).join('');
+  const currencies = ['VND','USD','SGD','EUR','GBP'].map(cc => `<option value="${cc}"${cc===(e.currency||contract?.currency||'USD')?' selected':''}>${cc}</option>`).join('');
+  const defaultAmt = e.amount || (contract ? parseFloat(contract.feePerMonth)||0 : '');
+  const defaultFx = e.fxRate || (contract ? parseFloat(contract.fxRate)||25450 : 25450);
+
+  const html = `
+    <div style="background:#dcfce7;border:1px solid var(--green);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:12px;color:#166534">
+      💰 <strong>Doanh thu phí quản lý tàu</strong> — đây là <strong>doanh thu thực của SME</strong>, sẽ tính vào <strong>BCTC + P&amp;L</strong>.
+    </div>
+
+    ${!e.id && contract ? `
+    <div style="background:#f0f9ff;border:1px solid #74c0fc;border-radius:var(--radius);padding:12px 14px;margin-bottom:14px">
+      <div style="font-size:12px;font-weight:600;color:#0c63e4;margin-bottom:8px">⚡ Tự sinh nhanh</div>
+      <div style="font-size:11px;color:#0c63e4;margin-bottom:10px">
+        HĐ <strong>${contract.vesselName}</strong>: phí ${fmt(contract.feePerMonth)} ${contract.currency} × tháng = ${fmtVnd(parseFloat(contract.feePerMonthVnd)||0)}/tháng
+      </div>
+      <button type="button" class="btn btn-outline btn-sm" onclick="smRevAutoGen('${contract.id}')" style="font-size:11px">📅 Tự sinh 12 tháng năm ${S.year}</button>
+    </div>` : ''}
+
+    <div class="form-grid cols2">
+      <div class="field required" style="grid-column:span 2"><label>Hợp đồng QT tàu</label><select id="smrev_ctr">${cOpts}</select></div>
+      <div class="field required" style="grid-column:span 2"><label>Nội dung</label><input id="smrev_desc" value="${e.description||(contract?'Phí quản lý tàu '+contract.vesselName:'')}" placeholder="VD: Phí QT tháng 1/2026"/></div>
+      <div class="field required"><label>Ngày ghi nhận</label><input type="date" id="smrev_date" value="${e.entryDate||today()}"/></div>
+      <div class="field"><label>Tháng hạch toán</label><input type="month" id="smrev_month" value="${e.month||today().slice(0,7)}"/></div>
+      <div class="field required"><label>Số tiền</label><input type="number" id="smrev_amt" value="${defaultAmt}" oninput="smRevCompVnd()" placeholder="VD: 20000"/></div>
+      <div class="field"><label>Đồng tiền</label><select id="smrev_cur" onchange="smRevCompVnd()">${currencies}</select></div>
+      <div class="field"><label>Tỷ giá → VNĐ</label><input type="number" id="smrev_fx" value="${defaultFx}" oninput="smRevCompVnd()"/></div>
+      <div class="field"><label>Số tiền VNĐ</label><input type="number" id="smrev_vnd" value="${e.amountVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--green)"/></div>
+    </div>`;
+
+  openModal(e.id?'Cập nhật doanh thu QT':'Nhập doanh thu phí quản lý tàu', html, async() => {
+    const amt = parseFloat(gv('smrev_amt'))||0;
+    const fx = parseFloat(gv('smrev_fx'))||1;
+    const cur = gv('smrev_cur');
+    const amtVnd = (cur==='VND') ? amt : Math.round(amt*fx);
+    const payload = {
+      id: e.id||newId(),
+      contractId: gv('smrev_ctr'),
+      entryDate: gv('smrev_date'),
+      month: gv('smrev_month'),
+      amount: amt,
+      currency: cur,
+      fxRate: fx,
+      amountVnd: amtVnd,
+      description: gv('smrev_desc'),
+      createdAt: e.createdAt||new Date().toISOString()
+    };
+    if (!payload.contractId || !payload.amount) { toast('Điền đủ HĐ và số tiền', 'warn'); return; }
+    showLoading();
+    try {
+      await api('saveSmRevEntry', payload);
+      toast('Đã lưu doanh thu QT', 'ok');
+      closeModal();
+      renderSmDashboard();
+    } catch(err) {
+      toast('Lỗi: '+err.message, 'err');
+    }
+    hideLoading();
+  });
+  setTimeout(() => smRevCompVnd(), 50);
+}
+
+function smRevCompVnd() {
+  const a = parseFloat(document.getElementById('smrev_amt')?.value)||0;
+  const cur = document.getElementById('smrev_cur')?.value||'VND';
+  const fxInput = document.getElementById('smrev_fx');
+  if (cur==='VND') {
+    if (fxInput) { fxInput.value=1; fxInput.disabled=true; }
+  } else {
+    if (fxInput) {
+      fxInput.disabled = false;
+      if (parseFloat(fxInput.value) <= 1) {
+        const def = {USD:25500,SGD:18800,EUR:27500,GBP:32000}[cur]||1;
+        fxInput.value = def;
+      }
+    }
+  }
+  const fx = parseFloat(fxInput?.value)||1;
+  const vnd = (cur==='VND') ? a : Math.round(a*fx);
+  const out = document.getElementById('smrev_vnd');
+  if (out) out.value = vnd;
+}
+
+// Auto sinh 12 tháng doanh thu QT năm hiện tại
+async function smRevAutoGen(contractId) {
+  const contract = SM_DEMO.contracts.find(c => c.id === contractId);
+  if (!contract) { toast('Không tìm thấy HĐ', 'err'); return; }
+  const fee = parseFloat(contract.feePerMonth)||0;
+  const cur = contract.currency||'USD';
+  const fx = parseFloat(contract.fxRate)||25450;
+  if (!fee) { toast('HĐ chưa có phí/tháng — vui lòng cập nhật HĐ', 'warn'); return; }
+
+  const year = S.year;
+  // Lấy tháng overlap với HĐ
+  const cs = contract.startDate ? new Date(contract.startDate) : new Date(year, 0, 1);
+  const ce = contract.endDate ? new Date(contract.endDate) : new Date(year, 11, 31);
+  const yearStart = new Date(year, 0, 1);
+  const yearEnd = new Date(year, 11, 31);
+  const overlapStart = cs > yearStart ? cs : yearStart;
+  const overlapEnd = ce < yearEnd ? ce : yearEnd;
+
+  if (overlapStart > overlapEnd) {
+    toast(`HĐ không có hiệu lực trong năm ${year}`, 'warn');
+    return;
+  }
+
+  const monthsToGen = [];
+  let cur_d = new Date(overlapStart.getFullYear(), overlapStart.getMonth(), 1);
+  while (cur_d <= overlapEnd) {
+    monthsToGen.push(`${cur_d.getFullYear()}-${String(cur_d.getMonth()+1).padStart(2,'0')}`);
+    cur_d.setMonth(cur_d.getMonth()+1);
+  }
+
+  // Kiểm tra đã có entry tháng nào chưa, tránh tạo trùng
+  const existing = (SM_DEMO.smRevEntries||[]).filter(e => e.contractId === contractId);
+  const existingMonths = new Set(existing.map(e => e.month));
+  const newMonths = monthsToGen.filter(m => !existingMonths.has(m));
+
+  if (newMonths.length === 0) {
+    toast(`Đã có đủ doanh thu cho ${monthsToGen.length} tháng năm ${year}`, 'warn');
+    return;
+  }
+
+  if (!confirm(
+    `Tự sinh ${newMonths.length} doanh thu hàng tháng cho HĐ "${contract.vesselName}":\n\n` +
+    `• Phí: ${fmt(fee)} ${cur}/tháng (= ${fmtVnd(Math.round(fee*fx))}/tháng)\n` +
+    `• Các tháng: ${newMonths.join(', ')}\n` +
+    `• Tổng: ${fmtB(newMonths.length * fee * fx)}\n\n` +
+    `Tiếp tục?`
+  )) return;
+
+  closeModal();
+  showLoading();
+  try {
+    for (const m of newMonths) {
+      const payload = {
+        id: newId(),
+        contractId,
+        entryDate: m + '-01',
+        month: m,
+        amount: fee,
+        currency: cur,
+        fxRate: fx,
+        amountVnd: Math.round(fee * fx),
+        description: `Phí QT ${contract.vesselName} - tháng ${m}`,
+        createdAt: new Date().toISOString(),
+      };
+      await api('saveSmRevEntry', payload);
+    }
+    toast(`Đã sinh ${newMonths.length} doanh thu hàng tháng`, 'ok');
+    renderSmDashboard();
+  } catch(err) {
+    toast('Lỗi: '+err.message, 'err');
+  }
+  hideLoading();
+}
+
+async function deleteSmRev(id) {
+  if (!confirm('Xoá doanh thu QT này?')) return;
+  try {
+    await api('deleteSmRevEntry', {id});
+    toast('Đã xoá', 'ok');
+    renderSmDashboard();
+  } catch(e) { toast('Lỗi', 'err'); }
+}
+
 
 // ─────────────────────────────────────────────────────────
 // SỔ CHI TIẾT CÔNG NỢ CHỦ TÀU
@@ -8966,22 +9156,38 @@ async function exportSmLedgerCsv(contractId) {
 
 async function renderSmReport(contractId) {
   showLoading();
-  let contracts=[],entries=[],costs=[];
-  try{[contracts,entries,costs]=await Promise.all([api('getSmContracts',{}),api('getSmPassthrough',{year:S.year}),api('getSmCosts',{year:S.year})]);}catch(e){toast('Lỗi','err');}
+  let contracts=[],entries=[],costs=[],smRevs=[];
+  try{[contracts,entries,costs,smRevs]=await Promise.all([
+    api('getSmContracts',{}),
+    api('getSmPassthrough',{year:S.year}),
+    api('getSmCosts',{year:S.year}),
+    api('getSmRevEntries',{year:S.year}),
+  ]);}catch(e){toast('Lỗi','err');}
   hideLoading();
   const c=contracts.find(x=>x.id===contractId)||contracts[0]||{};
-  const cFees=entries.filter(e=>e.contractId===c.id&&e.type==='mgmt_fee');
   const cThuHo=entries.filter(e=>e.contractId===c.id&&e.type==='thu_ho');
   const cChiHo=entries.filter(e=>e.contractId===c.id&&e.type==='chi_ho');
   const cCosts=costs.filter(e=>e.contractId===c.id);
-  const totalFee=cFees.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const cRevs=smRevs.filter(e=>e.contractId===c.id);
+  const totalFee=cRevs.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const totalThu=cThuHo.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const totalChi=cChiHo.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const totalCost=cCosts.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const netMg=totalFee-totalCost;
   const mgPct=totalFee?netMg/totalFee*100:0;
-  const planFee=smContractMonths(c)*(parseFloat(c.monthlyFee)||0);
-  const months=[...new Set([...cFees,...cThuHo,...cChiHo].map(e=>e.month).filter(Boolean))].sort();
+  // KH = phí cam kết × số tháng overlap với năm
+  const monthsOverlap = (() => {
+    if (!c.startDate||!c.endDate) return smContractMonths(c);
+    const cs=new Date(c.startDate), ce=new Date(c.endDate);
+    const ys=new Date(S.year,0,1), ye=new Date(S.year,11,31);
+    const os = cs > ys ? cs : ys;
+    const oe = ce < ye ? ce : ye;
+    if (os > oe) return 0;
+    return (oe.getFullYear()-os.getFullYear())*12 + (oe.getMonth()-os.getMonth()) + 1;
+  })();
+  const monthlyFeeVnd = parseFloat(c.feePerMonthVnd) || ((parseFloat(c.feePerMonth)||parseFloat(c.monthlyFee)||0) * (parseFloat(c.fxRate)||1));
+  const planFee = monthsOverlap * monthlyFeeVnd;
+  const months=[...new Set([...cRevs,...cThuHo,...cChiHo].map(e=>e.month).filter(Boolean))].sort();
 
   document.getElementById('content').innerHTML=`
     <div style="margin-bottom:12px">
@@ -9578,7 +9784,7 @@ async function renderConsolidated() {
   // Khởi tạo mặc định — tránh undefined khi một API lỗi
   let vesselData   = {totals:{totalRevVnd:0,totalMarginVnd:0},vessels:[]};
   let omRevs=[], omCosts=[], omContracts=[], smContracts=[];
-  let smEntries=[], smCosts=[], gaEntries=[];
+  let smEntries=[], smCosts=[], gaEntries=[], gaRevEntries=[], smRevEntries=[];
   let vesselCostEntries=[], vesselRevEntries=[];
 
   try {
@@ -9593,6 +9799,8 @@ async function renderConsolidated() {
       api('getGaEntries',    {year:S.year}),     // 7
       api('getCostEntries',  {year:S.year}),     // 8
       api('getRevEntries',   {year:S.year}),     // 9
+      api('getSmRevEntries', {year:S.year}),     // 10
+      api('getGaRevEntries', {year:S.year}),     // 11
     ]);
     const get = (i, fallback) => results[i].status === 'fulfilled' && results[i].value != null
       ? results[i].value : fallback;
@@ -9607,6 +9815,8 @@ async function renderConsolidated() {
     gaEntries          = get(7, []);
     vesselCostEntries  = get(8, []);
     vesselRevEntries   = get(9, []);
+    smRevEntries       = get(10, []);
+    gaRevEntries       = get(11, []);
 
     // Log bất kỳ lỗi nào để debug
     results.forEach((r,i)=>{ if(r.status==='rejected') console.warn(`API[${i}] failed:`, r.reason); });
@@ -9648,7 +9858,7 @@ async function renderConsolidated() {
   const omMargPct = omRevAct ? omMargin/omRevAct*100 : 0;
 
   // ── Ship Mgmt segment ──
-  const smFees    = smEntries.filter(e=>e.type==='mgmt_fee').reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const smFees    = (smRevEntries||[]).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const smCostAmt = smCosts.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const smMargin  = smFees - smCostAmt;
   const smMargPct = smFees ? smMargin/smFees*100 : 0;
@@ -9704,7 +9914,7 @@ async function renderConsolidated() {
   document.getElementById('content').innerHTML = `
     <div class="flex items-center justify-between mb16">
       <div>
-        <div style="font-size:18px;font-weight:700;color:var(--navy)">Báo cáo P&L Tổng hợp — ${S.year}</div>
+        <div style="font-size:18px;font-weight:700;color:var(--navy)">Báo cáo P&L Tổng hợp</div>
         <div style="font-size:12px;color:var(--text3);margin-top:2px">Seahorse Marine & Energy JSC · Tất cả mảng kinh doanh</div>
       </div>
       <div class="flex gap8">
@@ -9712,6 +9922,24 @@ async function renderConsolidated() {
         <button class="btn btn-outline btn-sm" onclick="exportTableCsv('table','consolidated-${S.year}')">⬇ CSV</button>
       </div>
     </div>
+
+    <!-- TAB NAV -->
+    <div style="display:flex;gap:4px;border-bottom:1px solid var(--gray3);margin-bottom:16px">
+      <button class="cons-tab ${_S_CONS_TAB==='year'?'active':''}" onclick="_S_CONS_TAB='year';renderConsolidated()"
+        style="padding:10px 18px;border:none;background:${_S_CONS_TAB==='year'?'var(--blue)':'transparent'};color:${_S_CONS_TAB==='year'?'#fff':'var(--ink)'};font-size:13px;font-weight:600;cursor:pointer;border-radius:6px 6px 0 0;">
+        📅 Năm hiện tại ${S.year}
+      </button>
+      <button class="cons-tab ${_S_CONS_TAB==='compare'?'active':''}" onclick="_S_CONS_TAB='compare';renderConsolidatedCompare()"
+        style="padding:10px 18px;border:none;background:${_S_CONS_TAB==='compare'?'var(--blue)':'transparent'};color:${_S_CONS_TAB==='compare'?'#fff':'var(--ink)'};font-size:13px;font-weight:600;cursor:pointer;border-radius:6px 6px 0 0;">
+        📊 So sánh nhiều năm
+      </button>
+      <button class="cons-tab ${_S_CONS_TAB==='cumulative'?'active':''}" onclick="_S_CONS_TAB='cumulative';renderConsolidatedCumulative()"
+        style="padding:10px 18px;border:none;background:${_S_CONS_TAB==='cumulative'?'var(--blue)':'transparent'};color:${_S_CONS_TAB==='cumulative'?'#fff':'var(--ink)'};font-size:13px;font-weight:600;cursor:pointer;border-radius:6px 6px 0 0;">
+        📈 Lũy kế đến nay
+      </button>
+    </div>
+
+    <div style="font-size:14px;font-weight:600;color:var(--navy);margin-bottom:8px">Năm ${S.year}</div>
 
     <!-- FX Rate Banner -->
     <div style="background:var(--navy2);color:#fff;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:16px">
@@ -9996,10 +10224,10 @@ async function _renderProgressTable() {
   };
 
   // Lấy dữ liệu thực tế
-  let allCosts=[], allRevs=[], omRevs=[], omCosts=[], smPass=[], smCosts=[], gaEntries=[], gaRevs=[];
+  let allCosts=[], allRevs=[], omRevs=[], omCosts=[], smPass=[], smCosts=[], gaEntries=[], gaRevs=[], smRevs=[], smContracts=[];
   let omPlans=[], annualPlans=[], omContracts=[];
   try {
-    [allCosts, allRevs, omRevs, omCosts, smPass, smCosts, gaEntries, gaRevs, omContracts] = await Promise.all([
+    [allCosts, allRevs, omRevs, omCosts, smPass, smCosts, gaEntries, gaRevs, omContracts, smRevs, smContracts] = await Promise.all([
       api('getCostEntries', {}),
       api('getRevEntries', {}),
       api('getOmRevEntries', {}),
@@ -10009,6 +10237,8 @@ async function _renderProgressTable() {
       api('getGaEntries', {}).catch(()=>[]),
       api('getGaRevEntries', {}).catch(()=>[]),
       api('getOmContracts', {}).catch(()=>[]),
+      api('getSmRevEntries', {}).catch(()=>[]),
+      api('getSmContracts', {}).catch(()=>[]),
     ]);
     omPlans = OM_DEMO.omPlans || [];
     annualPlans = DEMO.annualPlan || [];
@@ -10113,14 +10343,30 @@ async function _renderProgressTable() {
   const omPlanMargin = omPlanRev - omPlanCost;
 
   // ─── SHIP MGMT ───
-  const smPass_inP = smPass.filter(e => inPeriod(e));
+  const smRevs_inP = (smRevs||[]).filter(e => inPeriod(e));
   const smCosts_inP = smCosts.filter(e => inPeriod(e) && e.accountType !== 'Q');
-  const smTtRev = smPass_inP.filter(e => e.type === 'mgmt_fee').reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+  const smTtRev = smRevs_inP.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
   const smTtCost = smCosts_inP.reduce((s,c) => s+(parseFloat(c.amountVnd)||0), 0);
   const smTtMargin = smTtRev - smTtCost;
-  const smPlanRev = 0; // SM chưa có module KH năm
-  const smPlanCost = 0;
-  const smPlanMargin = 0;
+  // KH SM = phí cam kết theo HĐ × số tháng overlap với kỳ
+  let smPlanRev = 0;
+  (smContracts||[]).forEach(c => {
+    if (c.status && c.status !== 'active' && c.status !== 'Đang quản lý') return;
+    const monthlyFeeVnd = parseFloat(c.feePerMonthVnd) || parseFloat(c.monthlyFeeVnd) ||
+      ((parseFloat(c.feePerMonth)||parseFloat(c.monthlyFee)||0) * (parseFloat(c.fxRate)||1));
+    if (!monthlyFeeVnd) return;
+    const cs = c.startDate ? new Date(c.startDate) : new Date(0);
+    const ce = c.endDate ? new Date(c.endDate) : new Date(2099,11,31);
+    // Lặp từng tháng trong kỳ, đếm số tháng overlap
+    let cur_d = new Date(periodStart.getFullYear(), periodStart.getMonth(), 1);
+    while (cur_d <= periodEnd) {
+      const mEnd = new Date(cur_d.getFullYear(), cur_d.getMonth()+1, 0);
+      if (mEnd >= cs && cur_d <= ce) smPlanRev += monthlyFeeVnd;
+      cur_d.setMonth(cur_d.getMonth()+1);
+    }
+  });
+  const smPlanCost = 0; // Chưa có module KH chi phí SM
+  const smPlanMargin = smPlanRev - smPlanCost;
 
   // ─── CORPORATE (G&A) ───
   const gaRevs_inP = gaRevs.filter(e => inPeriod(e));
@@ -10250,6 +10496,433 @@ async function _renderProgressTable() {
     </div>`;
 }
 
+// ═══════════════════════════════════════════════════════
+// CONSOLIDATED — TAB SO SÁNH NHIỀU NĂM + LŨY KẾ
+// ═══════════════════════════════════════════════════════
+
+// Helper: Tính P&L tổng hợp cho 1 năm cụ thể
+async function _calcConsolidatedYear(year) {
+  let allRevs=[], allCosts=[], omRevs=[], omCosts=[], smRevs=[], smCosts=[], gaEntries=[], gaRevs=[];
+  try {
+    [allRevs, allCosts, omRevs, omCosts, smRevs, smCosts, gaEntries, gaRevs] = await Promise.all([
+      api('getRevEntries', {}).catch(()=>[]),
+      api('getCostEntries', {}).catch(()=>[]),
+      api('getOmRevEntries', {}).catch(()=>[]),
+      api('getOmCostEntries', {}).catch(()=>[]),
+      api('getSmRevEntries', {}).catch(()=>[]),
+      api('getSmCosts', {}).catch(()=>[]),
+      api('getGaEntries', {}).catch(()=>[]),
+      api('getGaRevEntries', {}).catch(()=>[]),
+    ]);
+  } catch(e){}
+
+  const yPrefix = String(year);
+  const inY = (e) => (e.entryDate||'').startsWith(yPrefix);
+
+  // Vessel
+  const vRevs = allRevs.filter(r => inY(r) && !r.isPlan && r.isPlan!=='true');
+  const vCosts = allCosts.filter(e => inY(e) && e.accountType !== 'Q');
+  const vesselRev = vRevs.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
+  const vesselCost = vCosts.reduce((s,c) => s+(parseFloat(c.amountVnd)||0), 0);
+  const vesselMargin = vesselRev - vesselCost;
+
+  // O&M
+  const oRevs = omRevs.filter(r => inY(r) && !r.isPlan && r.isPlan!=='true');
+  const oCosts = omCosts.filter(e => inY(e) && e.accountType !== 'Q');
+  const omRev = oRevs.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
+  const omCost = oCosts.reduce((s,c) => s+(parseFloat(c.amountVnd)||0), 0);
+  const omMargin = omRev - omCost;
+
+  // SM
+  const sRevs = smRevs.filter(e => inY(e));
+  const sCosts = smCosts.filter(e => inY(e) && e.accountType !== 'Q');
+  const smRev = sRevs.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+  const smCost = sCosts.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+  const smMargin = smRev - smCost;
+
+  // Corp
+  const gRevs = gaRevs.filter(e => inY(e));
+  const gCosts = gaEntries.filter(e => inY(e) && e.accountType !== 'Q');
+  const corpRev = gRevs.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+  const corpCost = gCosts.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+  const corpMargin = corpRev - corpCost;
+
+  const totalRev = vesselRev + omRev + smRev + corpRev;
+  const totalCost = vesselCost + omCost + smCost + corpCost;
+  const totalMargin = totalRev - totalCost;
+  const marginPct = totalRev ? totalMargin/totalRev*100 : 0;
+
+  return {
+    year,
+    vessel: {rev: vesselRev, cost: vesselCost, margin: vesselMargin},
+    om:     {rev: omRev,     cost: omCost,     margin: omMargin},
+    sm:     {rev: smRev,     cost: smCost,     margin: smMargin},
+    corp:   {rev: corpRev,   cost: corpCost,   margin: corpMargin},
+    total:  {rev: totalRev,  cost: totalCost,  margin: totalMargin, marginPct},
+  };
+}
+
+// Helper: Tự phát hiện năm có dữ liệu sớm nhất
+async function _detectFirstYear() {
+  let allRevs=[];
+  try { allRevs = await api('getRevEntries', {}).catch(()=>[]); } catch(e){}
+  const years = new Set();
+  allRevs.forEach(r => {
+    const y = (r.entryDate||'').slice(0, 4);
+    if (y) years.add(parseInt(y));
+  });
+  return years.size > 0 ? Math.min(...years) : new Date().getFullYear();
+}
+
+// Tab 2: So sánh nhiều năm
+async function renderConsolidatedCompare() {
+  showLoading();
+  const yearFrom = _S_CONS_FROM;
+  const yearTo = _S_CONS_TO;
+  const years = [];
+  for (let y = yearFrom; y <= yearTo; y++) years.push(y);
+
+  // Tính cho từng năm
+  const data = await Promise.all(years.map(y => _calcConsolidatedYear(y)));
+  hideLoading();
+
+  // Helper format
+  const dlt = (a, b) => {
+    if (!b) return { val: 0, pct: null };
+    return { val: a-b, pct: (a-b)/Math.abs(b)*100 };
+  };
+  const dltCell = (cur, prev, isReverse=false) => {
+    if (prev === undefined) return '';
+    const d = dlt(cur, prev);
+    if (d.pct === null) return '<span style="color:var(--text3)">—</span>';
+    const isGood = isReverse ? d.val < 0 : d.val > 0;
+    const color = Math.abs(d.pct) < 1 ? 'var(--text3)' : (isGood ? 'var(--green)' : 'var(--red)');
+    const arrow = d.val > 0 ? '↑' : d.val < 0 ? '↓' : '';
+    return `<span style="color:${color};font-size:11px">${arrow}${pct(Math.abs(d.pct))}</span>`;
+  };
+
+  // Bảng
+  const segRow = (label, icon, key, isReverse=false) => {
+    const cells = data.map((d, i) => {
+      const v = d[key].rev;
+      const prev = i > 0 ? data[i-1][key].rev : undefined;
+      return `<td class="num" style="font-family:var(--mono);font-size:12px">
+        ${fmtB(v)}
+        <div style="font-size:10px;color:var(--text3);margin-top:1px">M: ${fmtB(d[key].margin)}</div>
+        ${prev !== undefined && i > 0 ? `<div style="margin-top:2px">${dltCell(v, prev, isReverse)}</div>` : ''}
+      </td>`;
+    }).join('');
+    return `<tr><td style="font-weight:600">${icon} ${label}</td>${cells}</tr>`;
+  };
+
+  // Year selector + reset
+  const yearOpts = (selected) => {
+    const opts = [];
+    const now = new Date().getFullYear();
+    for (let y = now+1; y >= now-10; y--) {
+      opts.push(`<option value="${y}"${y===selected?' selected':''}>${y}</option>`);
+    }
+    return opts.join('');
+  };
+
+  document.getElementById('content').innerHTML = `
+    <div class="flex items-center justify-between mb16">
+      <div>
+        <div style="font-size:18px;font-weight:700;color:var(--navy)">Báo cáo P&L Tổng hợp</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">Seahorse Marine & Energy JSC · So sánh nhiều năm</div>
+      </div>
+      <div class="flex gap8">
+        <button class="btn btn-outline btn-sm" onclick="exportCurrentPagePdf()">🖨 PDF</button>
+      </div>
+    </div>
+
+    <!-- TAB NAV -->
+    <div style="display:flex;gap:4px;border-bottom:1px solid var(--gray3);margin-bottom:16px">
+      <button onclick="_S_CONS_TAB='year';renderConsolidated()"
+        style="padding:10px 18px;border:none;background:transparent;color:var(--ink);font-size:13px;font-weight:600;cursor:pointer;border-radius:6px 6px 0 0;">
+        📅 Năm hiện tại ${S.year}
+      </button>
+      <button onclick="_S_CONS_TAB='compare';renderConsolidatedCompare()"
+        style="padding:10px 18px;border:none;background:var(--blue);color:#fff;font-size:13px;font-weight:600;cursor:pointer;border-radius:6px 6px 0 0;">
+        📊 So sánh nhiều năm
+      </button>
+      <button onclick="_S_CONS_TAB='cumulative';renderConsolidatedCumulative()"
+        style="padding:10px 18px;border:none;background:transparent;color:var(--ink);font-size:13px;font-weight:600;cursor:pointer;border-radius:6px 6px 0 0;">
+        📈 Lũy kế đến nay
+      </button>
+    </div>
+
+    <!-- BỘ CHỌN NĂM -->
+    <div class="card mb16" style="border-left:4px solid var(--blue)">
+      <div class="card-body" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="font-size:13px;font-weight:600">📅 Khoảng thời gian:</div>
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px">Từ năm:
+          <select onchange="_S_CONS_FROM=parseInt(this.value);renderConsolidatedCompare()" style="padding:6px 10px;font-family:var(--mono);font-weight:600">${yearOpts(yearFrom)}</select>
+        </label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px">Đến năm:
+          <select onchange="_S_CONS_TO=parseInt(this.value);renderConsolidatedCompare()" style="padding:6px 10px;font-family:var(--mono);font-weight:600">${yearOpts(yearTo)}</select>
+        </label>
+        <span style="font-size:11px;color:var(--text3)">Hiển thị ${years.length} năm · Doanh thu (M=Margin) · Tăng trưởng so với năm liền kề</span>
+      </div>
+    </div>
+
+    <!-- BẢNG SO SÁNH -->
+    <div class="card mb16">
+      <div class="card-header"><h3>📊 So sánh P&L các mảng theo năm</h3></div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap"><table>
+          <thead><tr>
+            <th>Mảng</th>
+            ${years.map(y => `<th class="num">${y}</th>`).join('')}
+          </tr></thead>
+          <tbody>
+            ${segRow('Vessel — Vận hành tàu', '🚢', 'vessel')}
+            ${segRow('O&M — Tư vấn vận hành', '🏥', 'om')}
+            ${segRow('Ship Management', '⚓', 'sm')}
+            ${segRow('Corporate — Quản lý chung', '🏢', 'corp')}
+          </tbody>
+          <tfoot style="background:var(--gray2);font-weight:700">
+            <tr>
+              <td>TỔNG DOANH THU</td>
+              ${data.map((d, i) => {
+                const prev = i > 0 ? data[i-1].total.rev : undefined;
+                return `<td class="num" style="font-family:var(--mono)">
+                  ${fmtB(d.total.rev)}
+                  <div style="font-size:10px;color:var(--text3);margin-top:1px">M: ${fmtB(d.total.margin)} (${pct(d.total.marginPct)})</div>
+                  ${prev !== undefined && i > 0 ? `<div style="margin-top:2px">${dltCell(d.total.rev, prev)}</div>` : ''}
+                </td>`;
+              }).join('')}
+            </tr>
+          </tfoot>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- CHART -->
+    <div class="card">
+      <div class="card-header"><h3>📈 Doanh thu &amp; Margin theo năm</h3></div>
+      <div class="card-body">
+        <canvas id="chartConsCompare" height="100"></canvas>
+      </div>
+    </div>
+  `;
+
+  // Render chart: cột (DT 4 mảng chồng) + đường (Margin tổng)
+  setTimeout(() => {
+    const ctx = document.getElementById('chartConsCompare');
+    if (!ctx) return;
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: years.map(String),
+        datasets: [
+          {label: '🚢 Vessel',    data: data.map(d => +(d.vessel.rev/1e9).toFixed(2)), backgroundColor: 'rgba(0,163,163,.8)',  stack: 'rev', borderRadius:4, order: 2},
+          {label: '🏥 O&M',       data: data.map(d => +(d.om.rev/1e9).toFixed(2)),     backgroundColor: 'rgba(0,82,204,.8)',   stack: 'rev', borderRadius:4, order: 2},
+          {label: '⚓ Ship Mgmt', data: data.map(d => +(d.sm.rev/1e9).toFixed(2)),     backgroundColor: 'rgba(127,119,221,.8)', stack: 'rev', borderRadius:4, order: 2},
+          {label: '🏢 Corporate', data: data.map(d => +(d.corp.rev/1e9).toFixed(2)),   backgroundColor: 'rgba(140,149,159,.8)', stack: 'rev', borderRadius:4, order: 2},
+          {label: '📈 Margin tổng (đường)',
+           data: data.map(d => +(d.total.margin/1e9).toFixed(2)),
+           type: 'line',
+           borderColor: 'rgb(220, 38, 38)',
+           backgroundColor: 'rgba(220,38,38,.1)',
+           borderWidth: 3,
+           pointRadius: 6,
+           pointBackgroundColor: 'rgb(220,38,38)',
+           tension: 0.3,
+           order: 1,
+           yAxisID: 'y1',
+          },
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {position: 'top', labels: {font: {size: 12}}},
+          tooltip: {callbacks: {label: c => `${c.dataset.label}: ${c.raw} tỷ`}},
+        },
+        scales: {
+          y: {stacked: true, ticks: {callback: v => v + ' tỷ'}, title:{display:true, text:'Doanh thu (cột chồng)'}},
+          y1: {position:'right', grid:{drawOnChartArea: false}, ticks:{callback: v => v + ' tỷ'}, title:{display:true, text:'Margin (đường)'}},
+          x: {grid:{display:false}}
+        }
+      }
+    });
+  }, 100);
+}
+
+// Tab 3: Lũy kế đến nay
+async function renderConsolidatedCumulative() {
+  showLoading();
+  const firstYear = await _detectFirstYear();
+  const lastYear = new Date().getFullYear();
+  const years = [];
+  for (let y = firstYear; y <= lastYear; y++) years.push(y);
+
+  const data = await Promise.all(years.map(y => _calcConsolidatedYear(y)));
+  hideLoading();
+
+  // Lũy kế
+  const cumRev = data.reduce((s,d) => s+d.total.rev, 0);
+  const cumMargin = data.reduce((s,d) => s+d.total.margin, 0);
+  const cumMarginPct = cumRev ? cumMargin/cumRev*100 : 0;
+  const yearsActive = data.filter(d => d.total.rev > 0).length;
+  const avgRevPerYear = yearsActive ? cumRev/yearsActive : 0;
+  const avgMarginPerYear = yearsActive ? cumMargin/yearsActive : 0;
+
+  // Bảng tóm tắt từng năm
+  const summaryRows = data.map((d, i) => {
+    const prev = i > 0 ? data[i-1] : null;
+    const dltStr = prev ? (() => {
+      if (!prev.total.rev) return '<span style="color:var(--text3)">—</span>';
+      const diff = (d.total.rev - prev.total.rev) / prev.total.rev * 100;
+      const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '';
+      const color = diff > 0 ? 'var(--green)' : diff < 0 ? 'var(--red)' : 'var(--text3)';
+      return `<span style="color:${color}">${arrow}${pct(Math.abs(diff))}</span>`;
+    })() : '<span style="color:var(--text3)">—</span>';
+    return `<tr ${d.total.rev === 0 ? 'style="opacity:0.5"' : ''}>
+      <td style="font-weight:600">${d.year}</td>
+      <td class="num" style="font-family:var(--mono)">${fmtB(d.total.rev)}</td>
+      <td class="num" style="font-family:var(--mono);color:var(--text3)">${fmtB(d.total.cost)}</td>
+      <td class="num" style="font-family:var(--mono);color:${d.total.margin>=0?'var(--green)':'var(--red)'};font-weight:600">${fmtB(d.total.margin)}</td>
+      <td class="num">${pct(d.total.marginPct)}</td>
+      <td class="num">${dltStr}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = `
+    <div class="flex items-center justify-between mb16">
+      <div>
+        <div style="font-size:18px;font-weight:700;color:var(--navy)">Báo cáo P&L Tổng hợp</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">Seahorse Marine & Energy JSC · Track record lũy kế</div>
+      </div>
+      <div class="flex gap8">
+        <button class="btn btn-outline btn-sm" onclick="exportCurrentPagePdf()">🖨 PDF</button>
+      </div>
+    </div>
+
+    <!-- TAB NAV -->
+    <div style="display:flex;gap:4px;border-bottom:1px solid var(--gray3);margin-bottom:16px">
+      <button onclick="_S_CONS_TAB='year';renderConsolidated()"
+        style="padding:10px 18px;border:none;background:transparent;color:var(--ink);font-size:13px;font-weight:600;cursor:pointer;border-radius:6px 6px 0 0;">
+        📅 Năm hiện tại ${S.year}
+      </button>
+      <button onclick="_S_CONS_TAB='compare';renderConsolidatedCompare()"
+        style="padding:10px 18px;border:none;background:transparent;color:var(--ink);font-size:13px;font-weight:600;cursor:pointer;border-radius:6px 6px 0 0;">
+        📊 So sánh nhiều năm
+      </button>
+      <button onclick="_S_CONS_TAB='cumulative';renderConsolidatedCumulative()"
+        style="padding:10px 18px;border:none;background:var(--blue);color:#fff;font-size:13px;font-weight:600;cursor:pointer;border-radius:6px 6px 0 0;">
+        📈 Lũy kế đến nay
+      </button>
+    </div>
+
+    <div style="background:linear-gradient(135deg,#0a1628,#1e3a5f);border-radius:var(--radius);padding:14px 20px;margin-bottom:16px;color:#fff">
+      <div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Track Record</div>
+      <div style="font-size:13px;line-height:1.6">
+        Tổng hợp lũy kế từ <strong>năm ${firstYear}</strong> đến <strong>${lastYear}</strong> (${yearsActive} năm có dữ liệu).
+        Dùng để báo cáo HĐQT, nhà đầu tư, đối tác về quy mô và xu hướng phát triển công ty.
+      </div>
+    </div>
+
+    <!-- KPI 4 thẻ -->
+    <div class="kpi-grid cols4 mb16">
+      <div class="kpi-card accent-teal">
+        <div class="kpi-label">Tổng doanh thu lũy kế</div>
+        <div class="kpi-value">${fmtB(cumRev)}</div>
+        <div class="kpi-sub">${yearsActive} năm hoạt động</div>
+      </div>
+      <div class="kpi-card ${cumMargin>=0?'accent-green':'accent-red'}">
+        <div class="kpi-label">Margin lũy kế</div>
+        <div class="kpi-value ${cumMargin>=0?'kpi-positive':'kpi-negative'}">${fmtB(cumMargin)}</div>
+        <div class="kpi-sub">${pct(cumMarginPct)} margin trung bình</div>
+      </div>
+      <div class="kpi-card accent-blue">
+        <div class="kpi-label">Doanh thu BQ/năm</div>
+        <div class="kpi-value">${fmtB(avgRevPerYear)}</div>
+        <div class="kpi-sub">Tổng / số năm hoạt động</div>
+      </div>
+      <div class="kpi-card accent-amber">
+        <div class="kpi-label">Margin BQ/năm</div>
+        <div class="kpi-value">${fmtB(avgMarginPerYear)}</div>
+        <div class="kpi-sub">Tổng margin / số năm</div>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="card mb16">
+      <div class="card-header"><h3>📈 P&L từng năm — Track Record</h3></div>
+      <div class="card-body">
+        <canvas id="chartConsCum" height="100"></canvas>
+      </div>
+    </div>
+
+    <!-- Bảng tóm tắt -->
+    <div class="card">
+      <div class="card-header"><h3>📋 Tóm tắt P&L từng năm</h3></div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap"><table>
+          <thead><tr>
+            <th>Năm</th>
+            <th class="num">Doanh thu</th>
+            <th class="num">Chi phí</th>
+            <th class="num">Margin</th>
+            <th class="num">% Margin</th>
+            <th class="num">Tăng trưởng DT</th>
+          </tr></thead>
+          <tbody>${summaryRows || '<tr><td colspan="6"><div class="empty-state">Chưa có dữ liệu</div></td></tr>'}</tbody>
+          <tfoot style="background:var(--gray2);font-weight:700">
+            <tr>
+              <td>LŨY KẾ</td>
+              <td class="num" style="font-family:var(--mono)">${fmtB(cumRev)}</td>
+              <td class="num" style="font-family:var(--mono);color:var(--text3)">${fmtB(cumRev-cumMargin)}</td>
+              <td class="num" style="font-family:var(--mono);color:${cumMargin>=0?'var(--green)':'var(--red)'}">${fmtB(cumMargin)}</td>
+              <td class="num">${pct(cumMarginPct)}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table></div>
+      </div>
+    </div>
+  `;
+
+  // Chart: cột chồng DT + đường margin
+  setTimeout(() => {
+    const ctx = document.getElementById('chartConsCum');
+    if (!ctx) return;
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: years.map(String),
+        datasets: [
+          {label: '🚢 Vessel',    data: data.map(d => +(d.vessel.rev/1e9).toFixed(2)), backgroundColor: 'rgba(0,163,163,.8)',  stack: 'rev', borderRadius:4, order: 2},
+          {label: '🏥 O&M',       data: data.map(d => +(d.om.rev/1e9).toFixed(2)),     backgroundColor: 'rgba(0,82,204,.8)',   stack: 'rev', borderRadius:4, order: 2},
+          {label: '⚓ Ship Mgmt', data: data.map(d => +(d.sm.rev/1e9).toFixed(2)),     backgroundColor: 'rgba(127,119,221,.8)', stack: 'rev', borderRadius:4, order: 2},
+          {label: '🏢 Corporate', data: data.map(d => +(d.corp.rev/1e9).toFixed(2)),   backgroundColor: 'rgba(140,149,159,.8)', stack: 'rev', borderRadius:4, order: 2},
+          {label: '📈 Margin tổng',
+           data: data.map(d => +(d.total.margin/1e9).toFixed(2)),
+           type: 'line',
+           borderColor: 'rgb(220, 38, 38)',
+           backgroundColor: 'rgba(220,38,38,.1)',
+           borderWidth: 3,
+           pointRadius: 6,
+           tension: 0.3,
+           order: 1,
+           yAxisID: 'y1',
+          },
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {legend: {position: 'top'}, tooltip: {callbacks: {label: c => `${c.dataset.label}: ${c.raw} tỷ`}}},
+        scales: {
+          y: {stacked: true, ticks: {callback: v => v+' tỷ'}, title:{display:true, text:'Doanh thu (tỷ đ)'}},
+          y1: {position:'right', grid:{drawOnChartArea: false}, ticks:{callback: v => v+' tỷ'}, title:{display:true, text:'Margin (tỷ đ)'}},
+          x: {grid:{display:false}}
+        }
+      }
+    });
+  }, 100);
+}
 
 // ═══════════════════════════════════════════════════════
 // MODULE: KHO NHIÊN LIỆU — FIFO (DO theo tàu, đơn vị m³)
