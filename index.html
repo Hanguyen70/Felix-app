@@ -6881,161 +6881,158 @@ async function renderPayrollFund() {
     }
   });
 
-  // Sắp xếp theo ngày
-  all.sort((a,b) => new Date(a.entryDate||'2000-01-01') - new Date(b.entryDate||'2000-01-01'));
+  // ═══════════════════════════════════════════════════════
+  // PHÂN LOẠI THÀNH 2 BẢNG:
+  //   - Bảng TRÍCH QUỸ: T computed (năm hiện tại) + T manual (mọi năm)
+  //   - Bảng CHI QUỸ: Q (mọi năm)
+  // Số dư = Σ Trích − Σ Chi (cộng dồn lifetime, kế thừa qua các năm)
+  // ═══════════════════════════════════════════════════════
 
-  // Tính số dư luỹ kế
-  let runningBal = 0;
-  const ledger = all.map(e => {
-    const amt = parseFloat(e.amountVnd)||0;
-    if (e.accountType === 'T') runningBal += amt;
-    else if (e.accountType === 'Q') runningBal -= amt;
-    return { ...e, balance: runningBal };
+  // 1. TRÍCH QUỸ — kết hợp 2 nguồn
+  const trichRows = [];
+
+  // 1a. T computed cho NĂM HIỆN TẠI (S.year): lấy từ accrued.rows (đã tính ở trên)
+  accrued.rows.forEach(r => {
+    trichRows.push({
+      year: S.year,
+      vesselName: r.vesselName,
+      projectName: r.projectName,
+      revBase: r.revBase,
+      accrualPct: r.accrualPct,
+      amount: r.accruedAmount,
+      isComputed: true,
+      sortKey: S.year * 10000 + 1231,  // cuối năm
+    });
   });
 
-  const totalT = all.filter(e=>e.accountType==='T').reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-  const totalQ = all.filter(e=>e.accountType==='Q').reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-  const balance = totalT - totalQ;
-
-  // Theo dự án
-  const byProject = {};
-  all.forEach(e => {
-    if (!byProject[e.projectKey]) byProject[e.projectKey] = { name: e.projectName, source: e.source, T:0, Q:0 };
-    if (e.accountType==='T') byProject[e.projectKey].T += parseFloat(e.amountVnd)||0;
-    if (e.accountType==='Q') byProject[e.projectKey].Q += parseFloat(e.amountVnd)||0;
+  // 1b. T manual entries (mọi năm) từ all (đã include T entries có accountType='T' không phải computed)
+  all.filter(e => e.accountType === 'T' && !e._isComputed).forEach(e => {
+    const dt = e.entryDate || '';
+    const year = parseInt(dt.slice(0,4)) || 0;
+    const monthDay = parseInt(dt.slice(5,7)+dt.slice(8,10)) || 0;
+    trichRows.push({
+      year: year,
+      vesselName: e.sourceLabel || '—',
+      projectName: e.description || '—',
+      revBase: null,            // manual → không có DT base
+      accrualPct: null,         // manual → không có pct
+      amount: parseFloat(e.amountVnd) || 0,
+      isComputed: false,
+      sortKey: year * 10000 + monthDay,
+    });
   });
-  const projectRows = Object.values(byProject).sort((a,b) => (b.T+b.Q)-(a.T+a.Q));
 
-  // Theo mảng
-  const bySource = { Vessel:{T:0,Q:0}, 'O&M':{T:0,Q:0}, 'Ship Mgmt':{T:0,Q:0}, 'Corporate (G&A)':{T:0,Q:0} };
-  all.forEach(e => {
-    if (!bySource[e.source]) bySource[e.source] = {T:0,Q:0};
-    if (e.accountType==='T') bySource[e.source].T += parseFloat(e.amountVnd)||0;
-    if (e.accountType==='Q') bySource[e.source].Q += parseFloat(e.amountVnd)||0;
-  });
+  // Sort theo năm, mới nhất trước
+  trichRows.sort((a, b) => b.sortKey - a.sortKey);
+  const totalTrich = trichRows.reduce((s, r) => s + r.amount, 0);
+
+  // 2. CHI QUỸ — tất cả Q entries (mọi năm)
+  const chiRows = all
+    .filter(e => e.accountType === 'Q')
+    .map(e => ({
+      date: e.entryDate || '',
+      content: (e.sourceLabel ? e.sourceLabel + ' — ' : '') + (e.description || '—'),
+      amount: parseFloat(e.amountVnd) || 0,
+    }))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const totalChi = chiRows.reduce((s, r) => s + r.amount, 0);
+
+  // 3. SỐ DƯ HIỆN TẠI — cộng dồn lifetime (kế thừa qua năm)
+  const balance = totalTrich - totalChi;
 
   document.getElementById('content').innerHTML = `
     <div style="background:linear-gradient(135deg,#0a1628,#162d55);border-radius:var(--radius);padding:14px 20px;margin-bottom:16px;color:#fff">
-      <div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Cơ chế quỹ lương</div>
+      <div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Sổ Quỹ Lương</div>
       <div style="font-size:13px;line-height:1.7">
-        <strong>Trích quỹ (T):</strong> Bút toán nhóm <em>T</em> trong Danh mục → vào P/L để tính lợi nhuận thực dự án, <strong>không vào BCTC</strong> (chưa thực phát sinh).<br>
-        <strong>Chi từ quỹ (Q):</strong> Khi chi thực tế (lương, thưởng), chọn nguồn chi <em>"Chi từ quỹ lương"</em> → vào BCTC, <strong>không vào P/L</strong> (đã trích T trước).<br>
-        <strong>Số dư = T − Q</strong> = Số tiền đã trích nhưng chưa chi
+        Quỹ <strong>chung toàn công ty</strong>, kế thừa qua các năm. Số dư cuối năm trước = số dư đầu năm sau.<br>
+        <strong>Trích quỹ (T):</strong> tự tính theo % DT năm hiện tại (cấu hình ở Khoản mục) hoặc nhập thủ công các năm cũ.<br>
+        <strong>Chi quỹ (Q):</strong> ghi nhận khi chi thực tế (chọn nguồn chi "Chi từ quỹ lương" trên bút toán).
       </div>
     </div>
 
     <div class="kpi-grid cols3 mb16">
       <div class="kpi-card accent-blue">
-        <div class="kpi-label">Tổng đã trích (T)</div>
-        <div class="kpi-value">${fmtB(totalT)}</div>
-        <div class="kpi-sub">Đã đưa vào P/L (không vào BCTC)</div>
+        <div class="kpi-label">Tổng đã trích</div>
+        <div class="kpi-value">${fmtB(totalTrich)}</div>
+        <div class="kpi-sub">Lifetime — mọi năm</div>
       </div>
       <div class="kpi-card accent-amber">
-        <div class="kpi-label">Tổng đã chi (Q)</div>
-        <div class="kpi-value">${fmtB(totalQ)}</div>
-        <div class="kpi-sub">Đã đưa vào BCTC (không vào P/L)</div>
+        <div class="kpi-label">Tổng đã chi</div>
+        <div class="kpi-value">${fmtB(totalChi)}</div>
+        <div class="kpi-sub">Lifetime — mọi năm</div>
       </div>
       <div class="kpi-card ${balance>=0?'accent-green':'accent-red'}">
-        <div class="kpi-label">Số dư quỹ</div>
-        <div class="kpi-value ${balance>=0?'kpi-positive':'kpi-negative'}">${balance>=0?'+':'−'}${fmtB(Math.abs(balance))}</div>
-        <div class="kpi-sub">${balance>=0?'Còn dư trong quỹ':'⚠ Đã chi vượt quỹ'}</div>
+        <div class="kpi-label">Số dư quỹ hiện tại</div>
+        <div class="kpi-value ${balance>=0?'kpi-positive':'kpi-negative'}">${balance>=0?'':'−'}${fmtB(Math.abs(balance))}</div>
+        <div class="kpi-sub">${balance>=0?'Còn dư':'⚠ Đã chi vượt quỹ'}</div>
       </div>
     </div>
 
     ${balance < 0 ? `<div style="background:#fee2e2;border-left:4px solid #ef4444;color:#991b1b;border-radius:6px;padding:12px 16px;margin-bottom:16px;font-weight:600">⚠ Quỹ đã chi vượt số đã trích — Cần kiểm tra lại hoặc trích bổ sung</div>` : ''}
 
-    <!-- Theo mảng -->
+    <!-- BẢNG TRÍCH QUỸ -->
     <div class="card mb16">
-      <div class="card-header"><h3>📊 Phân bổ theo mảng kinh doanh</h3></div>
+      <div class="card-header"><h3>📥 Trích quỹ</h3></div>
       <div class="card-body no-pad">
         <div class="tbl-wrap"><table>
-          <thead><tr><th>Mảng</th><th class="num">Đã trích (T)</th><th class="num">Đã chi (Q)</th></tr></thead>
+          <thead><tr>
+            <th style="width:70px">Năm</th>
+            <th>Tàu</th>
+            <th>Dự án / Diễn giải</th>
+            <th class="num">Doanh thu</th>
+            <th class="num" style="width:90px">Tỷ lệ</th>
+            <th class="num" style="width:130px">Số trích</th>
+          </tr></thead>
           <tbody>
-            ${Object.entries(bySource).filter(([_,v])=>v.T>0||v.Q>0).map(([src,v]) => {
-              return `<tr>
-                <td style="font-weight:600">${src}</td>
-                <td class="num pos" style="font-family:var(--mono)">${v.T>0?'+'+fmtB(v.T):'—'}</td>
-                <td class="num neg" style="font-family:var(--mono)">${v.Q>0?'−'+fmtB(v.Q):'—'}</td>
-              </tr>`;
-            }).join('') || '<tr><td colspan="3"><div class="empty-state">Chưa có bút toán T/Q nào.</div></td></tr>'}
+            ${trichRows.length === 0 ? '<tr><td colspan="6"><div class="empty-state">Chưa có khoản trích quỹ nào.<br><br>Cách tạo:<br>1. Vào <strong>Tàu → Khoản mục</strong>, mở khoản mục nhóm T, đặt tỷ lệ trích (vd 5%).<br>2. Nhập doanh thu cho dự án — hệ thống tự tính trích quỹ.</div></td></tr>' :
+              trichRows.map(r => `<tr${r.isComputed?' style="background:#FFFBF0"':''}>
+                <td class="mono">${r.year}</td>
+                <td style="font-size:12px">${r.vesselName}${r.isComputed?'<span class="badge badge-amber" style="font-size:9px;margin-left:4px">⚙ tự tính</span>':''}</td>
+                <td style="font-size:12px">${r.projectName}</td>
+                <td class="num" style="font-family:var(--mono);font-size:12px">${r.revBase!==null?fmtB(r.revBase):'<span style="color:var(--text3)">—</span>'}</td>
+                <td class="num" style="font-family:var(--mono);font-size:12px">${r.accrualPct!==null?r.accrualPct+'%':'<span style="color:var(--text3)">—</span>'}</td>
+                <td class="num pos" style="font-family:var(--mono);font-weight:600">+${fmtB(r.amount)}</td>
+              </tr>`).join('')
+            }
           </tbody>
-          <tfoot style="background:var(--gray2);font-weight:700">
+          ${trichRows.length > 0 ? `<tfoot style="background:var(--gray2);font-weight:700">
             <tr>
-              <td>TỔNG QUỸ</td>
-              <td class="num pos" style="font-family:var(--mono)">+${fmtB(totalT)}</td>
-              <td class="num neg" style="font-family:var(--mono)">−${fmtB(totalQ)}</td>
+              <td colspan="5">TỔNG TRÍCH QUỸ (lifetime)</td>
+              <td class="num pos" style="font-family:var(--mono)">+${fmtB(totalTrich)}</td>
             </tr>
-          </tfoot>
+          </tfoot>` : ''}
         </table></div>
       </div>
     </div>
 
-    <!-- Theo dự án -->
-    ${projectRows.length > 0 ? `<div class="card mb16">
-      <div class="card-header"><h3>🚢 Phân bổ theo dự án/tàu/hợp đồng</h3></div>
-      <div class="card-body">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.5">
-          <strong>Lưu ý:</strong> Quỹ là <strong>quỹ chung</strong> của công ty. Cột "Đã trích" cho biết dự án đó đóng góp bao nhiêu vào quỹ; cột "Đã chi" cho biết tiền quỹ đã được chi cho lương/thưởng liên quan đến dự án/bộ phận đó. Hai cột <strong>không có ý nghĩa "ghép cặp"</strong> — quỹ chi tự do giữa các dự án.
-        </div>
-      </div>
-      <div class="card-body no-pad">
-        <div class="tbl-wrap"><table>
-          <thead><tr><th>Dự án / Tàu / HĐ / Bộ phận</th><th>Mảng</th><th class="num">Đã trích (T) — Đóng góp quỹ</th><th class="num">Đã chi (Q) — Sử dụng quỹ</th></tr></thead>
-          <tbody>
-            ${projectRows.map(r => {
-              return `<tr>
-                <td style="font-weight:500">${r.name}</td>
-                <td><span class="badge ${r.source==='Vessel'?'badge-teal':r.source==='O&M'?'badge-blue':r.source==='Ship Mgmt'?'badge-gray':'badge-purple'}">${r.source}</span></td>
-                <td class="num pos" style="font-family:var(--mono)">${r.T>0?'+'+fmtB(r.T):'—'}</td>
-                <td class="num neg" style="font-family:var(--mono)">${r.Q>0?'−'+fmtB(r.Q):'—'}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-          <tfoot style="background:var(--gray2);font-weight:700">
-            <tr>
-              <td colspan="2">TỔNG QUỸ</td>
-              <td class="num pos" style="font-family:var(--mono)">+${fmtB(totalT)}</td>
-              <td class="num neg" style="font-family:var(--mono)">−${fmtB(totalQ)}</td>
-            </tr>
-          </tfoot>
-        </table></div>
-      </div>
-    </div>` : ''}
-
-    <!-- Sổ chi tiết bút toán T/Q -->
-    <div class="card">
+    <!-- BẢNG CHI QUỸ -->
+    <div class="card mb16">
       <div class="card-header flex items-center justify-between">
-        <h3>📋 Sổ chi tiết bút toán T/Q theo thời gian</h3>
+        <h3>📤 Chi quỹ</h3>
         <button class="btn btn-outline btn-sm" onclick="exportPayrollFundCsv()">📊 Xuất CSV</button>
       </div>
       <div class="card-body no-pad">
         <div class="tbl-wrap"><table>
           <thead><tr>
-            <th style="width:90px">Ngày</th>
-            <th style="width:60px">Loại</th>
-            <th style="width:90px">Mảng</th>
-            <th>Dự án / Diễn giải</th>
-            <th class="num" style="width:120px">Trích (T)</th>
-            <th class="num" style="width:120px">Chi (Q)</th>
-            <th class="num" style="width:130px">Số dư luỹ kế</th>
+            <th style="width:110px">Ngày</th>
+            <th>Nội dung</th>
+            <th class="num" style="width:130px">Số chi</th>
           </tr></thead>
           <tbody>
-            ${ledger.length === 0 ? '<tr><td colspan="7"><div class="empty-state">Chưa có bút toán T hoặc Q nào.<br><br>Cách dùng:<br>1. Vào Vessel → Chi phí → chọn khoản mục nhóm <strong>T</strong> để trích quỹ.<br>2. Khi chi lương thật, chọn nguồn chi "<strong>Chi từ quỹ lương dự án</strong>" trên bút toán.</div></td></tr>' :
-              ledger.map(e => {
-                const amt = parseFloat(e.amountVnd)||0;
-                const computedBadge = e._isComputed ? '<span class="badge badge-amber" style="font-size:9px;margin-left:4px">⚙ tự tính</span>' : '';
-                return `<tr${e._isComputed?' style="background:#FFFBF0"':''}>
-                  <td class="mono" style="font-size:12px">${fmtDate(e.entryDate)}</td>
-                  <td><span class="badge ${e.accountType==='T'?'badge-blue':'badge-amber'}">${e.accountType}</span>${computedBadge}</td>
-                  <td><span class="badge ${e.source==='Vessel'?'badge-teal':e.source==='O&M'?'badge-blue':e.source==='Ship Mgmt'?'badge-gray':'badge-purple'}" style="font-size:10px">${e.source}</span></td>
-                  <td style="font-size:12px"><strong>${e.sourceLabel}</strong>${e.description?` — ${e.description}`:''}</td>
-                  <td class="num pos" style="font-family:var(--mono)">${e.accountType==='T'?'+'+fmtB(amt):'—'}</td>
-                  <td class="num neg" style="font-family:var(--mono)">${e.accountType==='Q'?'−'+fmtB(amt):'—'}</td>
-                  <td class="num" style="font-family:var(--mono);font-weight:600;color:${e.balance>=0?'var(--green)':'var(--red)'}">${e.balance>=0?'':'−'}${fmtB(Math.abs(e.balance))}</td>
-                </tr>`;
-              }).join('')
+            ${chiRows.length === 0 ? '<tr><td colspan="3"><div class="empty-state">Chưa có khoản chi quỹ nào.<br><br>Khi chi lương/thưởng từ quỹ, vào <strong>Tàu → Chi phí → + Nhập chi phí</strong>, chọn <strong>Nguồn chi = "Chi từ quỹ lương dự án"</strong>.</div></td></tr>' :
+              chiRows.map(r => `<tr>
+                <td class="mono" style="font-size:12px">${fmtDate(r.date)}</td>
+                <td style="font-size:12px">${r.content}</td>
+                <td class="num neg" style="font-family:var(--mono);font-weight:600">−${fmtB(r.amount)}</td>
+              </tr>`).join('')
             }
           </tbody>
+          ${chiRows.length > 0 ? `<tfoot style="background:var(--gray2);font-weight:700">
+            <tr>
+              <td colspan="2">TỔNG CHI QUỸ (lifetime)</td>
+              <td class="num neg" style="font-family:var(--mono)">−${fmtB(totalChi)}</td>
+            </tr>
+          </tfoot>` : ''}
         </table></div>
       </div>
     </div>
