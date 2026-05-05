@@ -1842,10 +1842,14 @@ function buildDemoDashboard(D, p) {
 
     // ─── Cộng thêm T computed (trích quỹ tự động từ DT × accrualPct) ───
     // T computed VÀO P/L quản trị nhưng KHÔNG VÀO BCTC.
+    // Dùng pct lock cho năm nếu có (accrualPctByYear), fallback về accrualPct mặc định.
     (cats||[]).forEach(cat => {
       if (cat.group !== 'T') return;
       if (cat.active === false || cat.active === 'false') return;
-      const pct = parseFloat(cat.accrualPct) || 0;
+      const lockedPct = cat.accrualPctByYear && cat.accrualPctByYear[String(year)];
+      const pct = (lockedPct !== undefined && lockedPct !== null)
+        ? (parseFloat(lockedPct) || 0)
+        : (parseFloat(cat.accrualPct) || 0);
       if (pct <= 0) return;
       const filterRevCat = cat.appliesToRevCatId || null;
       const revBase = vRevs
@@ -1917,33 +1921,43 @@ function buildDemoProject(D, p) {
   // Loại bỏ Q (chi từ quỹ — đã trích T trước, không tính trùng vào P/L)
   const cEntriesPL = cEntries.filter(r => r.accountType !== 'Q');
 
-  // ─── COMPUTED T ENTRIES ───
-  // Tính trích quỹ T tự động: với mỗi khoản mục T (group=T, accrualPct>0)
-  // → áp dụng % trên DT của dự án (filter theo appliesToRevCatId nếu có).
-  // T computed VÀO P/L dự án (cho mục đích quản trị) nhưng KHÔNG vào BCTC.
+  // ─── COMPUTED T ENTRIES (lock pct theo năm) ───
+  // Dự án có thể kéo dài nhiều năm. Mỗi năm DT × pct của năm đó (lock-aware).
+  // T computed VÀO P/L dự án (quản trị) nhưng KHÔNG vào BCTC.
   const computedTEntries = [];
   (D.costCats || []).forEach(cat => {
     if (cat.group !== 'T') return;
     if (cat.active === false || cat.active === 'false') return;
-    const pct = parseFloat(cat.accrualPct) || 0;
-    if (pct <= 0) return;
     const filterRevCat = cat.appliesToRevCatId || null;
-    // Tổng DT thực tế của dự án (filter theo revCatId nếu cat T có chỉ định)
-    const revBase = rEntries
-      .filter(r => !filterRevCat || r.categoryId === filterRevCat)
-      .reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
-    if (revBase <= 0) return;
-    const accrued = Math.round(revBase * pct / 100);
-    computedTEntries.push({
-      id: '_computedT_' + cat.id + '_' + proj.id,
-      vesselId: proj.vesselId,
-      projectId: proj.id,
-      categoryId: cat.id,
-      description: `${cat.name} (auto: ${pct}% × ${filterRevCat?'DT đầu mục':'tổng DT'})`,
-      amountVnd: accrued,
-      accountType: 'T',
-      _isComputed: true,
-      entryDate: (proj.endDate || proj.startDate || (new Date().toISOString())).slice(0,10),
+
+    // Group DT của dự án theo năm
+    const revByYear = {};
+    rEntries.forEach(r => {
+      if (filterRevCat && r.categoryId !== filterRevCat) return;
+      const yr = parseInt((r.entryDate||'').slice(0,4));
+      if (!yr) return;
+      revByYear[yr] = (revByYear[yr] || 0) + (parseFloat(r.amountVnd) || 0);
+    });
+
+    // Áp pct của TỪNG NĂM (lock-aware) cho phần DT năm đó
+    Object.entries(revByYear).forEach(([yr, revBase]) => {
+      const lockedPct = cat.accrualPctByYear && cat.accrualPctByYear[String(yr)];
+      const pct = (lockedPct !== undefined && lockedPct !== null)
+        ? (parseFloat(lockedPct) || 0)
+        : (parseFloat(cat.accrualPct) || 0);
+      if (pct <= 0 || revBase <= 0) return;
+      const accrued = Math.round(revBase * pct / 100);
+      computedTEntries.push({
+        id: '_computedT_' + cat.id + '_' + proj.id + '_' + yr,
+        vesselId: proj.vesselId,
+        projectId: proj.id,
+        categoryId: cat.id,
+        description: `${cat.name} (auto ${yr}: ${pct}% × ${filterRevCat?'DT đầu mục':'tổng DT'})`,
+        amountVnd: accrued,
+        accountType: 'T',
+        _isComputed: true,
+        entryDate: yr + '-12-31',
+      });
     });
   });
 
@@ -4476,9 +4490,9 @@ function openCostCatForm(c={}) {
       <div class="section-title" style="margin-bottom:8px;color:var(--amber)">⚙ Cấu hình trích quỹ T (T = DT × tỷ lệ)</div>
       <div class="form-grid cols2">
         <div class="field">
-          <label>Tỷ lệ trích trên DT (%)</label>
-          <input type="number" id="cc_accrualPct" value="${c.accrualPct||0}" step="0.1" min="0" max="100" placeholder="VD: 5"/>
-          <span style="font-size:11px;color:var(--text3)">Để 0 nếu trích theo định mức tuyệt đối, không theo %</span>
+          <label>Tỷ lệ trích cho năm <strong>${S.year}</strong> (%)</label>
+          <input type="number" id="cc_accrualPct" value="${(c.accrualPctByYear && c.accrualPctByYear[String(S.year)] !== undefined) ? c.accrualPctByYear[String(S.year)] : (c.accrualPct||0)}" step="0.1" min="0" max="100" placeholder="VD: 5"/>
+          <span style="font-size:11px;color:var(--text3)">Sẽ <strong>lock</strong> cho năm ${S.year}. Sang năm khác phải đổi ${S.year} ở selector trên thanh điều hướng.</span>
         </div>
         <div class="field">
           <label>Áp dụng trên loại doanh thu</label>
@@ -4489,6 +4503,19 @@ function openCostCatForm(c={}) {
           <span style="font-size:11px;color:var(--text3)">Chọn 1 đầu mục cụ thể nếu chỉ trích trên DT đó</span>
         </div>
       </div>
+
+      <!-- Lịch sử pct theo năm (read-only) -->
+      ${(c.accrualPctByYear && Object.keys(c.accrualPctByYear).length > 0) ? `
+        <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--amber)">
+          <div style="font-size:12px;font-weight:600;color:var(--amber);margin-bottom:6px">📋 Tỷ lệ đã lock theo năm</div>
+          <div style="font-family:var(--mono);font-size:12px;display:flex;flex-wrap:wrap;gap:6px">
+            ${Object.entries(c.accrualPctByYear)
+              .sort((a,b)=>parseInt(b[0])-parseInt(a[0]))
+              .map(([yr,p]) => `<span class="badge ${parseInt(yr)===S.year?'badge-amber':'badge-gray'}" style="font-size:11px">${yr}: ${p}%${parseInt(yr)===S.year?' (đang sửa)':''}</span>`).join('')}
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:6px">Năm đã lock không bị ảnh hưởng khi đổi pct năm khác. Các năm chưa lock dùng pct mặc định.</div>
+        </div>
+      ` : ''}
     </div>`;
 
   openModal(c.id?'Cập nhật khoản mục':'Thêm khoản mục chi phí', html, async()=>{
@@ -4497,13 +4524,24 @@ function openCostCatForm(c={}) {
     const catLabel = gv('cc_catl').trim();
     const name     = gv('cc_n').trim();
     if (!g||!catCode||!catLabel||!name) { toast('Điền đủ thông tin bắt buộc (*)','warn'); return; }
+
+    // ── Lock pct theo năm ──
+    // Khi user đổi pct hiện tại, ta lock nó cho năm S.year vào accrualPctByYear.
+    // Các năm khác (đã có giá trị) GIỮ NGUYÊN — không bị đè.
+    const newPct = g==='T' ? (parseFloat(gv('cc_accrualPct'))||0) : 0;
+    const existingByYear = (c.accrualPctByYear && typeof c.accrualPctByYear === 'object') ? {...c.accrualPctByYear} : {};
+    if (g==='T') {
+      existingByYear[String(S.year)] = newPct;  // lock pct cho năm hiện tại
+    }
+
     const payload = {
       id:c.id||newId(), group:g, groupLabel:grpMap[g]||g,
       category:catCode, categoryLabel:catLabel,
       name, unit:gv('cc_u'), currency:gv('cc_cur'),
       notes:gv('cc_notes'), active:gv('cc_act')==='true',
       // ── Cấu hình trích quỹ T ──
-      accrualPct: g==='T' ? (parseFloat(gv('cc_accrualPct'))||0) : 0,
+      accrualPct: newPct,                      // pct mặc định (cho năm chưa lock)
+      accrualPctByYear: existingByYear,        // pct lịch sử bất biến theo năm
       appliesToRevCatId: g==='T' ? (gv('cc_appliesTo')||'') : '',
     };
     showLoading();
@@ -6810,24 +6848,39 @@ async function renderPayrollFund() {
   // Gộp tất cả entries có accountType T hoặc Q
   const all = [];
 
-  // ─── COMPUTED T ENTRIES — từ DT × accrualPct ───
-  // Tự động tạo bút toán T ảo cho năm S.year dựa trên doanh thu thực tế
-  const accrued = computeAccruedFunds(S.year, { revEntries, costCats, revCats, vessels, projects });
-  accrued.rows.forEach(r => {
-    all.push({
-      id: '_computedT_' + r.costCatId + '_' + (r.vesselId||'') + '_' + (r.projectId||''),
-      accountType: 'T',
-      vesselId: r.vesselId,
-      projectId: r.projectId,
-      categoryId: r.costCatId,
-      description: `${r.costCatName} (auto: ${r.accrualPct}% × ${r.appliesToRevCatName})`,
-      amountVnd: r.accruedAmount,
-      entryDate: S.year + '-12-31',  // Quy ước: hiển thị cuối năm
-      _isComputed: true,              // Flag phân biệt với entry thật
-      source: 'Vessel',
-      sourceLabel: r.vesselName + (r.projectName !== 'Ngoài dự án' ? ` — ${r.projectName}` : ''),
-      projectKey: r.projectId || ('vessel:' + r.vesselId),
-      projectName: r.projectName || r.vesselName || '—',
+  // ─── COMPUTED T ENTRIES — cho TẤT CẢ các năm có doanh thu ───
+  // Quét toàn bộ revEntries → lấy danh sách năm distinct → tính T cho từng năm
+  // accrualPct lấy giá trị hiện tại (user tự đổi khi sang năm mới)
+  const yearsWithRev = [...new Set(
+    (revEntries || [])
+      .filter(r => !r.isPlan && r.isPlan !== 'true' && r.entryDate)
+      .map(r => parseInt((r.entryDate||'').slice(0,4)))
+      .filter(y => y > 1900)
+  )];
+  // Sort cho deterministic
+  yearsWithRev.sort();
+
+  yearsWithRev.forEach(yr => {
+    const accruedYr = computeAccruedFunds(yr, { revEntries, costCats, revCats, vessels, projects });
+    accruedYr.rows.forEach(r => {
+      all.push({
+        id: '_computedT_' + r.costCatId + '_' + (r.vesselId||'') + '_' + (r.projectId||'') + '_' + yr,
+        accountType: 'T',
+        vesselId: r.vesselId,
+        projectId: r.projectId,
+        categoryId: r.costCatId,
+        description: `${r.costCatName} (auto: ${r.accrualPct}% × ${r.appliesToRevCatName})`,
+        amountVnd: r.accruedAmount,
+        entryDate: yr + '-12-31',  // Quy ước: hiển thị cuối năm
+        _isComputed: true,
+        _year: yr,                  // năm thực tế (để bảng Trích group đúng năm)
+        _revBase: r.revBase,        // DT base để hiển thị
+        _accrualPct: r.accrualPct,
+        source: 'Vessel',
+        sourceLabel: r.vesselName + (r.projectName !== 'Ngoài dự án' ? ` — ${r.projectName}` : ''),
+        projectKey: r.projectId || ('vessel:' + r.vesselId),
+        projectName: r.projectName || r.vesselName || '—',
+      });
     });
   });
 
@@ -6883,43 +6936,44 @@ async function renderPayrollFund() {
 
   // ═══════════════════════════════════════════════════════
   // PHÂN LOẠI THÀNH 2 BẢNG:
-  //   - Bảng TRÍCH QUỸ: T computed (năm hiện tại) + T manual (mọi năm)
+  //   - Bảng TRÍCH QUỸ: T computed (mọi năm có DT) + T manual (mọi năm)
   //   - Bảng CHI QUỸ: Q (mọi năm)
   // Số dư = Σ Trích − Σ Chi (cộng dồn lifetime, kế thừa qua các năm)
   // ═══════════════════════════════════════════════════════
 
-  // 1. TRÍCH QUỸ — kết hợp 2 nguồn
+  // 1. TRÍCH QUỸ — đọc từ `all` (đã chứa cả computed cho mọi năm + manual)
   const trichRows = [];
-
-  // 1a. T computed cho NĂM HIỆN TẠI (S.year): lấy từ accrued.rows (đã tính ở trên)
-  accrued.rows.forEach(r => {
-    trichRows.push({
-      year: S.year,
-      vesselName: r.vesselName,
-      projectName: r.projectName,
-      revBase: r.revBase,
-      accrualPct: r.accrualPct,
-      amount: r.accruedAmount,
-      isComputed: true,
-      sortKey: S.year * 10000 + 1231,  // cuối năm
-    });
-  });
-
-  // 1b. T manual entries (mọi năm) từ all (đã include T entries có accountType='T' không phải computed)
-  all.filter(e => e.accountType === 'T' && !e._isComputed).forEach(e => {
-    const dt = e.entryDate || '';
-    const year = parseInt(dt.slice(0,4)) || 0;
-    const monthDay = parseInt(dt.slice(5,7)+dt.slice(8,10)) || 0;
-    trichRows.push({
-      year: year,
-      vesselName: e.sourceLabel || '—',
-      projectName: e.description || '—',
-      revBase: null,            // manual → không có DT base
-      accrualPct: null,         // manual → không có pct
-      amount: parseFloat(e.amountVnd) || 0,
-      isComputed: false,
-      sortKey: year * 10000 + monthDay,
-    });
+  all.filter(e => e.accountType === 'T').forEach(e => {
+    if (e._isComputed) {
+      // Bút toán T tự tính (đã set _year, _revBase, _accrualPct ở phần inject ở trên)
+      trichRows.push({
+        year: e._year,
+        vesselName: e.sourceLabel ? e.sourceLabel.split(' — ')[0] : '—',
+        projectName: e.sourceLabel && e.sourceLabel.includes(' — ')
+                     ? e.sourceLabel.split(' — ').slice(1).join(' — ')
+                     : (e.projectName || '—'),
+        revBase: e._revBase,
+        accrualPct: e._accrualPct,
+        amount: parseFloat(e.amountVnd) || 0,
+        isComputed: true,
+        sortKey: (e._year || 0) * 10000 + 1231,
+      });
+    } else {
+      // T manual entries do user nhập tay
+      const dt = e.entryDate || '';
+      const year = parseInt(dt.slice(0,4)) || 0;
+      const monthDay = parseInt(dt.slice(5,7)+dt.slice(8,10)) || 0;
+      trichRows.push({
+        year: year,
+        vesselName: e.sourceLabel || '—',
+        projectName: e.description || '—',
+        revBase: null,            // manual → không có DT base
+        accrualPct: null,         // manual → không có pct
+        amount: parseFloat(e.amountVnd) || 0,
+        isComputed: false,
+        sortKey: year * 10000 + monthDay,
+      });
+    }
   });
 
   // Sort theo năm, mới nhất trước
@@ -7158,14 +7212,15 @@ function calcDeprForYear(inv, year) {
 
 // ─── TRÍCH QUỸ T — Computed (T = DT × accrualPct) ───
 // Mục đích: Tính tổng quỹ T đã trích trong 1 năm dựa trên doanh thu thực tế của tàu.
-// T computed = sum-over T-categories: pct × sum(rev của tàu trong năm, lọc theo appliesToRevCatId nếu có)
+// Quy tắc đọc pct (LOCK theo năm):
+//   1. Nếu khoản mục có accrualPctByYear[year] → dùng pct lock cho năm đó (ưu tiên)
+//   2. Nếu chưa lock → dùng accrualPct mặc định (cho năm chưa từng quyết toán)
+//   3. Nếu cả 2 đều = 0 → bỏ qua
 //
 // Trả về:
 //   - rows: [{costCatId, costCatName, vesselId, vesselName, projectId, projectName, accrualPct,
 //             revBase, accruedAmount, appliesToRevCatId, appliesToRevCatName}]
 //   - total: tổng VNĐ
-//
-// Nếu một khoản T không có accrualPct (=0) → bỏ qua, không tính computed.
 function computeAccruedFunds(year, sources) {
   const { revEntries = [], costCats = [], revCats = [], vessels = [], projects = [] } = sources;
   const yearStr = String(year);
@@ -7174,11 +7229,20 @@ function computeAccruedFunds(year, sources) {
   // Chỉ lấy DT thực tế (không phải kế hoạch)
   const actualRevs = revEntries.filter(r => !r.isPlan && r.isPlan !== 'true' && inYear(r));
 
-  // Lấy danh sách khoản mục T có accrualPct > 0
+  // Helper: lấy pct áp dụng cho năm year (lock-aware)
+  const getPctForYear = (cat) => {
+    if (cat.accrualPctByYear && typeof cat.accrualPctByYear === 'object') {
+      const lockedPct = cat.accrualPctByYear[yearStr];
+      if (lockedPct !== undefined && lockedPct !== null) return parseFloat(lockedPct) || 0;
+    }
+    return parseFloat(cat.accrualPct) || 0;
+  };
+
+  // Lấy danh sách khoản mục T có pct áp dụng cho năm này > 0
   const tCats = costCats.filter(c =>
     c.group === 'T' &&
     (c.active !== false && c.active !== 'false') &&
-    (parseFloat(c.accrualPct) || 0) > 0
+    getPctForYear(c) > 0
   );
 
   const vesselNameById = Object.fromEntries(vessels.map(v => [v.id, v.name]));
@@ -7188,10 +7252,8 @@ function computeAccruedFunds(year, sources) {
   const rows = [];
   let total = 0;
 
-  // Group DT theo (vesselId, projectId, revCatId) để tính trích cho từng tổ hợp
-  // Sau đó với mỗi cat T → áp dụng pct
   tCats.forEach(cat => {
-    const pct = parseFloat(cat.accrualPct) || 0;
+    const pct = getPctForYear(cat);  // ← dùng pct lock cho năm
     const filterRevCat = cat.appliesToRevCatId || null;
 
     // Group DT theo tàu+dự án (filter theo revCatId nếu cat có chỉ định)
