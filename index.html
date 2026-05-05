@@ -952,7 +952,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.30-04:10'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.30-04:50'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -4011,9 +4011,37 @@ async function renderFxRates() {
   let rates=[];
   try{ rates=await api('getFxRates',{}); } catch(e){}
   hideLoading();
+
+  // Lấy tỷ giá quy đổi báo cáo cho năm hiện tại (lưu trong localStorage)
+  const rptKey = `report_fx_rate_${S.year}`;
+  const reportRate = parseFloat(localStorage.getItem(rptKey)) || 25450;
+
   document.getElementById('content').innerHTML = `
+    <!-- Tỷ giá quy đổi báo cáo (cho cả năm) -->
+    <div class="card mb16" style="border-left:4px solid var(--blue);background:linear-gradient(135deg,#f0f9ff,#fff)">
+      <div class="card-body">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
+          <div>
+            <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:4px">💱 Tỷ giá quy đổi báo cáo — Năm ${S.year}</div>
+            <div style="font-size:11px;color:var(--text3);line-height:1.5">
+              Tỷ giá này dùng <strong>chung cho mọi báo cáo</strong> hiển thị USD song hành VNĐ trong năm.<br>
+              Khác với tỷ giá theo từng giao dịch (ngày phát sinh).
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13px;color:var(--text3)">1 USD =</span>
+            <input type="number" id="report_fx_input" value="${reportRate}" min="1" step="100"
+              style="width:120px;padding:8px 10px;border:1.5px solid var(--blue);border-radius:6px;font-family:var(--mono);font-weight:600;text-align:right;font-size:14px"/>
+            <span style="font-size:13px;color:var(--text3)">₫</span>
+            <button class="btn btn-primary btn-sm" onclick="saveReportFxRate()">💾 Lưu</button>
+          </div>
+        </div>
+        <div id="report_fx_status" style="font-size:11px;color:var(--green);margin-top:8px;display:none"></div>
+      </div>
+    </div>
+
     <div class="flex items-center justify-between mb16">
-      <span class="text-muted text-small">${rates.length} bản ghi tỷ giá</span>
+      <span class="text-muted text-small">📜 Lịch sử tỷ giá theo ngày — ${rates.length} bản ghi</span>
       <button class="btn btn-primary" onclick="openFxForm()">+ Cập nhật tỷ giá</button>
     </div>
     <div class="card">
@@ -4028,12 +4056,31 @@ async function renderFxRates() {
                 <td class="mono">${fmtDate(r.effectiveDate)}</td>
                 <td>${r.notes||'—'}</td>
                 <td class="row-actions"><button class="btn btn-ghost btn-xs" onclick="openFxForm(${JSON.stringify(r).replace(/"/g,'&quot;')})">✏️</button><button class="btn btn-ghost btn-xs" onclick="delFxRate('${r.id}')">🗑</button></td>
-              </tr>`).join('')}
+              </tr>`).join('')||'<tr><td colspan="5"><div class="empty-state">Chưa có tỷ giá nào</div></td></tr>'}
             </tbody>
           </table>
         </div>
       </div>
     </div>`;
+}
+
+function saveReportFxRate() {
+  const v = parseFloat(document.getElementById('report_fx_input').value);
+  if (!v || v < 1) { toast('Nhập tỷ giá hợp lệ', 'warn'); return; }
+  const key = `report_fx_rate_${S.year}`;
+  localStorage.setItem(key, String(v));
+  const st = document.getElementById('report_fx_status');
+  if (st) {
+    st.style.display = 'block';
+    st.textContent = `✓ Đã lưu — 1 USD = ${fmt(v)} ₫ áp dụng cho năm ${S.year}`;
+    setTimeout(() => { if (st) st.style.display = 'none'; }, 3000);
+  }
+  toast('Đã lưu tỷ giá quy đổi','ok');
+}
+
+// Helper: lấy tỷ giá quy đổi báo cáo cho năm bất kỳ
+function getReportFxRate(year) {
+  return parseFloat(localStorage.getItem(`report_fx_rate_${year || S.year}`)) || 25450;
 }
 function openFxForm(r={}){
   const currs=['USD','SGD','EUR','GBP','JPY','CNY','KRW'].map(c=>`<option value="${c}"${c===r.currency?'selected':''}>${c}</option>`).join('');
@@ -9667,14 +9714,24 @@ async function _renderProgressTable() {
   const vesselTtRev = vesselRevs_inP.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
   const vesselTtCost = vesselCosts_inP.reduce((s,c) => s+(parseFloat(c.amountVnd)||0), 0);
   const vesselTtMargin = vesselTtRev - vesselTtCost;
-  // KH: từ annualPlan (cột revPlan) — nhân theo tỷ lệ kỳ trong năm
-  const vesselYearPlanRev = (annualPlans||[]).filter(p => p.year === year)
-    .reduce((s,p) => s + (parseFloat(p.revPlan)||0), 0);
+  // KH Vessel — 2 nguồn:
+  // 1. Bút toán doanh thu có isPlan=true (anh nhập trực tiếp vào trang Doanh thu)
+  // 2. annualPlan (cột revPlan/costPlan, lưu riêng theo năm)
+  const vesselPlanRevs_inP = allRevs.filter(r => inPeriod(r) && (r.isPlan===true || r.isPlan==='true'));
+  let vesselPlanRev = vesselPlanRevs_inP.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
+  let vesselPlanCost = 0;
+  // Nếu không có bút toán plan, fallback sang annualPlan (chia theo tỷ lệ kỳ trong năm)
+  if (vesselPlanRev === 0) {
+    const vesselYearPlanRev = (annualPlans||[]).filter(p => p.year === year)
+      .reduce((s,p) => s + (parseFloat(p.revPlan)||0), 0);
+    const periodFraction = periodTotal / (((year%4===0 && year%100!==0) || year%400===0) ? 366 : 365);
+    vesselPlanRev = vesselYearPlanRev * periodFraction;
+  }
+  // Cost plan chỉ có ở annualPlan
   const vesselYearPlanCost = (annualPlans||[]).filter(p => p.year === year)
     .reduce((s,p) => s + (parseFloat(p.costPlan)||0), 0);
   const periodFraction = periodTotal / (((year%4===0 && year%100!==0) || year%400===0) ? 366 : 365);
-  const vesselPlanRev = vesselYearPlanRev * periodFraction;
-  const vesselPlanCost = vesselYearPlanCost * periodFraction;
+  vesselPlanCost = vesselYearPlanCost * periodFraction;
   const vesselPlanMargin = vesselPlanRev - vesselPlanCost;
 
   // ─── O&M ───
@@ -9683,37 +9740,70 @@ async function _renderProgressTable() {
   const omTtRev = omRevs_inP.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
   const omTtCost = omCosts_inP.reduce((s,c) => s+(parseFloat(c.amountVnd)||0), 0);
   const omTtMargin = omTtRev - omTtCost;
-  // KH: tổng từ omPlans cho phần overlap với kỳ
-  let omPlanRev = 0, omPlanCost = 0;
-  omPlans.forEach(plan => {
-    const ctr = omContracts.find(c => c.id === plan.contractId);
-    if (!ctr || !ctr.startDate) return;
-    if (plan.mode === 'monthly' && plan.monthlyData) {
-      const fx = parseFloat(plan.fxRate)||1;
-      Object.entries(plan.monthlyData).forEach(([ym, v]) => {
-        const ymDate = new Date(ym + '-15');
-        if (ymDate >= periodStart && ymDate <= periodEnd) {
-          omPlanRev += (parseFloat(v.rev)||0) * fx;
-          omPlanCost += (parseFloat(v.cost)||0) * fx;
-        }
-      });
-    } else {
-      // Total mode → chia đều
-      const totalMonths = (typeof omContractMonths === 'function') ? omContractMonths(ctr) : 12;
-      if (totalMonths > 0) {
-        const monthlyRev = (parseFloat(plan.planRevenueVND)||0) / totalMonths;
-        const monthlyCost = (parseFloat(plan.planCostVND)||0) / totalMonths;
-        const cs = new Date(ctr.startDate);
-        for (let i=0; i<totalMonths; i++) {
-          const d = new Date(cs.getFullYear(), cs.getMonth()+i, 15);
-          if (d >= periodStart && d <= periodEnd) {
-            omPlanRev += monthlyRev;
-            omPlanCost += monthlyCost;
+  // KH O&M — 2 nguồn:
+  // 1. Bút toán omRevs có isPlan=true (anh nhập trực tiếp trang Doanh thu O&M)
+  // 2. omPlans (kế hoạch theo HĐ)
+  const omPlanRevs_inP = omRevs.filter(r => inPeriod(r) && (r.isPlan===true || r.isPlan==='true'));
+  let omPlanRev = omPlanRevs_inP.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
+  let omPlanCost = 0;
+  // Fallback omPlans nếu chưa có entry isPlan
+  if (omPlanRev === 0) {
+    omPlans.forEach(plan => {
+      const ctr = omContracts.find(c => c.id === plan.contractId);
+      if (!ctr || !ctr.startDate) return;
+      if (plan.mode === 'monthly' && plan.monthlyData) {
+        const fx = parseFloat(plan.fxRate)||1;
+        Object.entries(plan.monthlyData).forEach(([ym, v]) => {
+          const ymDate = new Date(ym + '-15');
+          if (ymDate >= periodStart && ymDate <= periodEnd) {
+            omPlanRev += (parseFloat(v.rev)||0) * fx;
+            omPlanCost += (parseFloat(v.cost)||0) * fx;
+          }
+        });
+      } else {
+        const totalMonths = (typeof omContractMonths === 'function') ? omContractMonths(ctr) : 12;
+        if (totalMonths > 0) {
+          const monthlyRev = (parseFloat(plan.planRevenueVND)||0) / totalMonths;
+          const monthlyCost = (parseFloat(plan.planCostVND)||0) / totalMonths;
+          const cs = new Date(ctr.startDate);
+          for (let i=0; i<totalMonths; i++) {
+            const d = new Date(cs.getFullYear(), cs.getMonth()+i, 15);
+            if (d >= periodStart && d <= periodEnd) {
+              omPlanRev += monthlyRev;
+              omPlanCost += monthlyCost;
+            }
           }
         }
       }
-    }
-  });
+    });
+  } else {
+    // Nếu có entry isPlan từ omRevs, vẫn lấy cost plan từ omPlans
+    omPlans.forEach(plan => {
+      const ctr = omContracts.find(c => c.id === plan.contractId);
+      if (!ctr || !ctr.startDate) return;
+      if (plan.mode === 'monthly' && plan.monthlyData) {
+        const fx = parseFloat(plan.fxRate)||1;
+        Object.entries(plan.monthlyData).forEach(([ym, v]) => {
+          const ymDate = new Date(ym + '-15');
+          if (ymDate >= periodStart && ymDate <= periodEnd) {
+            omPlanCost += (parseFloat(v.cost)||0) * fx;
+          }
+        });
+      } else {
+        const totalMonths = (typeof omContractMonths === 'function') ? omContractMonths(ctr) : 12;
+        if (totalMonths > 0) {
+          const monthlyCost = (parseFloat(plan.planCostVND)||0) / totalMonths;
+          const cs = new Date(ctr.startDate);
+          for (let i=0; i<totalMonths; i++) {
+            const d = new Date(cs.getFullYear(), cs.getMonth()+i, 15);
+            if (d >= periodStart && d <= periodEnd) {
+              omPlanCost += monthlyCost;
+            }
+          }
+        }
+      }
+    });
+  }
   const omPlanMargin = omPlanRev - omPlanCost;
 
   // ─── SHIP MGMT ───
@@ -9752,6 +9842,20 @@ async function _renderProgressTable() {
     return { pct, diff, status: 'amber', label: `🟡 Đúng tiến độ` };
   };
 
+  // Lấy tỷ giá quy đổi báo cáo (lưu trong localStorage, mặc định 25450)
+  const reportFx = (typeof getReportFxRate === 'function') ? getReportFxRate(year) : (parseFloat(localStorage.getItem(`report_fx_rate_${year}`)) || 25450);
+
+  // Helper format VND + USD trên 2 dòng
+  const dual = (vnd, opts={}) => {
+    if (vnd === 0 || vnd == null) return '<span style="color:var(--text3)">—</span>';
+    const usd = vnd / reportFx;
+    const usdFmt = Math.abs(usd) >= 1e6 ? `$${fmt(usd/1e6,2)}M` : Math.abs(usd) >= 1e3 ? `$${fmt(usd/1e3,1)}K` : `$${fmt(usd,0)}`;
+    const color = opts.color || '';
+    const weight = opts.bold ? '600' : '400';
+    return `<div style="font-family:var(--mono);font-weight:${weight};${color?'color:'+color:''};white-space:nowrap">${fmtB(vnd)}</div>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--text3);white-space:nowrap;margin-top:1px">${usdFmt}</div>`;
+  };
+
   const renderRow = (key, label, icon, ttRev, planRev, ttMargin, planMargin) => {
     const ev = evalProgress(ttRev, planRev);
     const ttMgPct = ttRev ? ttMargin/ttRev*100 : 0;
@@ -9764,13 +9868,19 @@ async function _renderProgressTable() {
     const clickAttr = navTarget ? `onclick="S.page='${navTarget}';nav_(document.querySelector('[data-page=${navTarget}]'))"` : '';
     const cursor = navTarget ? 'cursor:pointer' : '';
     return `<tr ${clickAttr} style="${cursor}">
-      <td style="font-weight:600">${icon} ${label}</td>
-      <td class="num" style="font-family:var(--mono);color:var(--text3)">${planRev>0?fmtB(planRev):'—'}</td>
-      <td class="num" style="font-family:var(--mono);font-weight:600">${fmtB(ttRev)}</td>
-      <td class="num" style="font-family:var(--mono)">${planRev>0?pct(ev.pct):'—'}</td>
-      <td class="num" style="font-family:var(--mono);color:var(--text3)">${planMargin!==0?fmtB(planMargin):'—'}<div style="font-size:10px">${planRev>0?pct(planMgPct):''}</div></td>
-      <td class="num" style="font-family:var(--mono);font-weight:600;color:${ttMargin>=0?'var(--green)':'var(--red)'}">${fmtB(ttMargin)}<div style="font-size:10px">${ttRev?pct(ttMgPct):''}</div></td>
-      <td><span class="badge ${ev.status==='green'?'badge-green':ev.status==='red'?'badge-red':ev.status==='amber'?'badge-amber':'badge-gray'}" style="font-size:11px">${ev.label}</span></td>
+      <td style="font-weight:600;white-space:nowrap">${icon} ${label}</td>
+      <td class="num">${planRev>0?dual(planRev,{color:'var(--text3)'}):'<span style="color:var(--text3)">—</span>'}</td>
+      <td class="num">${ttRev>0?dual(ttRev,{bold:true}):'<span style="color:var(--text3)">—</span>'}</td>
+      <td class="num" style="font-family:var(--mono);white-space:nowrap">${planRev>0?pct(ev.pct):'—'}</td>
+      <td class="num">
+        ${planMargin!==0?dual(planMargin,{color:'var(--text3)'}):'<span style="color:var(--text3)">—</span>'}
+        ${planRev>0?`<div style="font-size:9px;color:var(--text3);margin-top:1px">${pct(planMgPct)}</div>`:''}
+      </td>
+      <td class="num">
+        ${ttMargin!==0?dual(ttMargin,{bold:true,color:ttMargin>=0?'var(--green)':'var(--red)'}):'<span style="color:var(--text3)">—</span>'}
+        ${ttRev?`<div style="font-size:9px;color:var(--text3);margin-top:1px">${pct(ttMgPct)}</div>`:''}
+      </td>
+      <td style="white-space:nowrap"><span class="badge ${ev.status==='green'?'badge-green':ev.status==='red'?'badge-red':ev.status==='amber'?'badge-amber':'badge-gray'}" style="font-size:11px;white-space:nowrap">${ev.label}</span></td>
     </tr>`;
   };
 
@@ -9789,7 +9899,7 @@ async function _renderProgressTable() {
       <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
         <div>
           <h3 style="margin:0">📊 Kế hoạch &amp; Tiến độ — ${periodLabel}</h3>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px">Đã qua ${pct(timeProgressPct)} kỳ · Click dòng để mở báo cáo chi tiết</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">Đã qua ${pct(timeProgressPct)} kỳ · Quy đổi 1 USD = ${fmt(reportFx)} ₫ · Click dòng để mở báo cáo chi tiết</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <div class="flex gap8" style="border:1px solid var(--gray3);border-radius:6px;padding:2px">
@@ -9802,15 +9912,15 @@ async function _renderProgressTable() {
         </div>
       </div>
       <div class="card-body no-pad">
-        <div class="tbl-wrap"><table>
+        <div class="tbl-wrap"><table style="table-layout:auto">
           <thead><tr>
             <th>Mảng</th>
-            <th class="num" style="width:110px">KH Doanh thu</th>
-            <th class="num" style="width:110px">TT Doanh thu</th>
-            <th class="num" style="width:80px">% đạt KH</th>
-            <th class="num" style="width:110px">KH Margin</th>
-            <th class="num" style="width:110px">TT Margin</th>
-            <th style="width:130px">Đánh giá</th>
+            <th class="num">KH Doanh thu</th>
+            <th class="num">TT Doanh thu</th>
+            <th class="num">% đạt KH</th>
+            <th class="num">KH Margin</th>
+            <th class="num">TT Margin</th>
+            <th>Đánh giá</th>
           </tr></thead>
           <tbody>
             ${renderRow('vessel', 'Vessel — Vận hành tàu', '🚢', vesselTtRev, vesselPlanRev, vesselTtMargin, vesselPlanMargin)}
@@ -9821,12 +9931,12 @@ async function _renderProgressTable() {
           <tfoot style="background:var(--gray2);font-weight:700">
             <tr>
               <td>TỔNG CÔNG TY</td>
-              <td class="num" style="font-family:var(--mono);color:var(--text3)">${totalPlanRev>0?fmtB(totalPlanRev):'—'}</td>
-              <td class="num" style="font-family:var(--mono)">${fmtB(totalTtRev)}</td>
-              <td class="num" style="font-family:var(--mono)">${totalPlanRev>0?pct(totalTtRev/totalPlanRev*100):'—'}</td>
-              <td class="num" style="font-family:var(--mono);color:var(--text3)">${totalPlanMargin!==0?fmtB(totalPlanMargin):'—'}</td>
-              <td class="num" style="font-family:var(--mono);color:${totalTtMargin>=0?'var(--green)':'var(--red)'}">${fmtB(totalTtMargin)}</td>
-              <td>${(()=>{const ev=evalProgress(totalTtRev,totalPlanRev);return `<span class="badge ${ev.status==='green'?'badge-green':ev.status==='red'?'badge-red':ev.status==='amber'?'badge-amber':'badge-gray'}" style="font-size:11px">${ev.label}</span>`;})()}</td>
+              <td class="num">${totalPlanRev>0?dual(totalPlanRev,{color:'var(--text3)'}):'<span style="color:var(--text3)">—</span>'}</td>
+              <td class="num">${totalTtRev>0?dual(totalTtRev,{bold:true}):'<span style="color:var(--text3)">—</span>'}</td>
+              <td class="num" style="font-family:var(--mono);white-space:nowrap">${totalPlanRev>0?pct(totalTtRev/totalPlanRev*100):'—'}</td>
+              <td class="num">${totalPlanMargin!==0?dual(totalPlanMargin,{color:'var(--text3)'}):'<span style="color:var(--text3)">—</span>'}</td>
+              <td class="num">${totalTtMargin!==0?dual(totalTtMargin,{bold:true,color:totalTtMargin>=0?'var(--green)':'var(--red)'}):'<span style="color:var(--text3)">—</span>'}</td>
+              <td style="white-space:nowrap">${(()=>{const ev=evalProgress(totalTtRev,totalPlanRev);return `<span class="badge ${ev.status==='green'?'badge-green':ev.status==='red'?'badge-red':ev.status==='amber'?'badge-amber':'badge-gray'}" style="font-size:11px;white-space:nowrap">${ev.label}</span>`;})()}</td>
             </tr>
           </tfoot>
         </table></div>
