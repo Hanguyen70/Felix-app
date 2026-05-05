@@ -7152,12 +7152,13 @@ async function renderInvestments() {
 
 // Form thêm/sửa khoản đầu tư
 async function openInvestForm(inv = {}) {
-  let vessels = [], omContracts = [], capex = [];
+  let vessels = [], omContracts = [], capex = [], fixedAssets = [];
   try {
-    [vessels, omContracts, capex] = await Promise.all([
+    [vessels, omContracts, capex, fixedAssets] = await Promise.all([
       api('getVessels', {}),
       api('getOmContracts', {}),
       api('getCapex', {}),
+      api('getFixedAssets', {}).catch(()=>[]),
     ]);
   } catch(e) {}
 
@@ -7166,7 +7167,8 @@ async function openInvestForm(inv = {}) {
     `<option value="${v.id}"${v.id===inv.vesselId?' selected':''}>${v.name}</option>`).join('');
   const omOpts = '<option value="">— Chọn hợp đồng O&M —</option>' + omContracts.map(c =>
     `<option value="${c.id}"${c.id===inv.contractId?' selected':''}>${c.name}</option>`).join('');
-  // Build map id→tên tàu để hiển thị trong dropdown Capex
+
+  // ─── Build dropdown Capex từ 2 nguồn: Capex tàu + TSCĐ chung ───
   const vesselNameById = Object.fromEntries(vessels.map(v => [v.id, v.name]));
   const _fmtVnd = n => {
     const x = parseFloat(n) || 0;
@@ -7174,17 +7176,60 @@ async function openInvestForm(inv = {}) {
     if (x >= 1e6) return (x/1e6).toFixed(0) + ' tr';
     return x.toLocaleString('vi-VN');
   };
-  const capexOpts = '<option value="">— (Không liên kết) —</option>' + capex.map(c => {
-    const desc = c.description || c.name || c.assetName || '(không có mô tả)';
-    const vName = vesselNameById[c.vesselId] || '';
-    const year = c.year || '';
-    const amt = c.amountVnd ? ' • ' + _fmtVnd(c.amountVnd) + 'đ' : '';
-    const meta = [vName, year].filter(Boolean).join(' ');
-    const label = desc + (meta ? ' — ' + meta : '') + amt;
-    // Escape ký tự đặc biệt cho an toàn trong attribute
-    const safeLabel = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
-    return `<option value="${c.id}"${c.id===inv.capexLinkId?' selected':''}>${safeLabel}</option>`;
-  }).join('');
+  const _esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+
+  // Chuẩn hoá 2 nguồn về 1 schema chung: {id, source, vesselId, label}
+  // Dùng prefix "cx:" và "fa:" để phân biệt nguồn ngay từ giá trị id lưu
+  const vesselCapexItems = capex.map(c => ({
+    id: 'cx:' + c.id,
+    source: 'vessel',
+    vesselId: c.vesselId || '',
+    label: (c.description || '(không mô tả)')
+         + (vesselNameById[c.vesselId] ? ' — ' + vesselNameById[c.vesselId] : '')
+         + (c.year ? ' ' + c.year : '')
+         + (c.amountVnd ? ' • ' + _fmtVnd(c.amountVnd) + 'đ' : ''),
+  }));
+  const fixedAssetItems = fixedAssets.map(a => ({
+    id: 'fa:' + a.id,
+    source: 'ga',
+    vesselId: '',
+    label: (a.name || '(không tên)')
+         + (a.startDate ? ' — ' + (a.startDate.slice(0,7)) : '')
+         + (a.cost ? ' • ' + _fmtVnd(a.cost) + 'đ' : ''),
+  }));
+
+  // Filter theo scope của khoản đầu tư
+  let capexCandidates;
+  if (scope === 'vessel') {
+    // Đầu tư cho 1 tàu → chỉ Capex của tàu đó (nếu đã chọn tàu) hoặc tất cả Capex tàu
+    capexCandidates = inv.vesselId
+      ? vesselCapexItems.filter(x => x.vesselId === inv.vesselId)
+      : vesselCapexItems;
+  } else if (scope === 'om') {
+    // Đầu tư phục vụ O&M → có thể là Capex tàu hoặc TSCĐ chung
+    capexCandidates = [...vesselCapexItems, ...fixedAssetItems];
+  } else {
+    // QL chung → chỉ TSCĐ chung
+    capexCandidates = fixedAssetItems;
+  }
+
+  // Group theo nguồn để dropdown gọn gàng (dùng <optgroup>)
+  const grpVessel = capexCandidates.filter(x => x.source === 'vessel');
+  const grpGa     = capexCandidates.filter(x => x.source === 'ga');
+  let capexOpts = '<option value="">— (Không liên kết) —</option>';
+  if (grpVessel.length) {
+    capexOpts += '<optgroup label="🚢 Capex theo tàu">' + grpVessel.map(x =>
+      `<option value="${x.id}"${x.id===inv.capexLinkId?' selected':''}>${_esc(x.label)}</option>`
+    ).join('') + '</optgroup>';
+  }
+  if (grpGa.length) {
+    capexOpts += '<optgroup label="🏢 TSCĐ Quản lý chung">' + grpGa.map(x =>
+      `<option value="${x.id}"${x.id===inv.capexLinkId?' selected':''}>${_esc(x.label)}</option>`
+    ).join('') + '</optgroup>';
+  }
+  if (!grpVessel.length && !grpGa.length) {
+    capexOpts += '<option value="" disabled>— Chưa có Capex/TSCĐ phù hợp —</option>';
+  }
   const curOpts = ['VND','USD','SGD','EUR','GBP'].map(cc =>
     `<option value="${cc}"${cc===(inv.currency||'VND')?' selected':''}>${cc}</option>`).join('');
   const methods = [
