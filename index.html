@@ -764,6 +764,10 @@ body.ios-view .ios-banner { display: block; }
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
       Quỹ lương dự án (T/Q)
     </div>
+    <div class="nav-item home-only" data-page="investments" onclick="nav(this)">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+      Đầu tư & Khấu hao
+    </div>
     <div class="nav-item home-only" data-page="tax-report" onclick="nav(this)">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/></svg>
       Dự trù BCTC / Thuế TNDN
@@ -944,7 +948,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.29-15:20'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.30-02:55'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -1667,6 +1671,7 @@ function _buildInitialDemo() {
     costEntries: [],
     revEntries: [],
     capex:[],
+    investments:[],
     fxRates:[],
     annualPlan:[],
   };
@@ -1684,6 +1689,19 @@ function _demoDataCore(action, p, DEMO) {
     case 'getCostEntries': return cloneFilter(DEMO.costEntries, r => (!p.vesselId||r.vesselId===p.vesselId)&&(!p.projectId||r.projectId===p.projectId));
     case 'getRevEntries':  return cloneFilter(DEMO.revEntries, r => (!p.vesselId||r.vesselId===p.vesselId)&&(!p.projectId||r.projectId===p.projectId));
     case 'getCapex':       return cloneFilter(DEMO.capex, r => (!p.vesselId||r.vesselId===p.vesselId));
+    case 'getInvestments': return [...(DEMO.investments||[])];
+    case 'saveInvestment': {
+      if (!DEMO.investments) DEMO.investments = [];
+      const i=DEMO.investments.findIndex(r=>r.id===p.id);
+      if(i>=0) DEMO.investments[i]=p; else DEMO.investments.push({...p,id:p.id||newId()});
+      return p;
+    }
+    case 'deleteInvestment': {
+      if (!DEMO.investments) DEMO.investments = [];
+      const i=DEMO.investments.findIndex(r=>r.id===p.id);
+      if(i>=0) DEMO.investments.splice(i,1);
+      return {deleted:true};
+    }
     case 'getFxRates':     return [...DEMO.fxRates];
     case 'getAnnualPlan':  return cloneFilter(DEMO.annualPlan, r => (!p.vesselId||r.vesselId===p.vesselId));
     case 'initSheets':     return {message:'Demo mode — không kết nối Sheets'};
@@ -2711,8 +2729,20 @@ function openProjectForm(p={}) {
       <div class="field required"><label>Khách hàng</label><input id="fclient" value="${p.client||''}"/></div>
       <div class="field"><label>Số hợp đồng</label><input id="fcontract" value="${p.contractNo||''}"/></div>
       <div class="field" style="grid-column:span 2"><label>Địa điểm làm việc</label><input id="floc" value="${p.location||''}"/></div>
-      <div class="field required"><label>Ngày giờ Onhire</label><input type="datetime-local" id="fonhire" value="${p.onhireAt||''}"/></div>
-      <div class="field"><label>Ngày giờ Offhire</label><input type="datetime-local" id="foffhire" value="${p.offhireAt||''}"/></div>
+      <div class="field" style="grid-column:span 2">
+        <label>Ngày giờ Onhire <span style="color:#dc2626">*</span></label>
+        <div style="display:grid;grid-template-columns:1fr 120px;gap:8px">
+          <input type="date" id="fonhire_d" value="${(p.onhireAt||'').slice(0,10)}"/>
+          <input type="time" id="fonhire_t" value="${(p.onhireAt||'').slice(11,16) || '00:00'}"/>
+        </div>
+      </div>
+      <div class="field" style="grid-column:span 2">
+        <label>Ngày giờ Offhire</label>
+        <div style="display:grid;grid-template-columns:1fr 120px;gap:8px">
+          <input type="date" id="foffhire_d" value="${(p.offhireAt||'').slice(0,10)}"/>
+          <input type="time" id="foffhire_t" value="${(p.offhireAt||'').slice(11,16) || '00:00'}"/>
+        </div>
+      </div>
     </div>
     <div class="divider"></div>
     <div class="section-title">Chi tiết thời gian (ngày)</div>
@@ -2731,16 +2761,22 @@ function openProjectForm(p={}) {
     const standby  = parseFloat(gv('fstandby'))||0;
     const onfield  = parseFloat(gv('fonfield'))||0;
     const totalDays= +(transit + mob + standby + onfield).toFixed(2);
+    // Ghép Date + Time
+    const onhireD = gv('fonhire_d'), onhireT = gv('fonhire_t')||'00:00';
+    const offhireD = gv('foffhire_d'), offhireT = gv('foffhire_t')||'00:00';
+    const onhireAt = onhireD ? `${onhireD}T${onhireT}` : '';
+    const offhireAt = offhireD ? `${offhireD}T${offhireT}` : '';
     const payload = {
       id: p.id||newId(), vesselId:gv('fv'), name:gv('fname'), client:gv('fclient'),
       contractNo:gv('fcontract'), location:gv('floc'),
-      onhireAt:gv('fonhire'), offhireAt:gv('foffhire'),
+      onhireAt, offhireAt,
       transitDays: transit, mobDemobDays: mob,
       standbyDays: standby, onfieldDays: onfield,
       totalDays,
       status:gv('fstatus'), notes:gv('fnotes'), createdAt: p.createdAt||new Date().toISOString()
     };
     if (!payload.vesselId||!payload.name) { toast('Vui lòng điền đủ thông tin bắt buộc','warn'); return; }
+    if (!payload.onhireAt) { toast('Cần nhập ngày Onhire','warn'); return; }
     showLoading();
     try {
       await api('saveProject', payload);
@@ -4246,7 +4282,6 @@ async function renderSettings() {
         <p class="mt8">Đang chạy ở chế độ: <span class="badge ${API_URL?'badge-green':'badge-amber'}">${API_URL?'Kết nối Sheets':'Demo (offline)'}</span></p>
         <div class="mt12">
           <button class="btn btn-outline btn-sm" onclick="manualCheckUpdate()">🔄 Kiểm tra phiên bản mới</button>
-          <span id="version-check-result" style="margin-left:10px;font-size:12px"></span>
         </div>
       </div>
     </div>`;
@@ -4273,36 +4308,6 @@ function autoLockSave() {
   if (st) {
     if (min === 0) st.innerHTML = '<span style="color:var(--amber)">⚠ Auto-lock đang TẮT</span>';
     else st.innerHTML = `<span style="color:var(--green)">✓ Sẽ tự khoá sau ${min} phút không hoạt động</span>`;
-  }
-}
-
-async function manualCheckUpdate() {
-  const el = document.getElementById('version-check-result');
-  if (el) el.textContent = '⏳ Đang kiểm tra...';
-  // Force check (xoá cache)
-  localStorage.removeItem(VERSION_CHECK_KEY);
-  try {
-    const url = `https://api.github.com/repos/${VERSION_REPO}/commits?path=${VERSION_FILE}&per_page=1`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error('GitHub API lỗi');
-    const commits = await resp.json();
-    if (!commits.length) {
-      if (el) el.innerHTML = '<span style="color:var(--text3)">Không tìm thấy commit</span>';
-      return;
-    }
-    const latest = commits[0];
-    const latestTime = new Date(latest.commit.author.date).getTime();
-    const currentTime = _parseVersionTime(FELIX_VERSION);
-    localStorage.setItem(VERSION_CHECK_KEY, String(Date.now()));
-
-    if (latestTime > currentTime + 5*60*1000) {
-      if (el) el.innerHTML = '<span style="color:var(--amber);font-weight:600">🔄 Có bản mới! Bấm "Cập nhật ngay" trên banner đầu trang</span>';
-      _showUpdateBanner(latest);
-    } else {
-      if (el) el.innerHTML = '<span style="color:var(--green);font-weight:600">✓ Đang dùng bản mới nhất</span>';
-    }
-  } catch(e) {
-    if (el) el.innerHTML = '<span style="color:var(--red)">Lỗi: '+e.message+'</span>';
   }
 }
 
@@ -5208,6 +5213,7 @@ const ALL_PAGES = {
   // Consolidated
   consolidated:       () => renderConsolidated(),
   'payroll-fund':     () => renderPayrollFund(),
+  'investments':      () => renderInvestments(),
 };
 
 const ALL_TITLES = {
@@ -5227,6 +5233,7 @@ const ALL_TITLES = {
   ga:'Hoạt động chung (Corporate Center)', consolidated:'Báo cáo tổng hợp P&L',
   'ga-cats':'Danh mục G&A',
   'payroll-fund':'Quỹ lương dự án (T/Q)',
+  'investments':'Đầu tư & Khấu hao',
   'tax-report':'Dự trù BCTC — Lợi nhuận chịu thuế TNDN',
 };
 
@@ -6298,12 +6305,481 @@ async function exportPayrollFundCsv() {
   toast('Đã xuất CSV','ok');
 }
 
+// ═══════════════════════════════════════════════════════
+// PAGE: ĐẦU TƯ & KHẤU HAO
+// ═══════════════════════════════════════════════════════
+
+// Helper: Tính khấu hao đến 1 thời điểm cụ thể (đồng VND)
+function calcDepreciation(inv, asOf = new Date()) {
+  const cost = parseFloat(inv.amountVnd) || 0;
+  const salvage = parseFloat(inv.salvageValue) || 0;
+  const depreciable = cost - salvage;
+  const years = parseFloat(inv.years) || 1;
+  if (!cost || depreciable <= 0 || !inv.investDate) return { totalDepr: 0, currentNbv: cost, monthsElapsed: 0 };
+  const start = new Date(inv.investDate);
+  const ms = asOf - start;
+  if (ms <= 0) return { totalDepr: 0, currentNbv: cost, monthsElapsed: 0 };
+  const monthsElapsed = Math.min(ms / (1000*60*60*24*30.4375), years*12);
+
+  let totalDepr = 0;
+  if (inv.method === 'declining') {
+    const rate = (parseFloat(inv.decliningRate) || (200/years)) / 100; // % giảm dần
+    let bv = cost;
+    let monthsLeft = monthsElapsed;
+    for (let y = 0; y < years && monthsLeft > 0 && bv > salvage; y++) {
+      const yearDepr = (bv - salvage) * rate;
+      const monthsThisYear = Math.min(12, monthsLeft);
+      const deprThisYear = yearDepr * (monthsThisYear/12);
+      totalDepr += Math.min(deprThisYear, bv - salvage);
+      bv -= deprThisYear;
+      monthsLeft -= 12;
+    }
+  } else if (inv.method === 'usage') {
+    // Theo số ngày on-hire (tạm tính tỷ lệ thời gian — sẽ cải tiến sau)
+    totalDepr = depreciable * (monthsElapsed / (years*12));
+  } else {
+    // Đường thẳng (Straight-line) — mặc định
+    totalDepr = depreciable * (monthsElapsed / (years*12));
+  }
+  totalDepr = Math.min(totalDepr, depreciable);
+  const currentNbv = cost - totalDepr;
+  return { totalDepr: Math.round(totalDepr), currentNbv: Math.round(currentNbv), monthsElapsed: +monthsElapsed.toFixed(1) };
+}
+
+// Khấu hao trong 1 năm cụ thể
+function calcDeprForYear(inv, year) {
+  const yEnd = new Date(year, 11, 31, 23, 59, 59);
+  const yStart = new Date(year, 0, 1);
+  const dEnd = calcDepreciation(inv, yEnd).totalDepr;
+  const dStart = calcDepreciation(inv, yStart).totalDepr;
+  return Math.max(0, dEnd - dStart);
+}
+
+let _S_INV_YEAR = new Date().getFullYear();
+
+async function renderInvestments() {
+  showLoading();
+  let invs=[], vessels=[], omContracts=[], capex=[];
+  try {
+    [invs, vessels, omContracts, capex] = await Promise.all([
+      api('getInvestments', {}),
+      api('getVessels', {}),
+      api('getOmContracts', {}),
+      api('getCapex', {}),
+    ]);
+  } catch(e) { toast('Lỗi tải dữ liệu','err'); }
+  hideLoading();
+
+  const year = _S_INV_YEAR;
+  const today = new Date();
+
+  // Tính các chỉ số cho từng khoản
+  const enriched = invs.map(inv => {
+    const d = calcDepreciation(inv, today);
+    const deprThisYear = calcDeprForYear(inv, year);
+    let scopeLabel = '—';
+    if (inv.scope === 'vessel') {
+      const v = vessels.find(x=>x.id===inv.vesselId);
+      scopeLabel = '🚢 ' + (v?.name || 'Tàu —');
+    } else if (inv.scope === 'om') {
+      const c = omContracts.find(x=>x.id===inv.contractId);
+      scopeLabel = '🏥 O&M: ' + (c?.name || '—');
+    } else {
+      scopeLabel = '🏢 Chung công ty';
+    }
+    return { ...inv, totalDepr: d.totalDepr, currentNbv: d.currentNbv, monthsElapsed: d.monthsElapsed, deprThisYear, scopeLabel };
+  });
+
+  // KPI tổng
+  const totalCapex = enriched.reduce((s, x) => s + (parseFloat(x.amountVnd)||0), 0);
+  const totalDepr  = enriched.reduce((s, x) => s + x.totalDepr, 0);
+  const totalNbv   = totalCapex - totalDepr;
+  const deprThisYearTotal = enriched.reduce((s, x) => s + x.deprThisYear, 0);
+  const investedThisYear = enriched
+    .filter(x => x.investDate && x.investDate.startsWith(String(year)))
+    .reduce((s, x) => s + (parseFloat(x.amountVnd)||0), 0);
+
+  // Theo đối tượng
+  const byScope = {};
+  enriched.forEach(x => {
+    const key = x.scopeLabel;
+    if (!byScope[key]) byScope[key] = { name: key, count: 0, capex: 0, depr: 0, deprYear: 0 };
+    byScope[key].count++;
+    byScope[key].capex += parseFloat(x.amountVnd)||0;
+    byScope[key].depr += x.totalDepr;
+    byScope[key].deprYear += x.deprThisYear;
+  });
+  const scopeRows = Object.values(byScope).sort((a,b) => b.capex - a.capex);
+
+  // Năm hiện tại + 5 năm trước
+  const yearOpts = [];
+  for (let y = today.getFullYear()+1; y >= today.getFullYear()-5; y--) {
+    yearOpts.push(`<option value="${y}"${y===year?' selected':''}>${y}</option>`);
+  }
+
+  document.getElementById('content').innerHTML = `
+    <div style="background:linear-gradient(135deg,#0a1628,#1e3a5f);border-radius:var(--radius);padding:14px 20px;margin-bottom:16px;color:#fff">
+      <div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Đầu tư & Khấu hao</div>
+      <div style="font-size:13px;line-height:1.7">
+        Theo dõi <strong>các khoản đầu tư bổ sung</strong> (sửa lớn, nâng cấp, mua thiết bị...) sau khi tài sản gốc đã đi vào hoạt động.<br>
+        <strong>Vốn hóa</strong> thành Capex → <strong>Khấu hao theo phương pháp đã chọn</strong> → <strong>Chỉ vào BCTC</strong>, không vào P&amp;L (vì không phát sinh tiền chi phí mỗi tháng).<br>
+        Khác với Capex hiện có: Capex = mua tàu/xây toà nhà gốc; Đầu tư = các khoản bổ sung sau đó.
+      </div>
+    </div>
+
+    <div class="kpi-grid cols4 mb16">
+      <div class="kpi-card accent-blue">
+        <div class="kpi-label">Tổng đầu tư tích lũy</div>
+        <div class="kpi-value">${fmtB(totalCapex)}</div>
+        <div class="kpi-sub">${enriched.length} khoản đầu tư</div>
+      </div>
+      <div class="kpi-card accent-teal">
+        <div class="kpi-label">Đầu tư trong năm ${year}</div>
+        <div class="kpi-value">${fmtB(investedThisYear)}</div>
+        <div class="kpi-sub">Capex phát sinh trong năm</div>
+      </div>
+      <div class="kpi-card accent-amber">
+        <div class="kpi-label">Khấu hao năm ${year}</div>
+        <div class="kpi-value">${fmtB(deprThisYearTotal)}</div>
+        <div class="kpi-sub">Vào BCTC, không vào P&amp;L</div>
+      </div>
+      <div class="kpi-card accent-green">
+        <div class="kpi-label">Giá trị còn lại (NBV)</div>
+        <div class="kpi-value">${fmtB(totalNbv)}</div>
+        <div class="kpi-sub">Đã khấu hao: ${fmtB(totalDepr)}</div>
+      </div>
+    </div>
+
+    <!-- Year selector + Add button -->
+    <div class="flex items-center justify-between mb16" style="gap:12px;flex-wrap:wrap">
+      <div class="flex items-center" style="gap:10px">
+        <label style="font-size:12px;color:var(--text3)">Năm quyết toán:</label>
+        <select onchange="_S_INV_YEAR=parseInt(this.value);renderInvestments()" style="min-width:100px">${yearOpts.join('')}</select>
+      </div>
+      <button class="btn btn-primary" onclick="openInvestForm()">+ Thêm khoản đầu tư</button>
+    </div>
+
+    <!-- Theo đối tượng -->
+    <div class="card mb16">
+      <div class="card-header"><h3>📊 Phân bổ theo đối tượng</h3></div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap"><table>
+          <thead><tr>
+            <th>Đối tượng</th>
+            <th class="num">Số khoản</th>
+            <th class="num">Tổng Capex</th>
+            <th class="num">Đã khấu hao</th>
+            <th class="num">Còn lại (NBV)</th>
+            <th class="num">Khấu hao năm ${year}</th>
+          </tr></thead>
+          <tbody>
+            ${scopeRows.length === 0 ? '<tr><td colspan="6"><div class="empty-state">Chưa có khoản đầu tư nào.<br><br>Bấm "+ Thêm khoản đầu tư" để bắt đầu.</div></td></tr>' :
+              scopeRows.map(r => `<tr>
+                <td style="font-weight:500">${r.name}</td>
+                <td class="num">${r.count}</td>
+                <td class="num" style="font-family:var(--mono)">${fmtB(r.capex)}</td>
+                <td class="num neg" style="font-family:var(--mono)">−${fmtB(r.depr)}</td>
+                <td class="num pos" style="font-family:var(--mono);font-weight:600">${fmtB(r.capex-r.depr)}</td>
+                <td class="num" style="font-family:var(--mono);color:var(--amber)">${fmtB(r.deprYear)}</td>
+              </tr>`).join('')
+            }
+          </tbody>
+          ${scopeRows.length > 0 ? `<tfoot style="background:var(--gray2);font-weight:700">
+            <tr>
+              <td>TỔNG</td>
+              <td class="num">${enriched.length}</td>
+              <td class="num" style="font-family:var(--mono)">${fmtB(totalCapex)}</td>
+              <td class="num neg" style="font-family:var(--mono)">−${fmtB(totalDepr)}</td>
+              <td class="num pos" style="font-family:var(--mono)">${fmtB(totalNbv)}</td>
+              <td class="num" style="font-family:var(--mono);color:var(--amber)">${fmtB(deprThisYearTotal)}</td>
+            </tr>
+          </tfoot>` : ''}
+        </table></div>
+      </div>
+    </div>
+
+    <!-- Sổ chi tiết các khoản -->
+    <div class="card">
+      <div class="card-header flex items-center justify-between">
+        <h3>📋 Sổ chi tiết các khoản đầu tư</h3>
+        <button class="btn btn-outline btn-sm" onclick="exportInvestmentsCsv()">📊 Xuất CSV</button>
+      </div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap"><table>
+          <thead><tr>
+            <th>Tên khoản đầu tư</th>
+            <th>Đối tượng</th>
+            <th style="width:90px">Ngày đầu tư</th>
+            <th class="num" style="width:110px">Số tiền</th>
+            <th style="width:90px">PP khấu hao</th>
+            <th class="num" style="width:60px">Số năm</th>
+            <th class="num" style="width:110px">Đã KH</th>
+            <th class="num" style="width:110px">Còn lại</th>
+            <th class="num" style="width:110px">KH năm ${year}</th>
+            <th style="width:80px"></th>
+          </tr></thead>
+          <tbody>
+            ${enriched.length === 0 ? '<tr><td colspan="10"><div class="empty-state">Chưa có khoản đầu tư nào</div></td></tr>' :
+              enriched.map(x => {
+                const methodLabel = x.method === 'declining' ? 'Giảm dần' : x.method === 'usage' ? 'Theo SL' : 'Đường thẳng';
+                return `<tr>
+                  <td style="font-weight:500">${x.name||'—'}${x.description?`<div style="font-size:11px;color:var(--text3);font-weight:400;margin-top:2px">${x.description}</div>`:''}</td>
+                  <td style="font-size:12px">${x.scopeLabel}</td>
+                  <td class="mono" style="font-size:12px">${fmtDate(x.investDate)}</td>
+                  <td class="num" style="font-family:var(--mono)">${fmtB(x.amountVnd)}</td>
+                  <td><span class="badge badge-gray" style="font-size:11px">${methodLabel}</span></td>
+                  <td class="num">${x.years}</td>
+                  <td class="num neg" style="font-family:var(--mono);font-size:12px">${fmtB(x.totalDepr)}</td>
+                  <td class="num pos" style="font-family:var(--mono);font-size:12px;font-weight:600">${fmtB(x.currentNbv)}</td>
+                  <td class="num" style="font-family:var(--mono);font-size:12px;color:var(--amber)">${fmtB(x.deprThisYear)}</td>
+                  <td>
+                    <button class="btn btn-ghost btn-xs" onclick='openInvestForm(${JSON.stringify(x).replace(/'/g, "&apos;")})' title="Sửa">✏️</button>
+                    <button class="btn btn-ghost btn-xs" onclick="deleteInvest('${x.id}')" title="Xoá">🗑</button>
+                  </td>
+                </tr>`;
+              }).join('')
+            }
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+  `;
+}
+
+// Form thêm/sửa khoản đầu tư
+async function openInvestForm(inv = {}) {
+  let vessels = [], omContracts = [], capex = [];
+  try {
+    [vessels, omContracts, capex] = await Promise.all([
+      api('getVessels', {}),
+      api('getOmContracts', {}),
+      api('getCapex', {}),
+    ]);
+  } catch(e) {}
+
+  const scope = inv.scope || 'vessel';
+  const vesselOpts = '<option value="">— Chọn tàu —</option>' + vessels.map(v =>
+    `<option value="${v.id}"${v.id===inv.vesselId?' selected':''}>${v.name}</option>`).join('');
+  const omOpts = '<option value="">— Chọn hợp đồng O&M —</option>' + omContracts.map(c =>
+    `<option value="${c.id}"${c.id===inv.contractId?' selected':''}>${c.name}</option>`).join('');
+  const capexOpts = '<option value="">— (Không liên kết) —</option>' + capex.map(c =>
+    `<option value="${c.id}"${c.id===inv.capexLinkId?' selected':''}>${c.name||c.assetName||c.id}</option>`).join('');
+  const curOpts = ['VND','USD','SGD','EUR','GBP'].map(cc =>
+    `<option value="${cc}"${cc===(inv.currency||'VND')?' selected':''}>${cc}</option>`).join('');
+  const methods = [
+    { v:'straight', label:'Đường thẳng (Straight-line) — chia đều theo năm' },
+    { v:'declining', label:'Giảm dần (Declining balance) — % của giá trị còn lại' },
+    { v:'usage', label:'Theo sản lượng (Usage) — theo % thời gian/sử dụng' },
+  ];
+  const methodOpts = methods.map(m =>
+    `<option value="${m.v}"${m.v===(inv.method||'straight')?' selected':''}>${m.label}</option>`).join('');
+
+  const html = `
+    <div class="form-grid cols2">
+      <div class="field required" style="grid-column:span 2"><label>Tên khoản đầu tư</label>
+        <input id="inv_name" value="${inv.name||''}" placeholder="VD: Sửa lớn động cơ chính, Thay máy phát, Nâng cấp điều hoà..."/>
+      </div>
+
+      <!-- Đối tượng -->
+      <div class="field required" style="grid-column:span 2"><label>Đối tượng đầu tư</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid ${scope==='vessel'?'var(--teal)':'var(--gray3)'};border-radius:6px;cursor:pointer;background:${scope==='vessel'?'rgba(20,184,166,0.05)':'white'}">
+            <input type="radio" name="inv_scope" value="vessel" ${scope==='vessel'?'checked':''} onchange="_invOnScopeChange()" style="margin:0"/>
+            🚢 Tàu cụ thể
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid ${scope==='om'?'var(--blue)':'var(--gray3)'};border-radius:6px;cursor:pointer;background:${scope==='om'?'rgba(59,130,246,0.05)':'white'}">
+            <input type="radio" name="inv_scope" value="om" ${scope==='om'?'checked':''} onchange="_invOnScopeChange()" style="margin:0"/>
+            🏥 O&amp;M (HĐ)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid ${scope==='corporate'?'var(--purple)':'var(--gray3)'};border-radius:6px;cursor:pointer;background:${scope==='corporate'?'rgba(127,119,221,0.05)':'white'}">
+            <input type="radio" name="inv_scope" value="corporate" ${scope==='corporate'?'checked':''} onchange="_invOnScopeChange()" style="margin:0"/>
+            🏢 Chung công ty
+          </label>
+        </div>
+      </div>
+
+      <div class="field" style="grid-column:span 2" id="inv_vessel_wrap"><label>Tàu</label>
+        <select id="inv_vessel">${vesselOpts}</select>
+      </div>
+      <div class="field" style="grid-column:span 2;display:none" id="inv_om_wrap"><label>Hợp đồng O&M</label>
+        <select id="inv_contract">${omOpts}</select>
+      </div>
+
+      <!-- Ngày + Số tiền -->
+      <div class="field required"><label>Ngày đầu tư</label>
+        <input type="date" id="inv_date" value="${inv.investDate||today()}"/>
+      </div>
+      <div class="field required"><label>Số tiền</label>
+        <input type="number" id="inv_amount" value="${inv.amount||''}" oninput="_invCalcVnd()" placeholder="Theo đồng tiền chọn"/>
+      </div>
+      <div class="field"><label>Đồng tiền</label>
+        <select id="inv_currency" onchange="_invOnCurChange()">${curOpts}</select>
+      </div>
+      <div class="field"><label>Tỷ giá (1 ngoại tệ = ? VNĐ)</label>
+        <input type="number" id="inv_fx" value="${inv.fxRate||1}" oninput="_invCalcVnd()" ${inv.currency==='VND'||!inv.currency?'readonly style="opacity:.5"':''}/>
+      </div>
+      <div class="field" style="grid-column:span 2"><label>Số tiền VNĐ (tự tính)</label>
+        <input type="number" id="inv_vnd" value="${inv.amountVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--teal)"/>
+      </div>
+
+      <!-- Phương pháp khấu hao -->
+      <div class="field required" style="grid-column:span 2"><label>Phương pháp khấu hao</label>
+        <select id="inv_method" onchange="_invOnMethodChange()">${methodOpts}</select>
+      </div>
+      <div class="field required"><label>Thời gian khấu hao (năm)</label>
+        <input type="number" id="inv_years" value="${inv.years||5}" min="1" max="50"/>
+      </div>
+      <div class="field" id="inv_decl_wrap" style="${(inv.method||'straight')==='declining'?'':'display:none'}">
+        <label>Tỷ lệ giảm dần (% / năm)</label>
+        <input type="number" id="inv_decl_rate" value="${inv.decliningRate||40}" step="0.1" placeholder="Mặc định 200/năm"/>
+      </div>
+      <div class="field"><label>Giá trị thu hồi cuối (VNĐ, tuỳ chọn)</label>
+        <input type="number" id="inv_salvage" value="${inv.salvageValue||0}"/>
+      </div>
+
+      <!-- Mô tả + liên kết -->
+      <div class="field" style="grid-column:span 2"><label>Mô tả / Ghi chú</label>
+        <textarea id="inv_desc" rows="2" style="font-family:inherit">${inv.description||''}</textarea>
+      </div>
+      <div class="field" style="grid-column:span 2"><label>Liên kết với Capex hiện có (tuỳ chọn)</label>
+        <select id="inv_capex">${capexOpts}</select>
+        <span style="font-size:11px;color:var(--text3)">VD: Khoản sửa lớn này thuộc tàu nào trong danh sách Capex</span>
+      </div>
+    </div>
+  `;
+
+  openModal(inv.id?'Cập nhật khoản đầu tư':'Thêm khoản đầu tư', html, async()=>{
+    const sc = document.querySelector('input[name="inv_scope"]:checked')?.value || 'vessel';
+    const amt = parseFloat(gv('inv_amount'))||0;
+    const cur = gv('inv_currency')||'VND';
+    const fx = cur==='VND' ? 1 : (parseFloat(gv('inv_fx'))||1);
+    const payload = {
+      id: inv.id || newId(),
+      name: gv('inv_name'),
+      scope: sc,
+      vesselId: sc==='vessel' ? gv('inv_vessel') : '',
+      contractId: sc==='om' ? gv('inv_contract') : '',
+      investDate: gv('inv_date'),
+      amount: amt,
+      currency: cur,
+      fxRate: fx,
+      amountVnd: Math.round(amt * fx),
+      method: gv('inv_method')||'straight',
+      years: parseFloat(gv('inv_years'))||5,
+      decliningRate: parseFloat(gv('inv_decl_rate'))||0,
+      salvageValue: parseFloat(gv('inv_salvage'))||0,
+      description: gv('inv_desc'),
+      capexLinkId: gv('inv_capex')||'',
+      createdAt: inv.createdAt || new Date().toISOString(),
+    };
+    if (!payload.name) { toast('Nhập tên khoản đầu tư','warn'); return; }
+    if (!payload.amount) { toast('Nhập số tiền','warn'); return; }
+    if (sc==='vessel' && !payload.vesselId) { toast('Chọn tàu','warn'); return; }
+    if (sc==='om' && !payload.contractId) { toast('Chọn hợp đồng O&M','warn'); return; }
+    showLoading();
+    try {
+      await api('saveInvestment', payload);
+      toast('Đã lưu','ok'); closeModal(); renderInvestments();
+    } catch(e) { toast('Lỗi: '+e.message,'err'); }
+    hideLoading();
+  }, 'lg');
+
+  setTimeout(_invOnScopeChange, 50);
+  setTimeout(_invCalcVnd, 60);
+}
+
+function _invOnScopeChange() {
+  const sc = document.querySelector('input[name="inv_scope"]:checked')?.value || 'vessel';
+  const vw = document.getElementById('inv_vessel_wrap');
+  const ow = document.getElementById('inv_om_wrap');
+  if (vw) vw.style.display = (sc==='vessel') ? '' : 'none';
+  if (ow) ow.style.display = (sc==='om') ? '' : 'none';
+  // Update visual radio borders
+  document.querySelectorAll('input[name="inv_scope"]').forEach(r => {
+    const lbl = r.closest('label');
+    if (!lbl) return;
+    if (r.checked) {
+      const c = r.value==='vessel'?'var(--teal)':r.value==='om'?'var(--blue)':'var(--purple)';
+      const bg = r.value==='vessel'?'rgba(20,184,166,0.05)':r.value==='om'?'rgba(59,130,246,0.05)':'rgba(127,119,221,0.05)';
+      lbl.style.borderColor = c; lbl.style.background = bg;
+    } else {
+      lbl.style.borderColor = 'var(--gray3)'; lbl.style.background = 'white';
+    }
+  });
+}
+function _invOnCurChange() {
+  const cur = gv('inv_currency')||'VND';
+  const fxEl = document.getElementById('inv_fx');
+  if (!fxEl) return;
+  if (cur==='VND') { fxEl.value=1; fxEl.readOnly=true; fxEl.style.opacity='0.5'; }
+  else { fxEl.value = fxDefault ? fxDefault(cur) : 25450; fxEl.readOnly=false; fxEl.style.opacity='1'; }
+  _invCalcVnd();
+}
+function _invCalcVnd() {
+  const amt = parseFloat(gv('inv_amount'))||0;
+  const fx = parseFloat(gv('inv_fx'))||1;
+  const vndEl = document.getElementById('inv_vnd');
+  if (vndEl) vndEl.value = Math.round(amt*fx);
+}
+function _invOnMethodChange() {
+  const m = gv('inv_method');
+  const w = document.getElementById('inv_decl_wrap');
+  if (w) w.style.display = (m==='declining') ? '' : 'none';
+}
+
+async function deleteInvest(id) {
+  if (!confirm('Xoá khoản đầu tư này?')) return;
+  showLoading();
+  try {
+    await api('deleteInvestment', { id });
+    toast('Đã xoá','ok'); renderInvestments();
+  } catch(e) { toast('Lỗi','err'); }
+  hideLoading();
+}
+
+async function exportInvestmentsCsv() {
+  let invs=[], vessels=[], omContracts=[];
+  try {
+    [invs, vessels, omContracts] = await Promise.all([
+      api('getInvestments',{}), api('getVessels',{}), api('getOmContracts',{})
+    ]);
+  } catch(e){ toast('Lỗi','err'); return; }
+  const today = new Date();
+  const year = _S_INV_YEAR;
+  const rows = invs.map(inv => {
+    const d = calcDepreciation(inv, today);
+    const dy = calcDeprForYear(inv, year);
+    let scope = '';
+    if (inv.scope==='vessel') scope = 'Tàu: ' + (vessels.find(v=>v.id===inv.vesselId)?.name||'—');
+    else if (inv.scope==='om') scope = 'O&M: ' + (omContracts.find(c=>c.id===inv.contractId)?.name||'—');
+    else scope = 'Chung công ty';
+    return [
+      inv.name||'', scope, inv.investDate||'',
+      inv.amount||0, inv.currency||'VND', inv.amountVnd||0,
+      inv.method||'straight', inv.years||0,
+      d.totalDepr, d.currentNbv, dy,
+      inv.description||'',
+    ];
+  });
+  const header = ['Tên','Đối tượng','Ngày đầu tư','Số tiền','Tiền tệ','Quy VND',
+    'PP khấu hao','Số năm','Đã khấu hao (VND)','Còn lại NBV (VND)',`KH năm ${year} (VND)`,'Mô tả'];
+  const csv = '\uFEFF' + [header, ...rows].map(r => r.map(v =>
+    typeof v === 'string' && /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v
+  ).join(',')).join('\n');
+  const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+  const blob = new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=`dau-tu-khau-hao-${stamp}.csv`; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1500);
+  toast('Đã xuất CSV','ok');
+}
+
 async function renderTaxReport() {
   showLoading();
   let vesselData={totals:{totalRevVnd:0,totalMarginVnd:0},vessels:[]};
-  let omRevs=[],omCosts=[],smEntries=[],smCosts=[],gaEntries=[],gaRevEntries=[],fixedAssets=[],taxAdj=[];
+  let omRevs=[],omCosts=[],smEntries=[],smCosts=[],gaEntries=[],gaRevEntries=[],fixedAssets=[],taxAdj=[],investments=[];
   try {
-    [vesselData,omRevs,omCosts,smEntries,smCosts,gaEntries,gaRevEntries,fixedAssets,taxAdj] = await Promise.all([
+    [vesselData,omRevs,omCosts,smEntries,smCosts,gaEntries,gaRevEntries,fixedAssets,taxAdj,investments] = await Promise.all([
       api('getDashboard',{year:S.year}),
       api('getOmRevEntries',{year:S.year}),
       api('getOmCostEntries',{year:S.year}),
@@ -6313,6 +6789,7 @@ async function renderTaxReport() {
       api('getGaRevEntries',{year:S.year}),
       api('getFixedAssets',{}),
       api('getGaTaxAdj',{year:S.year}),
+      api('getInvestments',{}),
     ]);
   } catch(e){ toast('Lỗi: '+e.message,'err'); }
   hideLoading();
@@ -6341,8 +6818,9 @@ async function renderTaxReport() {
   const totalOpex= vesselCostOp + omCostAmt + smCostAmt + gaOp;
   const grossProfit = totalRev - totalOpex;
 
-  // Depreciation from fixed assets table
-  const totalDepr = (fixedAssets||[]).reduce((s,a)=>s+Math.round((parseFloat(a.cost)||0)/(parseFloat(a.usefulLife)||1)),0);
+  // Depreciation: CHỈ lấy từ Investments (đầu tư & khấu hao)
+  // Fixed Assets được giữ riêng cho mục theo dõi danh sách tài sản, không cộng vào BCTC
+  const totalDepr = (investments||[]).reduce((s,inv)=>s+calcDeprForYear(inv, S.year),0);
   const ebit = grossProfit - totalDepr;
 
   // Finance income/cost
@@ -6377,7 +6855,7 @@ async function renderTaxReport() {
       </div>
       <div class="flex gap8">
         <button class="btn btn-outline btn-sm" onclick="S.page='ga';nav_(document.querySelector('[data-page=ga]'));setTimeout(()=>gaSwitch('tax'),200)">⚙ Điều chỉnh thuế</button>
-        <button class="btn btn-outline btn-sm" onclick="S.page='ga';nav_(document.querySelector('[data-page=ga]'));setTimeout(()=>gaSwitch('fa'),200)">🏗 Bảng TSCĐ</button>
+        <button class="btn btn-outline btn-sm" onclick="S.page='investments';nav_(document.querySelector('[data-page=investments]'))">📈 Đầu tư & Khấu hao</button>
         <button class="btn btn-outline btn-sm" onclick="exportCurrentPagePdf()">🖨 PDF</button>
       </div>
     </div>
@@ -6409,11 +6887,23 @@ async function renderTaxReport() {
             ${row('Chi phí Corporate (trừ KH & lãi vay)',-gaOp,1,false,'neg')}
             ${row('LỢI NHUẬN GỘP = EBITDA',grossProfit,0,true,grossProfit>=0?'pos':'neg','Chưa trừ khấu hao & lãi vay')}
             ${gap()}
-            ${hdr('III. KHẤU HAO TSCĐ')}
-            ${(fixedAssets||[]).map(a=>{
-              const d=Math.round((parseFloat(a.cost)||0)/(parseFloat(a.usefulLife)||1));
-              return row(a.name,-d,1,false,'neg',`${a.usefulLife} năm · Nguyên giá ${fmtB(parseFloat(a.cost))}`);
-            }).join('')}
+            ${hdr('III. KHẤU HAO TSCĐ (từ Đầu tư)')}
+            ${(investments||[]).filter(inv => calcDeprForYear(inv, S.year) > 0).map(inv => {
+              const d = calcDeprForYear(inv, S.year);
+              const methodLabel = inv.method === 'declining' ? 'Giảm dần' : inv.method === 'usage' ? 'Theo SL' : 'Đường thẳng';
+              let scopeLabel = '';
+              if (inv.scope === 'vessel') {
+                const v = vesselData.vessels.find(x=>x.id===inv.vesselId);
+                scopeLabel = '🚢 ' + (v?.name || 'Tàu');
+              } else if (inv.scope === 'om') {
+                scopeLabel = '🏥 O&M';
+              } else {
+                scopeLabel = '🏢 Chung';
+              }
+              return row(inv.name, -d, 1, false, 'neg',
+                `${scopeLabel} · ${methodLabel} ${inv.years} năm · Nguyên giá ${fmtB(parseFloat(inv.amountVnd)||0)}`);
+            }).join('') || `<tr><td colspan="3" style="padding:8px 14px;font-size:12px;color:var(--text3)">— Chưa có khoản đầu tư nào — <button class="btn btn-outline btn-xs" onclick="S.page='investments';nav_(document.querySelector('[data-page=investments]'))">+ Thêm</button></td></tr>`}
+            ${row('TỔNG KHẤU HAO',-totalDepr,0,true,'neg')}
             ${row('EBIT — Lợi nhuận trước lãi vay & thuế',ebit,0,true,ebit>=0?'pos':'neg')}
             ${gap()}
             ${hdr('IV. THU NHẬP / CHI PHÍ TÀI CHÍNH')}
@@ -6457,7 +6947,7 @@ async function renderTaxReport() {
     <div class="card mt16"><div class="card-body" style="font-size:12px;color:var(--text2);line-height:1.8">
       <strong>Lưu ý phương pháp:</strong>
       <ul style="margin:6px 0 0 16px">
-        <li>Khấu hao TSCĐ: <strong>Đường thẳng (Straight-Line)</strong> — cập nhật tại <em>Corporate Center → Tab TSCĐ</em></li>
+        <li>Khấu hao TSCĐ: Lấy từ <em>Dashboard chung → Đầu tư &amp; Khấu hao</em>, theo phương pháp đã chọn cho từng khoản (Đường thẳng / Giảm dần / Theo SL)</li>
         <li>Lãi vay tách từ nhóm <strong>Fin</strong> trong chi phí Corporate — phản ánh đúng EBIT theo chuẩn IFRS/VAS</li>
         <li>Điều chỉnh thuế: nhập tại <em>Corporate Center → Tab Điều chỉnh thuế</em></li>
         <li>Thuế TNDN: <strong>20% (CIT 2024)</strong> áp dụng trên Thu nhập chịu thuế ≥ 0</li>
