@@ -963,7 +963,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.30-09:30'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.30-10:30'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -11225,17 +11225,30 @@ function computeFifo(receipts, issues) {
   return { issues: result, stockRemaining, totalStockQty, totalStockValue };
 }
 
-// Chạy FIFO cho 1 tàu
-function runFifoForVessel(vesselId) {
-  const recs = FUEL_DEMO.receipts.filter(r=>r.vesselId===vesselId);
-  const isss = FUEL_DEMO.issues.filter(i=>i.vesselId===vesselId);
+// Chạy FIFO cho 1 tàu — riêng từng loại (DO/lub/water)
+function runFifoForVessel(vesselId, fuelType = 'DO') {
+  const recs = FUEL_DEMO.receipts.filter(r => r.vesselId===vesselId && (r.fuelType||'DO')===fuelType);
+  const isss = FUEL_DEMO.issues.filter(i => i.vesselId===vesselId && (i.fuelType||'DO')===fuelType);
   return computeFifo(recs, isss);
 }
 
-// Lấy tổng chi phí DO của 1 dự án (sau FIFO)
+// Chạy FIFO cho cả 3 loại của 1 tàu
+function runFifoAllTypes(vesselId) {
+  return {
+    DO: runFifoForVessel(vesselId, 'DO'),
+    lub: runFifoForVessel(vesselId, 'lub'),
+    water: runFifoForVessel(vesselId, 'water'),
+  };
+}
+
+// Lấy tổng chi phí nhiên liệu của 1 dự án (gộp cả 3 loại)
 function getFuelCostForProject(vesselId, projectId) {
-  const { issues } = runFifoForVessel(vesselId);
-  return issues.filter(i=>i.projectId===projectId).reduce((s,i)=>s+i.costVnd,0);
+  let total = 0;
+  ['DO', 'lub', 'water'].forEach(t => {
+    const { issues } = runFifoForVessel(vesselId, t);
+    total += issues.filter(i => i.projectId===projectId).reduce((s,i) => s+i.costVnd, 0);
+  });
+  return total;
 }
 
 // ── PAGE: Kho nhiên liệu ────────────────────────────────
@@ -11270,43 +11283,77 @@ function reloadFuelPage() {
   api('getProjects',{vesselId:vid}).then(projects=>renderFuelContent(vid, projects)).catch(()=>renderFuelContent(vid,[]));
 }
 
-function renderFuelContent(vesselId, projects) {
-  const fifo = runFifoForVessel(vesselId);
-  const recs  = FUEL_DEMO.receipts.filter(r=>r.vesselId===vesselId)
-                  .sort((a,b)=>new Date(a.receiptDate)-new Date(b.receiptDate));
-  const isss  = fifo.issues;
+let _S_FUEL_TYPE = 'DO'; // Tab fuel type đang xem
 
-  const totalBought = recs.reduce((s,r)=>s+parseFloat(r.qty),0);
-  const totalCostBought = recs.reduce((s,r)=>s+(parseFloat(r.totalCost)||parseFloat(r.qty)*parseFloat(r.unitPrice)),0);
-  const totalIssued = isss.reduce((s,i)=>s+parseFloat(i.qty),0);
-  const totalIssuedCost = isss.reduce((s,i)=>s+i.costVnd,0);
+function renderFuelContent(vesselId, projects) {
+  const ftype = _S_FUEL_TYPE;
+  const FUEL_LABELS = {DO:'Dầu DO (Diesel)', lub:'Nhớt (Lubricant)', water:'Nước ngọt'};
+  const FUEL_UNITS = {DO:'m³', lub:'lít', water:'m³'};
+  const FUEL_ICONS = {DO:'⛽', lub:'🛢', water:'💧'};
+  const u = FUEL_UNITS[ftype];
+
+  const fifo = runFifoForVessel(vesselId, ftype);
+  const recs = FUEL_DEMO.receipts.filter(r => r.vesselId===vesselId && (r.fuelType||'DO')===ftype)
+                 .sort((a,b) => new Date(a.receiptDate) - new Date(b.receiptDate));
+  const isss = fifo.issues;
+
+  const totalBought = recs.reduce((s,r) => s+parseFloat(r.qty), 0);
+  const totalCostBought = recs.reduce((s,r) => s+(parseFloat(r.totalCost)||parseFloat(r.qty)*parseFloat(r.unitPrice)), 0);
+  const totalIssued = isss.reduce((s,i) => s+parseFloat(i.qty), 0);
+  const totalIssuedCost = isss.reduce((s,i) => s+i.costVnd, 0);
   const avgBuyPrice = totalBought > 0 ? totalCostBought/totalBought : 0;
-  const projName = id => (projects.find(p=>p.id===id)||{}).name||'—';
+  const projName = id => (projects.find(p => p.id===id)||{}).name||'—';
+
+  // Tổng theo từng loại để show ở tab nav
+  const summaryByType = {};
+  ['DO', 'lub', 'water'].forEach(t => {
+    const f = runFifoForVessel(vesselId, t);
+    summaryByType[t] = { stock: f.totalStockQty, value: f.totalStockValue };
+  });
 
   const el = document.getElementById('fuel-content');
   if (!el) return;
 
+  // Tab fuelType nav
+  const tabBtn = (t) => {
+    const active = ftype === t;
+    const stock = summaryByType[t].stock || 0;
+    const val = summaryByType[t].value || 0;
+    return `<button onclick="_S_FUEL_TYPE='${t}';reloadFuelPage()"
+      style="flex:1;padding:12px 14px;border:none;background:${active?'var(--blue)':'#fff'};color:${active?'#fff':'var(--ink)'};cursor:pointer;border-radius:8px 8px 0 0;border-bottom:${active?'3px solid var(--blue)':'3px solid transparent'};text-align:left">
+      <div style="font-size:13px;font-weight:600">${FUEL_ICONS[t]} ${FUEL_LABELS[t]}</div>
+      <div style="font-size:11px;${active?'opacity:0.9':'color:var(--text3)'};margin-top:2px">Tồn: ${fmt(stock,2)} ${FUEL_UNITS[t]} · ${fmtB(val)}</div>
+    </button>`;
+  };
+
   el.innerHTML = `
+    <!-- TAB FUEL TYPE -->
+    <div style="display:flex;gap:4px;margin-bottom:14px;background:#f3f4f6;padding:4px;border-radius:10px">
+      ${tabBtn('DO')}
+      ${tabBtn('lub')}
+      ${tabBtn('water')}
+    </div>
+
     <!-- KPI -->
     <div class="kpi-grid cols4 mb16">
       <div class="kpi-card accent-blue">
-        <div class="kpi-label">Tồn kho hiện tại</div>
-        <div class="kpi-value">${fmt(fifo.totalStockQty.toFixed(2))} m³</div>
+        <div class="kpi-label">${FUEL_ICONS[ftype]} Tồn kho ${FUEL_LABELS[ftype]}</div>
+        <div class="kpi-value">${fmt(fifo.totalStockQty.toFixed(2))} ${u}</div>
         <div class="kpi-sub">Giá trị: ${fmtB(fifo.totalStockValue)}</div>
       </div>
       <div class="kpi-card accent-teal">
-        <div class="kpi-label">Tổng đã mua (${S.year})</div>
-        <div class="kpi-value">${fmt(totalBought.toFixed(2))} m³</div>
+        <div class="kpi-label">Tổng đã mua</div>
+        <div class="kpi-value">${fmt(totalBought.toFixed(2))} ${u}</div>
         <div class="kpi-sub">${fmtB(Math.round(totalCostBought))}</div>
       </div>
       <div class="kpi-card accent-amber">
         <div class="kpi-label">Tổng đã xuất (FIFO cost)</div>
-        <div class="kpi-value">${fmt(totalIssued.toFixed(2))} m³</div>
+        <div class="kpi-value">${fmt(totalIssued.toFixed(2))} ${u}</div>
         <div class="kpi-sub">${fmtB(totalIssuedCost)}</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Giá mua bình quân</div>
-        <div class="kpi-value small">${fmtVnd(Math.round(avgBuyPrice))}/m³</div>
+        <div class="kpi-value small">${fmtVnd(Math.round(avgBuyPrice))}/${u}</div>
         <div class="kpi-sub">Weighted avg purchase price</div>
       </div>
     </div>
@@ -11316,15 +11363,15 @@ function renderFuelContent(vesselId, projects) {
       <!-- Nhập kho -->
       <div class="card">
         <div class="card-header">
-          <h3>📥 Sổ nhập kho DO</h3>
-          <button class="btn btn-outline btn-sm" onclick="openFuelReceiptForm()">+ Nhập</button>
+          <h3>📥 Sổ nhập kho ${FUEL_LABELS[ftype]}</h3>
+          <button class="btn btn-outline btn-sm" onclick="openFuelReceiptForm({fuelType:'${ftype}'})">+ Nhập</button>
         </div>
         <div class="card-body no-pad">
           <div class="tbl-wrap">
             <table>
               <thead><tr>
-                <th>Ngày</th><th class="num">SL (m³)</th>
-                <th class="num">Đơn giá (₫/m³)</th>
+                <th>Ngày</th><th class="num">SL (${u})</th>
+                <th class="num">Đơn giá (₫/${u})</th>
                 <th class="num">Thành tiền</th>
                 <th>Nhà cung cấp</th><th>Số HĐ</th><th></th>
               </tr></thead>
@@ -11343,7 +11390,7 @@ function renderFuelContent(vesselId, projects) {
                 </tr>`).join('')||'<tr><td colspan="7"><div class="empty-state">Chưa có</div></td></tr>'}
                 <tr style="background:var(--gray1);font-weight:600">
                   <td>Tổng nhập</td>
-                  <td class="num">${fmt(totalBought.toFixed(2))} m³</td>
+                  <td class="num">${fmt(totalBought.toFixed(2))} ${u}</td>
                   <td></td>
                   <td class="num">${fmtB(Math.round(totalCostBought))}</td>
                   <td colspan="3"></td>
@@ -11365,7 +11412,7 @@ function renderFuelContent(vesselId, projects) {
             <table>
               <thead><tr>
                 <th>Ngày nhập</th><th>NCC</th>
-                <th class="num">Tồn (m³)</th>
+                <th class="num">Tồn (${u})</th>
                 <th class="num">Đơn giá</th>
                 <th class="num">Giá trị</th>
               </tr></thead>
@@ -11382,7 +11429,7 @@ function renderFuelContent(vesselId, projects) {
                   : '<tr><td colspan="5"><div class="empty-state">Hết hàng</div></td></tr>'}
                 <tr style="background:var(--gray1);font-weight:600">
                   <td colspan="2">Tổng tồn kho</td>
-                  <td class="num">${fmt(fifo.totalStockQty.toFixed(3))} m³</td>
+                  <td class="num">${fmt(fifo.totalStockQty.toFixed(3))} ${u}</td>
                   <td></td>
                   <td class="num pos">${fmtB(fifo.totalStockValue)}</td>
                 </tr>
@@ -11396,27 +11443,31 @@ function renderFuelContent(vesselId, projects) {
     <!-- Xuất kho FIFO -->
     <div class="card mb16">
       <div class="card-header">
-        <h3>📤 Sổ xuất kho DO — Giá vốn FIFO</h3>
-        <button class="btn btn-outline btn-sm" onclick="openFuelIssueForm()">+ Xuất kho</button>
+        <h3>📤 Sổ xuất kho ${FUEL_LABELS[ftype]} — Giá vốn FIFO</h3>
+        <button class="btn btn-primary btn-sm" onclick="openFuelIssueForm({fuelType:'${ftype}'})" style="background:var(--green);border-color:var(--green)">+ Xuất kho</button>
       </div>
       <div class="card-body no-pad">
         <div class="tbl-wrap">
           <table>
             <thead><tr>
               <th>Ngày</th><th>Dự án</th><th>Mô tả</th>
-              <th class="num">SL (m³)</th>
-              <th class="num">Đơn giá FIFO<br><span style="font-size:10px;font-weight:400">(₫/m³)</span></th>
+              <th class="num">SL (${u})</th>
+              <th class="num">Đơn giá FIFO<br><span style="font-size:10px;font-weight:400">(₫/${u})</span></th>
               <th class="num">Giá vốn FIFO<br><span style="font-size:10px;font-weight:400">(₫)</span></th>
+              <th>Liên kết CP</th>
               <th>Chi tiết FIFO</th><th></th>
             </tr></thead>
             <tbody>
               ${isss.map(i=>{
                 const detail = (i.fifoDetail||[]).filter(d=>!d.warning).map(d=>
                   `<div style="font-size:10px;color:var(--text3);white-space:nowrap">
-                    Lô ${fmtDate(d.lotDate)}: ${fmt(d.qtyUsed,3)} m³ × ${fmt(d.unitPrice)} = ${fmtB(d.cost)}
+                    Lô ${fmtDate(d.lotDate)}: ${fmt(d.qtyUsed,3)} ${u} × ${fmt(d.unitPrice)} = ${fmtB(d.cost)}
                    </div>`
                 ).join('');
                 const warn = (i.fifoDetail||[]).find(d=>d.warning);
+                const linkBadge = i.linkedCostEntryId
+                  ? '<span class="badge badge-green" style="font-size:10px" title="Đã tạo bút toán chi phí Vessel liên kết">✓ Đã liên kết CP</span>'
+                  : '<span class="badge badge-gray" style="font-size:10px">— Không CP</span>';
                 return `<tr>
                   <td class="mono">${fmtDate(i.issueDate)}</td>
                   <td style="font-size:12px">${projName(i.projectId)}</td>
@@ -11424,6 +11475,7 @@ function renderFuelContent(vesselId, projects) {
                   <td class="num"><strong>${fmt(i.qty,2)}</strong></td>
                   <td class="num">${fmt(i.avgUnitCost)}</td>
                   <td class="num ${i.costVnd>0?'pos':''}">${fmtVnd(i.costVnd)}</td>
+                  <td>${linkBadge}</td>
                   <td style="min-width:200px">
                     ${detail}
                     ${warn?`<div style="color:var(--red);font-size:11px">⚠ ${warn.warning}</div>`:''}
@@ -11433,13 +11485,13 @@ function renderFuelContent(vesselId, projects) {
                     <button class="btn btn-ghost btn-xs" onclick="deleteFuelIssue('${i.id}')">🗑</button>
                   </td>
                 </tr>`;
-              }).join('')||'<tr><td colspan="8"><div class="empty-state">Chưa có xuất kho.</div></td></tr>'}
+              }).join('')||'<tr><td colspan="9"><div class="empty-state">Chưa có xuất kho.</div></td></tr>'}
               <tr style="background:var(--gray1);font-weight:600">
                 <td colspan="3">Tổng xuất kho</td>
-                <td class="num">${fmt(totalIssued.toFixed(2))} m³</td>
+                <td class="num">${fmt(totalIssued.toFixed(2))} ${u}</td>
                 <td></td>
                 <td class="num">${fmtB(totalIssuedCost)}</td>
-                <td colspan="2"></td>
+                <td colspan="3"></td>
               </tr>
             </tbody>
           </table>
@@ -11447,41 +11499,41 @@ function renderFuelContent(vesselId, projects) {
       </div>
     </div>
 
-    <!-- Chi phí DO theo dự án -->
+    <!-- Chi phí theo dự án -->
     <div class="card">
-      <div class="card-header"><h3>💧 Chi phí DO theo dự án (FIFO cost)</h3></div>
+      <div class="card-header"><h3>${FUEL_ICONS[ftype]} Chi phí ${FUEL_LABELS[ftype]} theo dự án (FIFO cost)</h3></div>
       <div class="card-body no-pad">
         <div class="tbl-wrap">
           <table>
             <thead><tr>
               <th>Dự án</th>
-              <th class="num">SL tiêu thụ (m³)</th>
+              <th class="num">SL (${u})</th>
               <th class="num">Giá vốn FIFO</th>
-              <th class="num">Đơn giá bình quân</th>
-              <th>Lần xuất</th>
+              <th class="num">Đơn giá BQ</th>
             </tr></thead>
             <tbody>
-              ${(() => {
+              ${(()=>{
                 const byProj = {};
-                isss.forEach(i=>{
-                  if(!byProj[i.projectId]) byProj[i.projectId]={qty:0,cost:0,count:0};
-                  byProj[i.projectId].qty   += parseFloat(i.qty);
-                  byProj[i.projectId].cost  += i.costVnd;
-                  byProj[i.projectId].count += 1;
+                isss.forEach(i => {
+                  const k = i.projectId||'__none';
+                  if (!byProj[k]) byProj[k] = {qty:0, cost:0};
+                  byProj[k].qty += parseFloat(i.qty)||0;
+                  byProj[k].cost += i.costVnd;
                 });
-                return Object.entries(byProj).map(([pid,d])=>`<tr>
-                  <td>${projName(pid)}</td>
-                  <td class="num">${fmt(d.qty.toFixed(2))} m³</td>
-                  <td class="num pos">${fmtVnd(d.cost)}</td>
-                  <td class="num">${fmtVnd(d.qty>0?Math.round(d.cost/d.qty):0)}/m³</td>
-                  <td style="font-size:12px">${d.count} lần</td>
-                </tr>`).join('') || '<tr><td colspan="5"><div class="empty-state">Chưa có dữ liệu</div></td></tr>';
+                const rows = Object.entries(byProj).map(([pid,v])=>`<tr>
+                  <td>${pid==='__none'?'<em>Ngoài dự án</em>':projName(pid)}</td>
+                  <td class="num">${fmt(v.qty,2)}</td>
+                  <td class="num pos">${fmtB(v.cost)}</td>
+                  <td class="num">${fmt(Math.round(v.cost/(v.qty||1)))}</td>
+                </tr>`).join('');
+                return rows || '<tr><td colspan="4"><div class="empty-state">Chưa có xuất kho</div></td></tr>';
               })()}
             </tbody>
           </table>
         </div>
       </div>
-    </div>`;
+    </div>
+  `;
 }
 
 // ── Forms ────────────────────────────────────────────────
@@ -11489,16 +11541,35 @@ function openFuelReceiptForm(r={}) {
   const vessels = S.vessels;
   const vOpts = vessels.map(v=>`<option value="${v.id}"${v.id===(r.vesselId||S.vesselId)?'selected':''}>${v.name}</option>`).join('');
   const currencies=['VND','USD','SGD'].map(c=>`<option value="${c}"${c===(r.currency||'VND')?'selected':''}>${c}</option>`).join('');
+  const fuelType = r.fuelType || 'DO';
+  const FUEL_LABELS = {DO:'Dầu DO (Diesel)', lub:'Nhớt (Lubricant)', water:'Nước ngọt (Fresh Water)'};
+  const FUEL_UNITS = {DO:'m³', lub:'lít', water:'m³'};
   const html=`
     <div style="background:#e0f2fe;border:1px solid #7dd3fc;border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:12px;color:#0c4a6e">
-      <strong>📥 Nhập kho:</strong> Mua DO — tạo lô mới trong stack FIFO của tàu. Giá nhập sẽ được dùng để tính giá vốn theo thứ tự FIFO khi xuất kho.
+      <strong>📥 Nhập kho:</strong> Mua nhiên liệu — tạo lô mới trong stack FIFO của tàu (riêng theo từng loại). Giá nhập sẽ được dùng để tính giá vốn theo thứ tự FIFO khi xuất kho.
     </div>
     <div class="form-grid cols2">
+      <div class="field required" style="grid-column:span 2"><label>Loại nhiên liệu</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid ${fuelType==='DO'?'var(--amber)':'var(--gray3)'};border-radius:6px;cursor:pointer;background:${fuelType==='DO'?'#fef3c7':'#fff'}">
+            <input type="radio" name="fr_type" value="DO" ${fuelType==='DO'?'checked':''} onchange="frOnTypeChange()" style="margin:0"/>
+            ⛽ Dầu DO (m³)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid ${fuelType==='lub'?'var(--purple)':'var(--gray3)'};border-radius:6px;cursor:pointer;background:${fuelType==='lub'?'#f3e8ff':'#fff'}">
+            <input type="radio" name="fr_type" value="lub" ${fuelType==='lub'?'checked':''} onchange="frOnTypeChange()" style="margin:0"/>
+            🛢 Nhớt (lít)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid ${fuelType==='water'?'var(--blue)':'var(--gray3)'};border-radius:6px;cursor:pointer;background:${fuelType==='water'?'#dbeafe':'#fff'}">
+            <input type="radio" name="fr_type" value="water" ${fuelType==='water'?'checked':''} onchange="frOnTypeChange()" style="margin:0"/>
+            💧 Nước ngọt (m³)
+          </label>
+        </div>
+      </div>
       <div class="field required"><label>Tàu</label><select id="fr_v">${vOpts}</select></div>
       <div class="field required"><label>Ngày nhập kho</label><input type="date" id="fr_date" value="${r.receiptDate||today()}"/></div>
-      <div class="field required"><label>Số lượng (m³)</label>
+      <div class="field required"><label>Số lượng (<span id="fr_unit">${FUEL_UNITS[fuelType]}</span>)</label>
         <input type="number" id="fr_qty" value="${r.qty||''}" min="0" step="0.001" oninput="frCompTotal()"/></div>
-      <div class="field required"><label>Đơn giá (₫/m³ hoặc /m³ ngoại tệ)</label>
+      <div class="field required"><label>Đơn giá (₫/<span id="fr_unit2">${FUEL_UNITS[fuelType]}</span>)</label>
         <input type="number" id="fr_price" value="${r.unitPrice||''}" min="0" oninput="frCompTotal()"/></div>
       <div class="field"><label>Đồng tiền</label>
         <select id="fr_cur" onchange="frCompTotal()">${currencies}</select></div>
@@ -11514,14 +11585,16 @@ function openFuelReceiptForm(r={}) {
       <div class="field" style="grid-column:span 2"><label>Ghi chú</label><input id="fr_notes" value="${r.notes||''}"/></div>
     </div>`;
 
-  openModal(r.id?'Cập nhật nhập kho DO':'Nhập kho DO (Mua nhiên liệu)', html, async()=>{
+  openModal(r.id?'Cập nhật nhập kho':'Nhập kho nhiên liệu', html, async()=>{
     const qty=parseFloat(gv('fr_qty'))||0;
     const price=parseFloat(gv('fr_price'))||0;
     const fx=parseFloat(gv('fr_fx'))||1;
     const cur=gv('fr_cur');
+    const ftype = document.querySelector('input[name="fr_type"]:checked')?.value || 'DO';
     const priceVnd = cur==='VND' ? price : price*fx;
     const payload = {
       id:r.id||newId(), vesselId:gv('fr_v'), receiptDate:gv('fr_date'),
+      fuelType: ftype,
       qty, unitPrice:Math.round(priceVnd), currency:cur, fxRate:fx,
       totalCost:Math.round(qty*priceVnd),
       supplier:gv('fr_sup'), invoiceNo:gv('fr_inv'), notes:gv('fr_notes'),
@@ -11533,6 +11606,27 @@ function openFuelReceiptForm(r={}) {
     renderFuelContent(payload.vesselId, await api('getProjects',{vesselId:payload.vesselId}).catch(()=>[]));
   }, 'lg');
   setTimeout(frCompTotal, 50);
+}
+
+function frOnTypeChange() {
+  const ftype = document.querySelector('input[name="fr_type"]:checked')?.value || 'DO';
+  const FUEL_UNITS = {DO:'m³', lub:'lít', water:'m³'};
+  const u1 = document.getElementById('fr_unit');
+  const u2 = document.getElementById('fr_unit2');
+  if (u1) u1.textContent = FUEL_UNITS[ftype];
+  if (u2) u2.textContent = FUEL_UNITS[ftype];
+  // Update visual borders
+  document.querySelectorAll('input[name="fr_type"]').forEach(r => {
+    const lbl = r.closest('label');
+    if (!lbl) return;
+    if (r.checked) {
+      const c = r.value==='DO'?'var(--amber)':r.value==='lub'?'var(--purple)':'var(--blue)';
+      const bg = r.value==='DO'?'#fef3c7':r.value==='lub'?'#f3e8ff':'#dbeafe';
+      lbl.style.borderColor = c; lbl.style.background = bg;
+    } else {
+      lbl.style.borderColor = 'var(--gray3)'; lbl.style.background = '#fff';
+    }
+  });
 }
 
 function frCompTotal(){
@@ -11548,38 +11642,168 @@ function frCompTotal(){
 function openFuelIssueForm(i={}) {
   const vessels=S.vessels;
   const vOpts=vessels.map(v=>`<option value="${v.id}"${v.id===(i.vesselId||S.vesselId)?'selected':''}>${v.name}</option>`).join('');
+  const fuelType = i.fuelType || 'DO';
+  const FUEL_UNITS = {DO:'m³', lub:'lít', water:'m³'};
+
+  // Lấy danh mục C-Dầu/Nhớt/Nước để gợi ý
+  const costCats = (window.__DEMO_STORE__||{}).costCats || [];
+  const fuelCats = costCats.filter(c => c.group === 'C' || (c.name||'').toLowerCase().includes('dầu') || (c.name||'').toLowerCase().includes('nhớt') || (c.name||'').toLowerCase().includes('nước'));
+  const catOpts = fuelCats.length > 0
+    ? fuelCats.map(c => `<option value="${c.id}"${c.id===i.costCategoryId?' selected':''}>${c.name}</option>`).join('')
+    : '<option value="">— Chưa có khoản mục nhiên liệu C trong danh mục —</option>';
+
+  const autoCreateChecked = i.id ? (i.linkedCostEntryId ? 'checked' : '') : 'checked'; // Mặc định bật
+
   const html=`
     <div style="background:#fef9c3;border:1px solid #fde047;border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:12px;color:#713f12">
-      <strong>📤 Xuất kho:</strong> Ghi nhận lượng DO đã dùng. Hệ thống sẽ tự tính giá vốn theo <strong>FIFO</strong> từ các lô nhập theo thứ tự ngày nhập sớm nhất trước.
+      <strong>📤 Xuất kho:</strong> Ghi nhận lượng nhiên liệu đã dùng. Hệ thống sẽ tự tính giá vốn theo <strong>FIFO</strong> từ các lô nhập theo thứ tự ngày nhập sớm nhất trước.
     </div>
     <div class="form-grid cols2">
+      <div class="field required" style="grid-column:span 2"><label>Loại nhiên liệu</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid ${fuelType==='DO'?'var(--amber)':'var(--gray3)'};border-radius:6px;cursor:pointer;background:${fuelType==='DO'?'#fef3c7':'#fff'}">
+            <input type="radio" name="fi_type" value="DO" ${fuelType==='DO'?'checked':''} onchange="fiOnTypeChange()" style="margin:0"/>
+            ⛽ Dầu DO (m³)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid ${fuelType==='lub'?'var(--purple)':'var(--gray3)'};border-radius:6px;cursor:pointer;background:${fuelType==='lub'?'#f3e8ff':'#fff'}">
+            <input type="radio" name="fi_type" value="lub" ${fuelType==='lub'?'checked':''} onchange="fiOnTypeChange()" style="margin:0"/>
+            🛢 Nhớt (lít)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid ${fuelType==='water'?'var(--blue)':'var(--gray3)'};border-radius:6px;cursor:pointer;background:${fuelType==='water'?'#dbeafe':'#fff'}">
+            <input type="radio" name="fi_type" value="water" ${fuelType==='water'?'checked':''} onchange="fiOnTypeChange()" style="margin:0"/>
+            💧 Nước ngọt (m³)
+          </label>
+        </div>
+      </div>
       <div class="field required"><label>Tàu</label>
         <select id="fi_v" onchange="loadFuelProjects()">${vOpts}</select></div>
       <div class="field"><label>Dự án</label>
         <select id="fi_proj"><option value="">— Ngoài dự án —</option></select></div>
       <div class="field required"><label>Ngày xuất kho</label>
         <input type="date" id="fi_date" value="${i.issueDate||today()}" onchange="previewFifo()"/></div>
-      <div class="field required"><label>Số lượng (m³)</label>
+      <div class="field required"><label>Số lượng (<span id="fi_unit">${FUEL_UNITS[fuelType]}</span>)</label>
         <input type="number" id="fi_qty" value="${i.qty||''}" min="0" step="0.001" oninput="previewFifo()"/></div>
       <div class="field" style="grid-column:span 2"><label>Mô tả / Diễn giải</label>
         <input id="fi_desc" value="${i.description||''}"/></div>
     </div>
+
+    <!-- TỰ ĐỘNG SINH BÚT TOÁN CHI PHÍ -->
+    <div style="background:#dcfce7;border:1.5px solid var(--green);border-radius:var(--radius);padding:12px 14px;margin-top:14px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
+        <input type="checkbox" id="fi_autoCost" ${autoCreateChecked} style="width:16px;height:16px"/>
+        <strong style="color:#166534;font-size:13px">💰 Tự động tạo bút toán chi phí Vessel</strong>
+      </label>
+      <div style="font-size:11px;color:#166534;line-height:1.5;margin-bottom:10px">
+        Khi tích, hệ thống tạo 1 bút toán chi phí trong nhóm <strong>C-Nhiên liệu</strong> với giá vốn FIFO. Bút toán sẽ được liên kết với xuất kho này — sửa/xoá xuất kho sẽ tự cập nhật bút toán.
+      </div>
+      <div class="field"><label style="font-size:11px;color:#166534">Khoản mục C-Dầu để gán</label>
+        <select id="fi_costCat" style="font-size:12px">${catOpts}</select>
+      </div>
+    </div>
+
     <div id="fifo_preview" style="margin-top:12px"></div>`;
 
-  openModal(i.id?'Cập nhật xuất kho DO':'Xuất kho DO (Dùng nhiên liệu)', html, async()=>{
+  openModal(i.id?'Cập nhật xuất kho':'Xuất kho nhiên liệu', html, async()=>{
+    const ftype = document.querySelector('input[name="fi_type"]:checked')?.value || 'DO';
     const payload={
       id:i.id||newId(), vesselId:gv('fi_v'), projectId:gv('fi_proj')||'',
+      fuelType: ftype,
       issueDate:gv('fi_date'), qty:parseFloat(gv('fi_qty'))||0,
       description:gv('fi_desc'), costVnd:0, fifoDetail:[],
+      linkedCostEntryId: i.linkedCostEntryId || '',
     };
     if(!payload.vesselId||!payload.qty){toast('Điền đủ thông tin (*)','warn');return;}
+
+    // Tính FIFO trước khi lưu để có costVnd
+    const tmpRecs = FUEL_DEMO.receipts.filter(r => r.vesselId===payload.vesselId && (r.fuelType||'DO')===ftype);
+    const tmpIsss = [
+      ...FUEL_DEMO.issues.filter(x => x.vesselId===payload.vesselId && (x.fuelType||'DO')===ftype && x.id !== payload.id),
+      payload
+    ];
+    const fifoRes = computeFifo(tmpRecs, tmpIsss);
+    const myFifo = fifoRes.issues.find(x => x.id === payload.id);
+    if (myFifo) {
+      payload.costVnd = myFifo.costVnd;
+      payload.fifoDetail = myFifo.detail;
+    }
+
+    // Save xuất kho
     const idx=FUEL_DEMO.issues.findIndex(x=>x.id===payload.id);
     idx>=0?FUEL_DEMO.issues[idx]=payload:FUEL_DEMO.issues.push(payload);
-    toast('Đã lưu — FIFO sẽ được tính lại','ok'); closeModal();
+
+    // Tự sinh/cập nhật/xoá bút toán chi phí
+    const autoCost = document.getElementById('fi_autoCost')?.checked;
+    const costCatId = gv('fi_costCat');
+    if (autoCost && costCatId && payload.costVnd > 0) {
+      const FUEL_TYPE_LABELS = {DO:'Dầu DO', lub:'Nhớt', water:'Nước ngọt'};
+      const FUEL_UNITS_TXT = {DO:'m³', lub:'lít', water:'m³'};
+      const costEntry = {
+        id: payload.linkedCostEntryId || newId(),
+        vesselId: payload.vesselId,
+        projectId: payload.projectId || '',
+        entryDate: payload.issueDate,
+        categoryId: costCatId,
+        amount: payload.costVnd,
+        currency: 'VND',
+        fxRate: 1,
+        amountVnd: payload.costVnd,
+        description: `${FUEL_TYPE_LABELS[ftype]} - Xuất kho ${payload.qty} ${FUEL_UNITS_TXT[ftype]} (FIFO) ${payload.description ? '— '+payload.description : ''}`,
+        accountType: '', // Normal — vào P&L + BCTC
+        fuelIssueId: payload.id, // Link 2 chiều
+        createdAt: new Date().toISOString(),
+      };
+      try {
+        await api('saveCostEntry', costEntry);
+        payload.linkedCostEntryId = costEntry.id;
+        // Update lại issue với linkedCostEntryId
+        const idx2 = FUEL_DEMO.issues.findIndex(x => x.id === payload.id);
+        if (idx2 >= 0) FUEL_DEMO.issues[idx2] = payload;
+        toast('Đã lưu xuất kho + bút toán chi phí Vessel', 'ok');
+      } catch(e) {
+        toast('Đã lưu xuất kho. Lỗi tạo chi phí: '+e.message, 'warn');
+      }
+    } else if (!autoCost && payload.linkedCostEntryId) {
+      // Người dùng tắt cờ → xoá bút toán cũ
+      try {
+        await api('deleteCostEntry', {id: payload.linkedCostEntryId});
+        payload.linkedCostEntryId = '';
+        const idx2 = FUEL_DEMO.issues.findIndex(x => x.id === payload.id);
+        if (idx2 >= 0) FUEL_DEMO.issues[idx2] = payload;
+        toast('Đã lưu xuất kho. Đã xoá bút toán chi phí liên kết', 'ok');
+      } catch(e){
+        toast('Đã lưu xuất kho. Lỗi xoá chi phí cũ.', 'warn');
+      }
+    } else {
+      toast('Đã lưu xuất kho — FIFO sẽ được tính lại','ok');
+    }
+
+    if (typeof _lsSaveAll === 'function') _lsSaveAll();
+    closeModal();
     renderFuelContent(payload.vesselId, await api('getProjects',{vesselId:payload.vesselId}).catch(()=>[]));
   }, 'lg');
 
   setTimeout(()=>{loadFuelProjects(i.projectId);previewFifo();},50);
+}
+
+function fiOnTypeChange() {
+  const ftype = document.querySelector('input[name="fi_type"]:checked')?.value || 'DO';
+  const FUEL_UNITS = {DO:'m³', lub:'lít', water:'m³'};
+  const u = document.getElementById('fi_unit');
+  if (u) u.textContent = FUEL_UNITS[ftype];
+  // Visual borders
+  document.querySelectorAll('input[name="fi_type"]').forEach(r => {
+    const lbl = r.closest('label');
+    if (!lbl) return;
+    if (r.checked) {
+      const c = r.value==='DO'?'var(--amber)':r.value==='lub'?'var(--purple)':'var(--blue)';
+      const bg = r.value==='DO'?'#fef3c7':r.value==='lub'?'#f3e8ff':'#dbeafe';
+      lbl.style.borderColor = c; lbl.style.background = bg;
+    } else {
+      lbl.style.borderColor = 'var(--gray3)'; lbl.style.background = '#fff';
+    }
+  });
+  // Re-preview FIFO theo loại mới
+  previewFifo();
 }
 
 async function loadFuelProjects(selectedId='') {
@@ -11595,11 +11819,13 @@ function previewFifo() {
   const vid  = gv('fi_v');
   const date = gv('fi_date');
   const qty  = parseFloat(gv('fi_qty'))||0;
+  const ftype = document.querySelector('input[name="fi_type"]:checked')?.value || 'DO';
+  const FUEL_UNITS = {DO:'m³', lub:'lít', water:'m³'};
   const el   = document.getElementById('fifo_preview');
   if (!el||!vid||!qty||!date) { if(el) el.innerHTML=''; return; }
 
-  // Simulate FIFO with current qty
-  const recs = FUEL_DEMO.receipts.filter(r=>r.vesselId===vid);
+  // Simulate FIFO với loại nhiên liệu cụ thể
+  const recs = FUEL_DEMO.receipts.filter(r => r.vesselId===vid && (r.fuelType||'DO')===ftype);
   const tmpIssue = [{id:'tmp',vesselId:vid,projectId:'',issueDate:date,qty,description:'',costVnd:0,fifoDetail:[]}];
   const {issues} = computeFifo(recs, tmpIssue);
   const result = issues[0];
@@ -11610,7 +11836,7 @@ function previewFifo() {
     : `<tr>
         <td class="mono" style="font-size:11px">${fmtDate(d.lotDate)}</td>
         <td style="font-size:11px">${d.supplier||''} ${d.invoiceNo?'('+d.invoiceNo+')':''}</td>
-        <td class="num" style="font-size:11px">${fmt(d.qtyUsed,3)} m³ × ${fmt(d.unitPrice)}</td>
+        <td class="num" style="font-size:11px">${fmt(d.qtyUsed,3)} ${FUEL_UNITS[ftype]} × ${fmt(d.unitPrice)}</td>
         <td class="num" style="font-size:11px;font-weight:600">${fmtVnd(d.cost)}</td>
       </tr>`
   ).join('');
@@ -11646,10 +11872,31 @@ function deleteFuelReceipt(id) {
   const i=FUEL_DEMO.receipts.findIndex(r=>r.id===id);
   if(i>=0){FUEL_DEMO.receipts.splice(i,1);toast('Đã xoá','ok');reloadFuelPage();}
 }
-function deleteFuelIssue(id) {
-  if(!confirm('Xoá phiếu xuất này? FIFO sẽ được tính lại.'))return;
-  const i=FUEL_DEMO.issues.findIndex(r=>r.id===id);
-  if(i>=0){FUEL_DEMO.issues.splice(i,1);toast('Đã xoá','ok');reloadFuelPage();}
+async function deleteFuelIssue(id) {
+  const issue = FUEL_DEMO.issues.find(r => r.id === id);
+  if (!issue) return;
+  const hasLinkedCost = !!issue.linkedCostEntryId;
+
+  let msg = 'Xoá phiếu xuất này? FIFO sẽ được tính lại.';
+  if (hasLinkedCost) {
+    msg += '\n\n⚠ Phiếu này có liên kết với 1 bút toán chi phí Vessel.\nXoá phiếu sẽ XOÁ luôn bút toán chi phí đó.';
+  }
+  if (!confirm(msg)) return;
+
+  // Xoá bút toán chi phí liên kết (nếu có)
+  if (hasLinkedCost) {
+    try {
+      await api('deleteCostEntry', {id: issue.linkedCostEntryId});
+    } catch(e) { console.warn('Không xoá được costEntry liên kết:', e); }
+  }
+
+  const i = FUEL_DEMO.issues.findIndex(r => r.id === id);
+  if (i >= 0) {
+    FUEL_DEMO.issues.splice(i, 1);
+    if (typeof _lsSaveAll === 'function') _lsSaveAll();
+    toast(hasLinkedCost ? 'Đã xoá phiếu xuất + bút toán chi phí' : 'Đã xoá', 'ok');
+    reloadFuelPage();
+  }
 }
 
 // ── Inject Fuel nav item ─────────────────────────────────
