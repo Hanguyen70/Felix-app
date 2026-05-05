@@ -952,7 +952,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.30-04:50'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.30-05:50'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -1772,11 +1772,75 @@ function _demoDataCore(action, p, DEMO) {
 }
 
 function buildDemoDashboard(D, p) {
-  const year = parseInt(p.year||2024);
-  return {
-    year,
-    vessels: []
-  };
+  const year = parseInt(p.year || new Date().getFullYear());
+  const cats = D.costCats || [];
+
+  // Tổng theo từng tàu trong năm
+  const vessels = (D.vessels||[]).map(v => {
+    // Doanh thu thực tế (không phải kế hoạch) trong năm cho tàu này
+    const vRevs = (D.revEntries||[]).filter(r =>
+      r.vesselId === v.id &&
+      !r.isPlan && r.isPlan !== 'true' &&
+      (r.entryDate || '').startsWith(String(year))
+    );
+    // Chi phí (loại trừ Q - chi từ quỹ lương)
+    const vCosts = (D.costEntries||[]).filter(e =>
+      e.vesselId === v.id &&
+      e.accountType !== 'Q' &&
+      (e.entryDate || '').startsWith(String(year))
+    );
+    const totalRevVnd = vRevs.reduce((s, r) => s + (parseFloat(r.amountVnd)||0), 0);
+    const totalCostVnd = vCosts.reduce((s, e) => s + (parseFloat(e.amountVnd)||0), 0);
+    const totalMarginVnd = totalRevVnd - totalCostVnd;
+    const marginPct = totalRevVnd ? totalMarginVnd / totalRevVnd * 100 : 0;
+
+    // Util = số ngày dự án trong năm / 365
+    const isLeap = (year%4===0 && year%100!==0) || year%400===0;
+    const daysInYear = isLeap ? 366 : 365;
+    let onhireDays = 0;
+    (D.projects||[]).filter(prj => prj.vesselId === v.id).forEach(prj => {
+      if (!prj.startDate) return;
+      const ps = new Date(prj.startDate);
+      const pe = prj.endDate ? new Date(prj.endDate) : new Date();
+      // Chỉ tính nếu dự án chạm vào năm này
+      const yStart = new Date(year, 0, 1);
+      const yEnd = new Date(year, 11, 31, 23, 59, 59);
+      if (pe < yStart || ps > yEnd) return;
+      const days = (parseFloat(prj.transitDays)||0) + (parseFloat(prj.mobDemobDays)||0)
+                 + (parseFloat(prj.standbyDays)||0) + (parseFloat(prj.onfieldDays)||0);
+      onhireDays += days;
+    });
+    onhireDays = Math.min(onhireDays, daysInYear);
+    const utilPct = daysInYear ? onhireDays / daysInYear * 100 : 0;
+
+    // Đếm số dự án trong năm
+    const projectCount = (D.projects||[]).filter(prj => {
+      if (prj.vesselId !== v.id || !prj.startDate) return false;
+      const ps = new Date(prj.startDate);
+      const pe = prj.endDate ? new Date(prj.endDate) : new Date();
+      const yStart = new Date(year, 0, 1);
+      const yEnd = new Date(year, 11, 31, 23, 59, 59);
+      return !(pe < yStart || ps > yEnd);
+    }).length;
+
+    return {
+      id: v.id, name: v.name, imo: v.imo,
+      totalRevVnd, totalCostVnd, totalMarginVnd, marginPct: +marginPct.toFixed(1),
+      onhireDays: +onhireDays.toFixed(1), utilPct: +utilPct.toFixed(1),
+      projectCount,
+    };
+  });
+
+  // Tổng cả đội tàu
+  const totals = vessels.reduce((acc, v) => ({
+    totalRevVnd: acc.totalRevVnd + v.totalRevVnd,
+    totalCostVnd: acc.totalCostVnd + v.totalCostVnd,
+    totalMarginVnd: acc.totalMarginVnd + v.totalMarginVnd,
+    onhireDays: acc.onhireDays + v.onhireDays,
+    projectCount: acc.projectCount + v.projectCount,
+  }), { totalRevVnd: 0, totalCostVnd: 0, totalMarginVnd: 0, onhireDays: 0, projectCount: 0 });
+
+  return { year, vessels, totals };
 }
 function buildDemoProject(D, p) {
   const proj = D.projects.find(x=>x.id===p.projectId);
@@ -1997,13 +2061,78 @@ function buildDemoUtil(D, p) {
   return {year,daysInYear:366,vessels:[]};
 }
 function buildDemoPlanVsActual(D, p) {
-  const vId=p.vesselId||'v1';
-  const plan=D.annualPlan.find(a=>a.vesselId===vId)||{};
+  const vId = p.vesselId || (D.vessels[0]||{}).id || '';
+  const year = parseInt(p.year || new Date().getFullYear());
+  const prevYear = year - 1;
+  const plan = (D.annualPlan||[]).find(a => a.vesselId===vId && a.year===year) || {};
+
+  // Tính số liệu thực tế năm hiện tại
+  const actual = _calcVesselYearStats(D, vId, year);
+  // Tính daily cost năm liền kề (làm căn cứ đề xuất giá năm sau)
+  const prevYearStats = _calcVesselYearStats(D, vId, prevYear);
+
+  // Variance (so với plan)
+  const planRev = parseFloat(plan.revPlan)||0;
+  const planDays = parseFloat(plan.onhireDaysPlan)||0;
+  const variance = {
+    revVnd: actual.totalRevVnd - planRev,
+    revPct: planRev ? (actual.totalRevVnd - planRev)/planRev*100 : 0,
+    daysDiff: actual.onhireDays - planDays,
+  };
+
+  // Daily cost năm trước (căn cứ giá năm sau)
+  // = Tổng chi phí năm trước / số ngày on-hire năm trước
+  const prevYearDailyCost = prevYearStats.onhireDays > 0
+    ? Math.round(prevYearStats.totalCostVnd / prevYearStats.onhireDays)
+    : 0;
+  const targetMarginPct = parseFloat(plan.targetMarginPct) || 20;
+  const suggestedDailyRate = prevYearDailyCost > 0
+    ? Math.round(prevYearDailyCost / (1 - targetMarginPct/100))
+    : 0;
+
   return {
-    vesselId:vId, year:parseInt(p.year||2024), plan,
-    actual:{onhireDays:174.8,utilisationPct:47.8,totalRevVnd:10000000000,marginVnd:5920000000,marginPct:59.2},
-    variance:{revVnd:-8000000000,revPct:-44.4,daysDiff:-105.2},
-    pricing:{prevYearDailyCost:18500000,targetMarginPct:20,suggestedDailyRate:23125000},
+    vesselId: vId, year, plan, actual, variance,
+    pricing: { prevYearDailyCost, targetMarginPct, suggestedDailyRate },
+  };
+}
+
+// Helper: thống kê năm cho 1 tàu
+function _calcVesselYearStats(D, vId, year) {
+  const yPrefix = String(year);
+  const revs = (D.revEntries||[]).filter(r =>
+    r.vesselId === vId && !r.isPlan && r.isPlan !== 'true' &&
+    (r.entryDate||'').startsWith(yPrefix)
+  );
+  const costs = (D.costEntries||[]).filter(e =>
+    e.vesselId === vId && e.accountType !== 'Q' &&
+    (e.entryDate||'').startsWith(yPrefix)
+  );
+  const totalRevVnd = revs.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
+  const totalCostVnd = costs.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
+  const marginVnd = totalRevVnd - totalCostVnd;
+  const marginPct = totalRevVnd ? marginVnd/totalRevVnd*100 : 0;
+
+  // Onhire days từ các project
+  const isLeap = (year%4===0 && year%100!==0) || year%400===0;
+  const daysInYear = isLeap ? 366 : 365;
+  let onhireDays = 0;
+  (D.projects||[]).filter(prj => prj.vesselId === vId).forEach(prj => {
+    if (!prj.startDate) return;
+    const ps = new Date(prj.startDate);
+    const pe = prj.endDate ? new Date(prj.endDate) : new Date();
+    const yStart = new Date(year, 0, 1);
+    const yEnd = new Date(year, 11, 31, 23, 59, 59);
+    if (pe < yStart || ps > yEnd) return;
+    const days = (parseFloat(prj.transitDays)||0) + (parseFloat(prj.mobDemobDays)||0)
+               + (parseFloat(prj.standbyDays)||0) + (parseFloat(prj.onfieldDays)||0);
+    onhireDays += days;
+  });
+  onhireDays = Math.min(onhireDays, daysInYear);
+
+  return {
+    totalRevVnd, totalCostVnd, marginVnd, marginPct: +marginPct.toFixed(1),
+    onhireDays: +onhireDays.toFixed(1),
+    utilisationPct: daysInYear ? +(onhireDays/daysInYear*100).toFixed(1) : 0,
   };
 }
 
@@ -3524,16 +3653,56 @@ async function renderReportAnnual() {
 async function renderReportPlan() {
   if(!S.vesselId){document.getElementById('content').innerHTML=`<div class="empty-state" style="margin-top:60px">Chọn tàu ở thanh bên trái.</div>`;return;}
   showLoading();
-  let data, plan;
+  let data, plan, revsAll, costsAll;
   try{
-    [data, plan] = await Promise.all([
+    [data, plan, revsAll, costsAll] = await Promise.all([
       api('getPlanVsActual',{vesselId:S.vesselId,year:S.year}),
       api('getAnnualPlan',{vesselId:S.vesselId,year:S.year}),
+      api('getRevEntries',{vesselId:S.vesselId}),
+      api('getCostEntries',{vesselId:S.vesselId}),
     ]);
   }catch(e){toast('Lỗi: '+e.message,'err');hideLoading();return;}
   hideLoading();
 
-  const planRow = plan[0]||{};
+  // Lấy planRow gốc (nếu anh đã nhập theo form annualPlan)
+  let planRow = plan[0] || {};
+  // BỔ SUNG: Tự gộp KH từ revEntries có isPlan=true của năm hiện tại
+  const yPrefix = String(S.year);
+  const planRevs = (revsAll||[]).filter(r =>
+    (r.isPlan===true || r.isPlan==='true') &&
+    (r.entryDate||'').startsWith(yPrefix)
+  );
+  const planRevFromEntries = planRevs.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
+  // Nếu chưa có planRow.planRevenue, dùng tổng từ entries
+  if (!planRow.planRevenue && planRevFromEntries > 0) {
+    planRow = { ...planRow, planRevenue: planRevFromEntries };
+  }
+  // Tự tính planOnhireDays từ projects nếu chưa có
+  if (!planRow.planOnhireDays) {
+    const isLeap = (S.year%4===0 && S.year%100!==0) || S.year%400===0;
+    const daysInYear = isLeap ? 366 : 365;
+    let onhire = 0;
+    try {
+      const projects = await api('getProjects',{vesselId:S.vesselId});
+      (projects||[]).forEach(prj => {
+        if (!prj.startDate) return;
+        const ps = new Date(prj.startDate);
+        const pe = prj.endDate ? new Date(prj.endDate) : new Date();
+        const yStart = new Date(S.year, 0, 1);
+        const yEnd = new Date(S.year, 11, 31, 23, 59, 59);
+        if (pe < yStart || ps > yEnd) return;
+        const days = (parseFloat(prj.transitDays)||0) + (parseFloat(prj.mobDemobDays)||0)
+                   + (parseFloat(prj.standbyDays)||0) + (parseFloat(prj.onfieldDays)||0);
+        onhire += days;
+      });
+    } catch(e){}
+    planRow = { ...planRow, planOnhireDays: Math.min(onhire, daysInYear).toFixed(1) };
+  }
+  // Tự tính daily rate mục tiêu nếu chưa có
+  if (!planRow.targetDailyRate && planRow.planRevenue && planRow.planOnhireDays) {
+    planRow = { ...planRow, targetDailyRate: Math.round(planRow.planRevenue / parseFloat(planRow.planOnhireDays)) };
+  }
+
   const a = data.actual;
   const v = data.variance;
   const pr = data.pricing;
@@ -3596,43 +3765,66 @@ async function renderReportPlan() {
     <div class="card">
       <div class="card-header"><h3>Đề xuất giá bán năm ${S.year+1}</h3></div>
       <div class="card-body">
+        ${pr.prevYearDailyCost === 0 ? `
+        <div style="background:#fef3c7;border-left:4px solid #f59e0b;color:#92400e;border-radius:6px;padding:12px 14px;margin-bottom:14px;font-size:13px">
+          ⚠ <strong>Chưa đủ dữ liệu năm ${S.year} để tính daily cost căn cứ.</strong><br>
+          Cần có: chi phí thực + dự án có ngày on-hire trong năm ${S.year}. Anh có thể nhập tay vào ô bên dưới.
+        </div>` : ''}
         <div class="form-grid cols3 mb16">
           <div class="kpi-card accent-blue">
             <div class="kpi-label">Daily cost năm ${S.year} (căn cứ)</div>
-            <div class="kpi-value">${fmtVnd(pr.prevYearDailyCost)}</div>
-            <div class="kpi-sub">Nguồn: báo cáo năm liền kề</div>
+            <div class="kpi-value" id="kpi-base-cost">${fmtVnd(pr.prevYearDailyCost)}</div>
+            <div class="kpi-sub">${pr.prevYearDailyCost > 0 ? `Tự tính: tổng CP / ngày onhire năm ${S.year}` : 'Chưa có dữ liệu — Cần nhập tay'}</div>
           </div>
           <div class="kpi-card accent-amber">
             <div class="kpi-label">Tỷ suất LN mục tiêu</div>
-            <div class="kpi-value">${pct(pr.targetMarginPct)}</div>
+            <div class="kpi-value" id="kpi-target-margin">${pct(pr.targetMarginPct)}</div>
           </div>
           <div class="kpi-card accent-green">
             <div class="kpi-label">Daily rate đề xuất ${S.year+1}</div>
-            <div class="kpi-value kpi-positive">${fmtVnd(pr.suggestedDailyRate)}</div>
+            <div class="kpi-value kpi-positive" id="kpi-suggest-rate">${fmtVnd(pr.suggestedDailyRate)}</div>
             <div class="kpi-sub">= Daily cost / (1 - margin%)</div>
           </div>
         </div>
         <div style="background:var(--gray1);border-radius:var(--radius);padding:12px 16px;font-size:12px;color:var(--text2)">
           <strong>Công thức:</strong> Daily rate đề xuất = Daily project cost năm ${S.year} ÷ (1 − margin% mục tiêu)<br>
-          <strong>Ghi chú:</strong> Daily cost lấy từ năm liền kề trước vì năm hiện tại chưa đủ dữ liệu.
-          Cần điều chỉnh theo dự báo chi phí tăng thêm (crew, nhiên liệu, đăng kiểm...).
+          <strong>Ghi chú:</strong> Daily cost lấy từ năm ${S.year} (= tổng chi phí thực / số ngày onhire). Nếu năm hiện chưa đủ dữ liệu, anh có thể chỉnh tay căn cứ và margin% bên dưới.
         </div>
-        <div class="mt12">
-          <label style="font-size:12px;font-weight:500">Điều chỉnh tỷ suất LN mục tiêu:
-            <input type="number" value="${pr.targetMarginPct}" min="0" max="100" step="1" style="width:80px;margin:0 8px;padding:4px 8px;border:1px solid var(--border);border-radius:4px"
-              oninput="recalcDailyRate(this.value,${pr.prevYearDailyCost})"/>
+        <div class="mt12" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center">
+          <label style="font-size:12px;font-weight:500">Daily cost căn cứ:
+            <input type="number" id="input-base-cost" value="${pr.prevYearDailyCost}" min="0" step="100000" style="width:130px;margin:0 8px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-family:var(--mono);text-align:right"
+              oninput="recalcDailyRate()"/>
+            đ/ngày
+          </label>
+          <label style="font-size:12px;font-weight:500">Tỷ suất LN mục tiêu:
+            <input type="number" id="input-target-margin" value="${pr.targetMarginPct}" min="0" max="100" step="1" style="width:80px;margin:0 8px;padding:4px 8px;border:1px solid var(--border);border-radius:4px"
+              oninput="recalcDailyRate()"/>
             %
           </label>
-          <span style="margin-left:16px;font-family:var(--mono);font-weight:600;color:var(--teal)" id="calc-rate">${fmtVnd(pr.suggestedDailyRate)}/ngày</span>
+          <span style="font-family:var(--mono);font-weight:600;color:var(--teal);font-size:14px" id="calc-rate">${fmtVnd(pr.suggestedDailyRate)}/ngày</span>
         </div>
       </div>
     </div>`;
 }
 
-function recalcDailyRate(marginPct, baseCost) {
-  const rate = baseCost ? Math.round(baseCost / (1 - parseFloat(marginPct)/100)) : 0;
-  const el = document.getElementById('calc-rate');
-  if (el) el.textContent = fmtVnd(rate)+'/ngày';
+function recalcDailyRate() {
+  const baseCost = parseFloat(document.getElementById('input-base-cost')?.value) || 0;
+  const marginPct = parseFloat(document.getElementById('input-target-margin')?.value) || 0;
+  if (marginPct >= 100) {
+    const el = document.getElementById('calc-rate');
+    if (el) el.textContent = 'Margin không thể ≥ 100%';
+    return;
+  }
+  const rate = baseCost ? Math.round(baseCost / (1 - marginPct/100)) : 0;
+  // Cập nhật cả KPI cards và label dưới
+  const elKpiBase = document.getElementById('kpi-base-cost');
+  const elKpiMargin = document.getElementById('kpi-target-margin');
+  const elKpiRate = document.getElementById('kpi-suggest-rate');
+  const elCalc = document.getElementById('calc-rate');
+  if (elKpiBase) elKpiBase.textContent = fmtVnd(baseCost);
+  if (elKpiMargin) elKpiMargin.textContent = pct(marginPct);
+  if (elKpiRate) elKpiRate.textContent = fmtVnd(rate);
+  if (elCalc) elCalc.textContent = fmtVnd(rate)+'/ngày';
 }
 
 function openPlanForm(p={}) {
