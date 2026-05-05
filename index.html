@@ -2499,9 +2499,7 @@ async function init() {
     S.year = curYear;
 
     // Load master data
-    console.log('[init] Loading vessels...');
     const vessels  = await api('getVessels');
-    console.log('[init] Vessels loaded:', vessels?.length, vessels);
     const costCats = await api('getCostCats');
     const revCats  = await api('getRevCats');
 
@@ -2511,14 +2509,12 @@ async function init() {
 
     // Fill vessel selector
     const vSel = document.getElementById('global-vessel');
-    console.log('[init] Filling vessel selector, count:', S.vessels.length);
     S.vessels.forEach(v => {
       const opt = document.createElement('option');
       opt.value = v.id;
       opt.textContent = v.name;
       vSel.appendChild(opt);
     });
-    console.log('[init] Vessel selector filled, options:', vSel.options.length);
   } catch(e) {
     console.error('[init] ERROR:', e);
     toast('Lỗi tải dữ liệu: ' + e.message, 'err');
@@ -8586,15 +8582,6 @@ function injectOmNavItems() {
   // omPages/omTitles already defined in ALL_PAGES central router
 }
 
-// ── Extend global selector: show O&M label in topbar ────
-function onVesselChange() {
-  S.vesselId = document.getElementById('global-vessel').value;
-  const vessel = S.vessels.find(v=>v.id===S.vesselId);
-  const tn = document.getElementById('topbar-vessel');
-  if (tn) tn.textContent = vessel ? vessel.name : '';
-  nav_(document.querySelector('.nav-item.active'));
-}
-
 // ═══════════════════════════════════════════════════════
 // MODULE: SHIP MANAGEMENT (Quản lý tàu thuê ngoài)
 // ═══════════════════════════════════════════════════════
@@ -9899,12 +9886,6 @@ function gaCompVnd(){
   if(document.getElementById('ga_vnd'))document.getElementById('ga_vnd').value=Math.round(a*fx);
 }
 async function deleteGaEntry(id){if(!confirm('Xoá?'))return;try{await api('deleteGaEntry',{id});toast('Đã xoá','ok');renderGa();}catch(e){toast('Lỗi','err');}}
-function renderGaCats(){
-  const cats=GA_DEMO.categories;const grps=[...new Map(cats.map(c=>[c.group,GA_GROUP_LABELS[c.group]||c.group])).entries()];
-  const html=`<div class="flex justify-between items-center mb12"><span class="text-muted text-small">${cats.length} khoản mục</span><button class="btn btn-primary btn-sm" onclick="openGaCatForm()">+ Thêm</button></div>`+
-    grps.map(([g,l])=>`<div class="section-title">${l}</div><div class="card mb12"><div class="card-body no-pad"><table><thead><tr><th>Tên</th><th>Đơn vị</th><th></th></tr></thead><tbody>${cats.filter(c=>c.group===g).map(c=>`<tr><td>${c.name}</td><td class="mono">${c.unit||'—'}</td><td class="row-actions"><button class="btn btn-ghost btn-xs" onclick="openGaCatForm(${JSON.stringify(c).replace(/"/g,'&quot;')})">✏️</button></td></tr>`).join('')}</tbody></table></div></div>`).join('');
-  openModal('Danh mục G&A',html,null,'md');
-}
 function openGaCatForm(c={}){
   const grps=Object.entries(GA_GROUP_LABELS).filter(([k])=>!['PropRev','FinRev','Other'].includes(k)).map(([k,l])=>`<option value="${k}"${k===c.group?'selected':''}>${l}</option>`).join('');
   const html=`<div class="form-grid"><div class="field required"><label>Nhóm</label><select id="gc_g">${grps}</select></div><div class="field required"><label>Tên khoản mục</label><input id="gc_n" value="${c.name||''}"/></div><div class="field"><label>Đơn vị</label><input id="gc_u" value="${c.unit||''}"/></div></div>`;
