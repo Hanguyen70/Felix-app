@@ -768,6 +768,10 @@ body.ios-view .ios-banner { display: block; }
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
       Đầu tư & Khấu hao
     </div>
+    <div class="nav-item home-only" data-page="consolidated" onclick="nav(this)">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+      Báo cáo P&L Tổng hợp
+    </div>
     <div class="nav-item home-only" data-page="tax-report" onclick="nav(this)">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/></svg>
       Dự trù BCTC / Thuế TNDN
@@ -948,7 +952,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.30-03:30'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.30-04:10'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -2557,6 +2561,9 @@ async function renderDashboard() {
       </div>
     </div>
 
+    <!-- Bảng tổng hợp KH & Tiến độ -->
+    <div id="dash-progress-container" class="mb20"></div>
+
     <!-- Bottom: Vessels detail + Chart -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
 
@@ -2646,6 +2653,9 @@ async function renderDashboard() {
       }
     });
   },100);
+
+  // Render bảng KH & Tiến độ
+  setTimeout(() => { if (typeof _renderProgressTable === 'function') _renderProgressTable(); }, 50);
 }
 
 function selectVessel(id) {
@@ -5234,6 +5244,7 @@ const ALL_TITLES = {
   'ga-cats':'Danh mục G&A',
   'payroll-fund':'Quỹ lương dự án (T/Q)',
   'investments':'Đầu tư & Khấu hao',
+  'consolidated':'Báo cáo P&L Tổng hợp',
   'tax-report':'Dự trù BCTC — Lợi nhuận chịu thuế TNDN',
 };
 
@@ -5305,8 +5316,15 @@ function addExportButtons() {
   plBtn.className = 'btn btn-sm';
   plBtn.title = 'Báo cáo tổng hợp P&L toàn công ty';
   plBtn.style.cssText = 'background:var(--navy);color:#fff;font-weight:600;white-space:nowrap;border:none';
-  plBtn.innerHTML = '📊 P&amp;L';
-  plBtn.onclick = () => nav_(document.querySelector('[data-page="consolidated"]'));
+  plBtn.innerHTML = '📊 P&amp;L tổng hợp';
+  plBtn.onclick = () => {
+    S.page = 'consolidated';
+    document.querySelectorAll('.nav-item.active').forEach(el => el.classList.remove('active'));
+    if (typeof renderConsolidated === 'function') renderConsolidated();
+    // Update topbar title
+    const titleEl = document.querySelector('.page-title');
+    if (titleEl) titleEl.textContent = 'Báo cáo P&L Tổng hợp';
+  };
   right.prepend(plBtn);
 
   // Export buttons
