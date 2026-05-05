@@ -7166,8 +7166,25 @@ async function openInvestForm(inv = {}) {
     `<option value="${v.id}"${v.id===inv.vesselId?' selected':''}>${v.name}</option>`).join('');
   const omOpts = '<option value="">— Chọn hợp đồng O&M —</option>' + omContracts.map(c =>
     `<option value="${c.id}"${c.id===inv.contractId?' selected':''}>${c.name}</option>`).join('');
-  const capexOpts = '<option value="">— (Không liên kết) —</option>' + capex.map(c =>
-    `<option value="${c.id}"${c.id===inv.capexLinkId?' selected':''}>${c.name||c.assetName||c.id}</option>`).join('');
+  // Build map id→tên tàu để hiển thị trong dropdown Capex
+  const vesselNameById = Object.fromEntries(vessels.map(v => [v.id, v.name]));
+  const _fmtVnd = n => {
+    const x = parseFloat(n) || 0;
+    if (x >= 1e9) return (x/1e9).toFixed(1).replace(/\.0$/, '') + ' tỷ';
+    if (x >= 1e6) return (x/1e6).toFixed(0) + ' tr';
+    return x.toLocaleString('vi-VN');
+  };
+  const capexOpts = '<option value="">— (Không liên kết) —</option>' + capex.map(c => {
+    const desc = c.description || c.name || c.assetName || '(không có mô tả)';
+    const vName = vesselNameById[c.vesselId] || '';
+    const year = c.year || '';
+    const amt = c.amountVnd ? ' • ' + _fmtVnd(c.amountVnd) + 'đ' : '';
+    const meta = [vName, year].filter(Boolean).join(' ');
+    const label = desc + (meta ? ' — ' + meta : '') + amt;
+    // Escape ký tự đặc biệt cho an toàn trong attribute
+    const safeLabel = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    return `<option value="${c.id}"${c.id===inv.capexLinkId?' selected':''}>${safeLabel}</option>`;
+  }).join('');
   const curOpts = ['VND','USD','SGD','EUR','GBP'].map(cc =>
     `<option value="${cc}"${cc===(inv.currency||'VND')?' selected':''}>${cc}</option>`).join('');
   const methods = [
