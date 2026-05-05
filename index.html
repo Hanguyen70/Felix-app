@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="theme-color" content="#0052CC"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="FELIX"/>
 <meta name="description" content="Seahorse Marine & Energy — Maritime Operations Management"/>
@@ -1761,6 +1762,9 @@ function _demoDataCore(action, p, DEMO) {
     case 'deleteRevEntry': { const i=DEMO.revEntries.findIndex(r=>r.id===p.id); if(i>=0)DEMO.revEntries.splice(i,1); return {deleted:true}; }
     case 'deleteProject':  { const i=DEMO.projects.findIndex(r=>r.id===p.id); if(i>=0)DEMO.projects.splice(i,1); return {deleted:true}; }
     case 'deleteFxRate':   { const i=DEMO.fxRates.findIndex(r=>r.id===p.id); if(i>=0)DEMO.fxRates.splice(i,1); return {deleted:true}; }
+    case 'deleteCapex':    { const i=DEMO.capex.findIndex(r=>r.id===p.id); if(i>=0)DEMO.capex.splice(i,1); return {deleted:true}; }
+    case 'deleteCostCat':  { const i=DEMO.costCats.findIndex(r=>r.id===p.id); if(i>=0)DEMO.costCats.splice(i,1); return {deleted:true}; }
+    case 'deleteRevCat':   { const i=DEMO.revCats.findIndex(r=>r.id===p.id); if(i>=0)DEMO.revCats.splice(i,1); return {deleted:true}; }
     case 'getDashboard':   return buildDemoDashboard(DEMO, p);
     case 'getAnnualReport':return buildDemoAnnual(DEMO, p);
     case 'getProjectReport':return buildDemoProject(DEMO, p);
@@ -4159,6 +4163,9 @@ async function renderCategories() {
         </div>
       </div>
     </div>`;
+
+  // Giữ nguyên tab đang xem (Chi phí / Doanh thu) sau khi re-render
+  if (_catTab === 'rev') switchCatTab('rev');
 }
 
 function toggleGroup(id) {
@@ -10445,7 +10452,7 @@ async function _renderProgressTable() {
   let allCosts=[], allRevs=[], omRevs=[], omCosts=[], smPass=[], smCosts=[], gaEntries=[], gaRevs=[], smRevs=[], smContracts=[];
   let omPlans=[], annualPlans=[], omContracts=[];
   try {
-    [allCosts, allRevs, omRevs, omCosts, smPass, smCosts, gaEntries, gaRevs, omContracts, smRevs, smContracts] = await Promise.all([
+    [allCosts, allRevs, omRevs, omCosts, smPass, smCosts, gaEntries, gaRevs, omContracts, smRevs, smContracts, omPlans, annualPlans] = await Promise.all([
       api('getCostEntries', {}),
       api('getRevEntries', {}),
       api('getOmRevEntries', {}),
@@ -10457,9 +10464,9 @@ async function _renderProgressTable() {
       api('getOmContracts', {}).catch(()=>[]),
       api('getSmRevEntries', {}).catch(()=>[]),
       api('getSmContracts', {}).catch(()=>[]),
+      api('getOmPlans', {}).catch(()=>[]),
+      api('getAnnualPlan', {}).catch(()=>[]),
     ]);
-    omPlans = OM_DEMO.omPlans || [];
-    annualPlans = DEMO.annualPlan || [];
   } catch(e) { console.warn(e); }
 
   // ─── VESSEL ───
