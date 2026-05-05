@@ -1728,7 +1728,30 @@ function _demoDataCore(action, p, DEMO) {
     case 'getVessels':     return [...DEMO.vessels];
     case 'getCostCats':    return [...DEMO.costCats];
     case 'getRevCats':     return [...DEMO.revCats];
-    case 'getProjects':    return cloneFilter(DEMO.projects, r => (!p.vesselId||r.vesselId===p.vesselId));
+    case 'getProjects':    {
+      // Filter theo vesselId và year (dự án "có liên quan" trong năm Y nếu startDate.year ≤ Y ≤ endDate.year)
+      // Nếu dự án không có startDate/endDate → fallback theo contractDate hoặc tạo
+      const filtered = DEMO.projects.filter(r => {
+        if (p.vesselId && r.vesselId !== p.vesselId) return false;
+        if (!p.year) return true;
+        const Y = parseInt(p.year);
+        const startYr = r.startDate ? parseInt(String(r.startDate).slice(0,4)) : null;
+        const endYr   = r.endDate   ? parseInt(String(r.endDate).slice(0,4))   : null;
+        if (startYr && endYr) return Y >= startYr && Y <= endYr;
+        if (startYr) return Y >= startYr;       // chưa có endDate → vẫn đang chạy
+        if (endYr)   return Y <= endYr;
+        // Fallback: contractDate hoặc id
+        const fbYr = r.contractDate ? parseInt(String(r.contractDate).slice(0,4)) : null;
+        return fbYr ? fbYr === Y : true;
+      });
+      // Sort: năm mới nhất → cũ nhất, cùng năm thì startDate mới nhất trước
+      filtered.sort((a, b) => {
+        const dA = a.startDate || a.contractDate || '0000';
+        const dB = b.startDate || b.contractDate || '0000';
+        return dB.localeCompare(dA);  // descending
+      });
+      return filtered.map(r => ({...r}));
+    }
     case 'getCostEntries': return cloneFilter(DEMO.costEntries, r => (!p.vesselId||r.vesselId===p.vesselId)&&(!p.projectId||r.projectId===p.projectId));
     case 'getRevEntries':  return cloneFilter(DEMO.revEntries, r => (!p.vesselId||r.vesselId===p.vesselId)&&(!p.projectId||r.projectId===p.projectId));
     case 'getCapex':       return cloneFilter(DEMO.capex, r => (!p.vesselId||r.vesselId===p.vesselId));
@@ -1822,6 +1845,10 @@ function _demoDataCore(action, p, DEMO) {
 function buildDemoDashboard(D, p) {
   const year = parseInt(p.year || new Date().getFullYear());
   const cats = D.costCats || [];
+  // Set RevCat bị loại khỏi cơ sở tính trích T (vd: Phát sinh ngoài hợp đồng)
+  const excludedRevCatIds = new Set(
+    (D.revCats || []).filter(r => r.excludeFromAccrual).map(r => r.id)
+  );
 
   // Tổng theo từng tàu trong năm
   const vessels = (D.vessels||[]).map(v => {
@@ -1843,6 +1870,7 @@ function buildDemoDashboard(D, p) {
     // ─── Cộng thêm T computed (trích quỹ tự động từ DT × accrualPct) ───
     // T computed VÀO P/L quản trị nhưng KHÔNG VÀO BCTC.
     // Dùng pct lock cho năm nếu có (accrualPctByYear), fallback về accrualPct mặc định.
+    // Loại RevCat có excludeFromAccrual khỏi cơ sở tính trích.
     (cats||[]).forEach(cat => {
       if (cat.group !== 'T') return;
       if (cat.active === false || cat.active === 'false') return;
@@ -1853,7 +1881,11 @@ function buildDemoDashboard(D, p) {
       if (pct <= 0) return;
       const filterRevCat = cat.appliesToRevCatId || null;
       const revBase = vRevs
-        .filter(r => !filterRevCat || r.categoryId === filterRevCat)
+        .filter(r => {
+          if (filterRevCat && r.categoryId !== filterRevCat) return false;
+          if (excludedRevCatIds.has(r.categoryId)) return false;
+          return true;
+        })
         .reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
       if (revBase > 0) totalCostVnd += Math.round(revBase * pct / 100);
     });
@@ -1924,16 +1956,21 @@ function buildDemoProject(D, p) {
   // ─── COMPUTED T ENTRIES (lock pct theo năm) ───
   // Dự án có thể kéo dài nhiều năm. Mỗi năm DT × pct của năm đó (lock-aware).
   // T computed VÀO P/L dự án (quản trị) nhưng KHÔNG vào BCTC.
+  // Loại RevCat có excludeFromAccrual (vd: Phát sinh ngoài hợp đồng) khỏi cơ sở tính trích.
+  const excludedRevCatIds = new Set(
+    (D.revCats || []).filter(r => r.excludeFromAccrual).map(r => r.id)
+  );
   const computedTEntries = [];
   (D.costCats || []).forEach(cat => {
     if (cat.group !== 'T') return;
     if (cat.active === false || cat.active === 'false') return;
     const filterRevCat = cat.appliesToRevCatId || null;
 
-    // Group DT của dự án theo năm
+    // Group DT của dự án theo năm (loại RevCat excludeFromAccrual)
     const revByYear = {};
     rEntries.forEach(r => {
       if (filterRevCat && r.categoryId !== filterRevCat) return;
+      if (excludedRevCatIds.has(r.categoryId)) return;
       const yr = parseInt((r.entryDate||'').slice(0,4));
       if (!yr) return;
       revByYear[yr] = (revByYear[yr] || 0) + (parseFloat(r.amountVnd) || 0);
@@ -3395,30 +3432,37 @@ async function renderRevenue() {
     <div class="flex items-center justify-between mb16">
       <div class="flex gap12">
         <div class="kpi-card accent-teal" style="padding:10px 16px;min-width:160px">
-          <div class="kpi-label">Thực thu</div>
+          <div class="kpi-label">Thực thu ${S.year}</div>
           <div style="font-size:17px;font-weight:700;color:var(--teal)">${fmtB(totalAct)}</div>
         </div>
         <div class="kpi-card" style="padding:10px 16px;min-width:160px">
-          <div class="kpi-label">Kế hoạch</div>
+          <div class="kpi-label">Kế hoạch ${S.year}</div>
           <div style="font-size:17px;font-weight:700;color:var(--blue)">${fmtB(totalPlan)}</div>
         </div>
+        ${totalPlan > 0 ? `<div class="kpi-card" style="padding:10px 16px;min-width:140px">
+          <div class="kpi-label">Đạt KH</div>
+          <div style="font-size:17px;font-weight:700;color:${totalAct>=totalPlan?'var(--green)':'var(--amber)'}">${totalPlan?Math.round(totalAct/totalPlan*100):0}%</div>
+        </div>` : ''}
       </div>
       <div class="flex gap8">
         <button class="btn btn-outline" onclick="openRevForm({isPlan:true})">+ Nhập kế hoạch</button>
         <button class="btn btn-primary" onclick="openRevForm({})">+ Nhập thực thu</button>
       </div>
     </div>
-    <div class="card">
+
+    <!-- BẢNG THỰC THU (chính) -->
+    <div class="card mb16">
+      <div class="card-header"><h3>💰 Doanh thu thực tế — ${actual.length} bút toán</h3></div>
       <div class="card-body no-pad">
         <div class="tbl-wrap">
           <table>
             <thead><tr>
               <th>Ngày</th><th>Tàu</th><th>Dự án</th><th>Đầu mục</th>
-              <th class="num">Số tiền VNĐ</th><th>Ngoại tệ</th><th>Loại</th>
+              <th class="num">Số tiền VNĐ</th><th>Ngoại tệ</th>
               <th>Mô tả</th><th></th>
             </tr></thead>
             <tbody>
-              ${entries.length ? entries.slice().sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate)).map(e=>`
+              ${actual.length ? actual.slice().sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate)).map(e=>`
                 <tr>
                   <td class="mono">${fmtDate(e.entryDate)}</td>
                   <td><span class="badge badge-navy" style="font-size:11px">${vName(e.vesselId)}</span></td>
@@ -3426,18 +3470,95 @@ async function renderRevenue() {
                   <td>${catName(e.categoryId)}</td>
                   <td class="num">${fmtVnd(e.amountVnd)}</td>
                   <td>${e.currency!=='VND'?`<span class="text-small text-muted">${fmt(e.amount)} ${e.currency}</span>`:'—'}</td>
-                  <td><span class="badge ${e.isPlan===true||e.isPlan==='true'?'badge-blue':'badge-green'}">${e.isPlan===true||e.isPlan==='true'?'Kế hoạch':'Thực thu'}</span></td>
                   <td>${e.description||'—'}</td>
                   <td class="row-actions">
                     <button class="btn btn-ghost btn-xs" onclick="openRevForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">✏️</button>
                     <button class="btn btn-ghost btn-xs" onclick="deleteRevEntry('${e.id}')">🗑</button>
                   </td>
-                </tr>`).join('') : `<tr><td colspan="9"><div class="empty-state">Chưa có bút toán doanh thu nào.</div></td></tr>`}
+                </tr>`).join('') : `<tr><td colspan="8"><div class="empty-state">Chưa có doanh thu thực tế nào trong năm ${S.year}.</div></td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- BẢNG KẾ HOẠCH (phụ, gọn) -->
+    <div class="card" style="border-left:4px solid var(--blue)">
+      <div class="card-header flex items-center justify-between">
+        <h3 style="color:var(--blue)">📋 Kế hoạch doanh thu năm ${S.year}</h3>
+        <div class="flex gap8 items-center">
+          <span class="text-muted text-small">${plan.length} bút toán</span>
+          <button class="btn btn-outline btn-sm" onclick="copyPlanFromPrevYear()">📋 Sao chép từ năm ${S.year-1}</button>
+        </div>
+      </div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr style="background:#F0F4FF">
+              <th>Năm/Tháng</th><th>Tàu</th><th>Dự án</th><th>Đầu mục</th>
+              <th class="num">Số tiền VNĐ</th><th>Ngoại tệ</th><th>Mô tả</th><th></th>
+            </tr></thead>
+            <tbody>
+              ${plan.length ? plan.slice().sort((a,b)=>(b.month||b.entryDate||'').localeCompare(a.month||a.entryDate||'')).map(e=>`
+                <tr style="background:#FAFCFF">
+                  <td class="mono" style="font-size:12px">${e.month || fmtDate(e.entryDate)}</td>
+                  <td><span class="badge badge-navy" style="font-size:11px">${vName(e.vesselId)}</span></td>
+                  <td>${projName(e.projectId)}</td>
+                  <td>${catName(e.categoryId)}</td>
+                  <td class="num">${fmtVnd(e.amountVnd)}</td>
+                  <td>${e.currency!=='VND'?`<span class="text-small text-muted">${fmt(e.amount)} ${e.currency}</span>`:'—'}</td>
+                  <td>${e.description||'—'}</td>
+                  <td class="row-actions">
+                    <button class="btn btn-ghost btn-xs" onclick="openRevForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">✏️</button>
+                    <button class="btn btn-ghost btn-xs" onclick="deleteRevEntry('${e.id}')">🗑</button>
+                  </td>
+                </tr>`).join('') : `<tr><td colspan="8"><div class="empty-state" style="padding:20px">
+                  Chưa có kế hoạch năm ${S.year}.<br>
+                  <span style="font-size:12px;color:var(--text3)">Sao chép từ năm trước hoặc nhập mới.</span>
+                </div></td></tr>`}
             </tbody>
           </table>
         </div>
       </div>
     </div>`;
+}
+
+// Sao chép tất cả kế hoạch DT từ năm trước sang năm hiện tại
+async function copyPlanFromPrevYear() {
+  const prevYear = S.year - 1;
+  if (!confirm(`Sao chép toàn bộ kế hoạch DT năm ${prevYear} sang năm ${S.year}?\n(Chỉ chép các bút toán kế hoạch — không động vào thực thu)`)) return;
+  showLoading();
+  try {
+    const allEntries = await api('getRevEntries', { vesselId: S.vesselId });
+    const prevPlans = (allEntries || []).filter(e => {
+      if (!(e.isPlan === true || e.isPlan === 'true')) return false;
+      const yr = parseInt((e.month || e.entryDate || '').slice(0,4));
+      return yr === prevYear;
+    });
+    if (prevPlans.length === 0) {
+      hideLoading();
+      toast(`Không có kế hoạch năm ${prevYear} để sao chép`, 'warn');
+      return;
+    }
+    let copied = 0;
+    for (const p of prevPlans) {
+      const newPlan = {
+        ...p,
+        id: newId(),
+        month: (p.month || '').replace(String(prevYear), String(S.year)),
+        entryDate: (p.entryDate || '').replace(String(prevYear), String(S.year)),
+        description: (p.description || '') + ` [copy từ ${prevYear}]`,
+      };
+      await api('saveRevEntry', newPlan);
+      copied++;
+    }
+    hideLoading();
+    toast(`Đã sao chép ${copied} bút toán kế hoạch từ ${prevYear} sang ${S.year}`, 'ok');
+    renderRevenue();
+  } catch (e) {
+    hideLoading();
+    toast('Lỗi: ' + e.message, 'err');
+  }
 }
 
 function openRevForm(e={}) {
@@ -4334,6 +4455,9 @@ function switchCatTab(t) {
       if (g === 'L') return '<span class="badge badge-excluded" style="font-size:10px;margin-left:6px">L — Loại trừ</span>';
       return '';
     };
+    const excludeBadge = (c) => c.excludeFromAccrual
+      ? '<span class="badge badge-amber" style="font-size:10px;margin-left:6px">⊘ Không trích T</span>'
+      : '';
     document.getElementById('catContent').innerHTML = `
       <div class="flex items-center justify-between mb12">
         <span class="text-muted text-small">${data.length} đầu mục doanh thu</span>
@@ -4342,7 +4466,7 @@ function switchCatTab(t) {
       <div class="card"><div class="card-body no-pad"><div class="tbl-wrap"><table>
         <thead><tr><th>Tên đầu mục</th><th>Ghi chú</th><th>TT</th><th></th></tr></thead>
         <tbody>${data.map(c=>`<tr${c.group==='I'?' style="background:#FAF7FF"':c.group==='L'?' style="background:#FAFAFA"':''}>
-          <td><strong>${c.name}</strong>${grpBadge(c.group)}</td>
+          <td><strong>${c.name}</strong>${grpBadge(c.group)}${excludeBadge(c)}</td>
           <td>${c.notes||'—'}</td>
           <td><span class="badge ${c.active===true||c.active==='true'?'badge-green':'badge-gray'}">${c.active===true||c.active==='true'?'Dùng':'Ẩn'}</span></td>
           <td class="row-actions">
@@ -4580,14 +4704,56 @@ function openRevCatForm(c={}){
     </div>
     <div class="field"><label>Ghi chú</label><input id="rc_notes" value="${c.notes||''}"/></div>
     <div class="field"><label>Trạng thái</label><select id="rc_act"><option value="true"${c.active===true||c.active==='true'?'selected':''}>Sử dụng</option><option value="false"${c.active===false||c.active==='false'?'selected':''}>Ẩn</option></select></div>
+    <div class="field" style="grid-column:span 2;background:#FFF8E1;border:1px solid var(--amber);border-radius:6px;padding:10px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+        <input type="checkbox" id="rc_excludeT" ${c.excludeFromAccrual?'checked':''} style="margin:0"/>
+        <span style="font-weight:600;color:var(--amber)">⊘ Loại trừ khỏi trích quỹ T</span>
+      </label>
+      <span style="font-size:11px;color:var(--text3);margin-left:24px">Tick nếu DT này KHÔNG dùng làm cơ sở tính trích quỹ lương dự án (vd: Phát sinh ngoài hợp đồng, doanh thu bất thường…)</span>
+    </div>
   </div>`;
   openModal(c.id?'Cập nhật đầu mục':'Thêm đầu mục doanh thu',html,async()=>{
-    const payload={id:c.id||newId(),name:gv('rc_n'),group:gv('rc_g')||'',notes:gv('rc_notes'),active:gv('rc_act')==='true'};
+    const payload={
+      id:c.id||newId(),
+      name:gv('rc_n'),
+      group:gv('rc_g')||'',
+      notes:gv('rc_notes'),
+      active:gv('rc_act')==='true',
+      excludeFromAccrual: !!document.getElementById('rc_excludeT')?.checked,
+    };
     if(!payload.name){toast('Nhập tên','warn');return;}
-    showLoading();try{await api('saveRevCat',payload);S.revCats=await api('getRevCats');toast('Đã lưu','ok');closeModal();renderCategories();}catch(e){toast('Lỗi','err');}hideLoading();
+    showLoading();
+    try{
+      console.log('[saveRevCat] sending:', payload);
+      const saveResult = await api('saveRevCat',payload);
+      console.log('[saveRevCat] result:', saveResult);
+      S.revCats=await api('getRevCats');
+      console.log('[saveRevCat] refreshed revCats, count:', S.revCats?.length);
+      toast('Đã lưu','ok');
+      closeModal();
+      renderCategories();
+    }catch(e){
+      console.error('[saveRevCat] error:', e);
+      toast('Lỗi: '+e.message,'err');
+    }
+    hideLoading();
   },'sm');
 }
-async function delRevCat(id){if(!confirm('Xoá?'))return;try{await api('deleteRevCat',{id});S.revCats=await api('getRevCats');toast('Đã xoá','ok');renderCategories();}catch(e){toast('Lỗi','err');}}
+async function delRevCat(id){
+  if(!confirm('Xoá?'))return;
+  try{
+    console.log('[delRevCat] deleting id:', id);
+    const delResult = await api('deleteRevCat',{id});
+    console.log('[delRevCat] result:', delResult);
+    S.revCats=await api('getRevCats');
+    console.log('[delRevCat] refreshed revCats, count:', S.revCats?.length);
+    toast('Đã xoá','ok');
+    renderCategories();
+  }catch(e){
+    console.error('[delRevCat] error:', e);
+    toast('Lỗi: '+e.message,'err');
+  }
+}
 
 // ═══════════════════════════════════════════════════════
 // PAGE: FX RATES
@@ -7249,6 +7415,11 @@ function computeAccruedFunds(year, sources) {
   const projNameById = Object.fromEntries(projects.map(p => [p.id, p.name]));
   const revCatNameById = Object.fromEntries(revCats.map(r => [r.id, r.name]));
 
+  // Map revCatId → excludeFromAccrual để filter nhanh
+  const excludedRevCatIds = new Set(
+    revCats.filter(r => r.excludeFromAccrual).map(r => r.id)
+  );
+
   const rows = [];
   let total = 0;
 
@@ -7256,10 +7427,12 @@ function computeAccruedFunds(year, sources) {
     const pct = getPctForYear(cat);  // ← dùng pct lock cho năm
     const filterRevCat = cat.appliesToRevCatId || null;
 
-    // Group DT theo tàu+dự án (filter theo revCatId nếu cat có chỉ định)
+    // Group DT theo tàu+dự án (filter theo revCatId nếu cat có chỉ định, loại RevCat có excludeFromAccrual)
     const grouped = {};
     actualRevs.forEach(r => {
       if (filterRevCat && r.categoryId !== filterRevCat) return;
+      // Loại các đầu mục DT đã đánh dấu "Không trích T" (vd: Phát sinh ngoài hợp đồng)
+      if (excludedRevCatIds.has(r.categoryId)) return;
       const key = (r.vesselId||'') + '|' + (r.projectId||'');
       if (!grouped[key]) grouped[key] = { vesselId: r.vesselId, projectId: r.projectId, total: 0 };
       grouped[key].total += parseFloat(r.amountVnd) || 0;
