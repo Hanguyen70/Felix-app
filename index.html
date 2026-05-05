@@ -986,9 +986,36 @@ async function _doCheckUpdate(isManual) {
   const st = document.getElementById('version-check-status');
   try {
     const url = `https://api.github.com/repos/${VERSION_REPO}/commits?path=${VERSION_FILE}&per_page=1`;
-    const resp = await fetch(url, { cache: 'no-store' });
+    // Nếu user đã cấu hình GitHub token (cho sync), dùng nó để nâng rate limit
+    // từ 60/giờ (anonymous) lên 5,000/giờ (authenticated)
+    const ghToken = localStorage.getItem(SYNC_KEYS.ghToken);
+    const headers = { 'Accept': 'application/vnd.github+json' };
+    if (ghToken) headers['Authorization'] = 'token ' + ghToken;
+    const resp = await fetch(url, { cache: 'no-store', headers });
     if (!resp.ok) {
-      if (st && isManual) st.innerHTML = `<span style="color:var(--red)">✗ Lỗi GitHub API: ${resp.status}</span>`;
+      // Khi bị 403 rate limit, đặt lastCheck = now + 30 phút để skip auto-check trong ~1 giờ
+      if (resp.status === 403) {
+        localStorage.setItem(VERSION_CHECK_KEY, String(Date.now() + 30*60*1000));
+      }
+      if (st && isManual) {
+        let msg = `✗ Lỗi GitHub API: ${resp.status}`;
+        if (resp.status === 403) {
+          // Phân biệt rate limit vs token sai
+          const remain = resp.headers.get('X-RateLimit-Remaining');
+          if (remain === '0') {
+            msg = ghToken
+              ? '✗ 403 — Token GitHub đã vượt rate limit (5,000/giờ). Đợi 1 giờ.'
+              : '✗ 403 — Đã hết 60 lượt check/giờ cho IP. Cấu hình GitHub Token ở Cài đặt để nâng lên 5,000/giờ, hoặc đợi 1 giờ.';
+          } else {
+            msg = '✗ 403 — Token GitHub không có quyền hoặc đã hết hạn. Kiểm tra Cài đặt → GitHub Sync.';
+          }
+        } else if (resp.status === 401) {
+          msg = '✗ 401 — Token GitHub không hợp lệ. Cập nhật ở Cài đặt → GitHub Sync.';
+        } else if (resp.status === 404) {
+          msg = `✗ 404 — Không tìm thấy repo ${VERSION_REPO} hoặc file ${VERSION_FILE}.`;
+        }
+        st.innerHTML = `<span style="color:var(--red)">${msg}</span>`;
+      }
       return;
     }
     const commits = await resp.json();
@@ -1765,6 +1792,9 @@ function _demoDataCore(action, p, DEMO) {
     case 'saveFixedAsset':     { if(!GA_DEMO.fixedAssets)GA_DEMO.fixedAssets=[]; const i=GA_DEMO.fixedAssets.findIndex(e=>e.id===p.id); i>=0?GA_DEMO.fixedAssets[i]=p:GA_DEMO.fixedAssets.push({...p,id:p.id||newId()}); return p; }
     case 'deleteFixedAsset':   { const i=(GA_DEMO.fixedAssets||[]).findIndex(e=>e.id===p.id); if(i>=0)GA_DEMO.fixedAssets.splice(i,1); return {deleted:true}; }
     case 'saveGaCat':          { const i=GA_DEMO.categories.findIndex(c=>c.id===p.id); i>=0?GA_DEMO.categories[i]=p:GA_DEMO.categories.push({...p,id:p.id||newId()}); return p; }
+    case 'deleteGaCat':        { const i=GA_DEMO.categories.findIndex(c=>c.id===p.id); if(i>=0)GA_DEMO.categories.splice(i,1); return {deleted:true}; }
+    case 'saveGaRevCat':       { if(!GA_DEMO.revCategories)GA_DEMO.revCategories=[]; const i=GA_DEMO.revCategories.findIndex(c=>c.id===p.id); i>=0?GA_DEMO.revCategories[i]=p:GA_DEMO.revCategories.push({...p,id:p.id||newId()}); return p; }
+    case 'deleteGaRevCat':     { if(!GA_DEMO.revCategories)GA_DEMO.revCategories=[]; const i=GA_DEMO.revCategories.findIndex(c=>c.id===p.id); if(i>=0)GA_DEMO.revCategories.splice(i,1); return {deleted:true}; }
     case 'getGaEntries':       return GA_DEMO.entries.filter(e=>(!p.year||e.entryDate?.startsWith(p.year)));
     case 'saveGaEntry':        { const i=GA_DEMO.entries.findIndex(e=>e.id===p.id); i>=0?GA_DEMO.entries[i]=p:GA_DEMO.entries.push({...p,id:p.id||newId()}); return p; }
     case 'deleteGaEntry':      { const i=GA_DEMO.entries.findIndex(e=>e.id===p.id); if(i>=0)GA_DEMO.entries.splice(i,1); return {deleted:true}; }
