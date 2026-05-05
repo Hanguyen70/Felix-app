@@ -34,6 +34,17 @@
   --purple:   #6B46C1;
   --purple-lt:#F3EFFF;
 
+  /* Aliases — thêm các biến cũ hay dùng để tương thích ngược */
+  --blue:     #0052CC;
+  --navy:     #0A1628;
+  --navy2:    #1E3A5F;
+  --gray1:    #F6F8FA;
+  --gray2:    #EAEEF2;
+  --gray3:    #D0D7DE;
+  --text2:    #24292F;
+  --text3:    #57606A;
+  --font-mono:'IBM Plex Mono', 'SF Mono', monospace;
+
   /* Neutrals */
   --ink:      #0D1117;
   --ink2:     #24292F;
@@ -952,7 +963,7 @@ function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 // ═══════════════════════════════════════════════════════
 // VERSION CHECKER — tự động báo khi có bản mới trên GitHub
 // ═══════════════════════════════════════════════════════
-const FELIX_VERSION = '2026.04.30-08:00'; // Cập nhật mỗi lần em build file mới
+const FELIX_VERSION = '2026.04.30-09:10'; // Cập nhật mỗi lần em build file mới
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
@@ -4389,19 +4400,39 @@ async function renderSettings() {
       <div class="card-header"><h3>🗑 Quản lý dữ liệu</h3></div>
       <div class="card-body">
         <p style="font-size:13px;color:var(--ink3);margin-bottom:12px;line-height:1.6">
-          Sử dụng các nút bên dưới để dọn dẹp dữ liệu cũ. <strong>Cẩn thận:</strong> các thao tác này không thể hoàn tác. Hãy <strong>backup CSV</strong> trước.
+          Sử dụng các nút bên dưới để dọn dẹp dữ liệu. <strong>Cẩn thận:</strong> các thao tác này không thể hoàn tác. Hãy <strong>backup CSV</strong> trước khi thực hiện.
         </p>
-        <div style="display:flex;flex-wrap:wrap;gap:10px">
-          <button class="btn btn-outline btn-sm" onclick="resetDemoDataKeepCats()" style="border-color:var(--amber);color:var(--amber)">
-            🧹 Xoá dữ liệu giả (giữ danh mục)
-          </button>
-          <button class="btn btn-outline btn-sm" onclick="wipeAllData()" style="border-color:var(--red);color:var(--red)">
-            ⚠ Xoá TẤT CẢ dữ liệu (về trạng thái mới cài)
-          </button>
-        </div>
-        <div style="font-size:11px;color:var(--text3);margin-top:10px;line-height:1.6">
-          • <strong>Xoá dữ liệu giả</strong>: Xoá kế hoạch demo (BSR, LSP 2024) còn sót nếu có. Giữ nguyên: tàu, dự án, doanh thu, chi phí, danh mục — tất cả dữ liệu anh đã nhập.<br>
-          • <strong>Xoá TẤT CẢ</strong>: Reset hoàn toàn về trạng thái như mới cài. Tự backup CSV trước nếu cần lưu.
+
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <!-- Cấp 1 -->
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center;padding:10px;background:#fef3c7;border-radius:6px">
+            <button class="btn btn-sm" onclick="resetDemoDataKeepCats()" style="background:#f59e0b;color:#fff;border:none;white-space:nowrap;font-weight:600">
+              🟡 Cấp 1: Xoá DEMO
+            </button>
+            <div style="font-size:11px;color:#92400e;line-height:1.5">
+              Xoá <strong>kế hoạch DEMO</strong> còn sót (BSR, LSP 2024). <strong>Giữ:</strong> tất cả dữ liệu của anh + danh mục.
+            </div>
+          </div>
+
+          <!-- Cấp 2 -->
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center;padding:10px;background:#fed7aa;border-radius:6px">
+            <button class="btn btn-sm" onclick="wipeDataKeepCats()" style="background:#ea580c;color:#fff;border:none;white-space:nowrap;font-weight:600">
+              🟠 Cấp 2: Xoá DỮ LIỆU
+            </button>
+            <div style="font-size:11px;color:#7c2d12;line-height:1.5">
+              Xoá <strong>tất cả dữ liệu</strong> (tàu, dự án, doanh thu, chi phí, HĐ, kế hoạch...). <strong>Giữ NGUYÊN danh mục</strong> đang có (kể cả danh mục anh đã sửa). Phù hợp khi muốn nhập lại số liệu nhưng giữ cấu hình.
+            </div>
+          </div>
+
+          <!-- Cấp 3 -->
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center;padding:10px;background:#fee2e2;border-radius:6px">
+            <button class="btn btn-sm" onclick="wipeAllData()" style="background:#dc2626;color:#fff;border:none;white-space:nowrap;font-weight:600">
+              🔴 Cấp 3: XOÁ TẤT CẢ
+            </button>
+            <div style="font-size:11px;color:#7f1d1d;line-height:1.5">
+              <strong>Reset hoàn toàn</strong> về trạng thái mới cài. Cả dữ liệu lẫn <strong>danh mục anh đã sửa đều mất</strong>. Danh mục mặc định gốc được tạo lại.
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -4672,15 +4703,105 @@ function resetDemoDataKeepCats() {
   setTimeout(() => location.reload(), 1500);
 }
 
+function wipeDataKeepCats() {
+  const confirmText = 'XOA DU LIEU';
+  const input = prompt(
+    '🟠 CẤP 2: Xoá DỮ LIỆU — Giữ danh mục\n\n' +
+    'Sẽ XOÁ:\n' +
+    '• Tất cả tàu, dự án, doanh thu, chi phí (Vessel)\n' +
+    '• Tất cả hợp đồng + bút toán O&M\n' +
+    '• Tất cả hợp đồng QT + thu/chi hộ + doanh thu QT (Ship Mgmt)\n' +
+    '• Tất cả bút toán Corporate, đầu tư, tỷ giá, kế hoạch\n' +
+    '• Kho nhiên liệu, capex, TSCĐ\n\n' +
+    '✅ GIỮ NGUYÊN:\n' +
+    '• TẤT CẢ danh mục chi phí/doanh thu (Vessel, O&M, Corporate)\n' +
+    '• Bao gồm cả danh mục anh đã chỉnh sửa, thêm mới\n\n' +
+    `Để xác nhận, gõ chính xác: ${confirmText}`
+  );
+  if (input !== confirmText) {
+    toast('Đã huỷ — không gõ đúng xác nhận', 'warn');
+    return;
+  }
+
+  // Lấy bản sao danh mục hiện có (kể cả custom)
+  const savedCats = {
+    DEMO_costCats: (window.__DEMO_STORE__||{}).costCats || [],
+    DEMO_revCats:  (window.__DEMO_STORE__||{}).revCats  || [],
+    OM_costCats:   (typeof OM_DEMO !== 'undefined' && OM_DEMO.omCostCats) || [],
+    OM_revCats:    (typeof OM_DEMO !== 'undefined' && OM_DEMO.omRevCats) || [],
+    GA_categories: (typeof GA_DEMO !== 'undefined' && GA_DEMO.categories) || [],
+    GA_revCategories: (typeof GA_DEMO !== 'undefined' && GA_DEMO.revCategories) || [],
+  };
+
+  // Reset DEMO (Vessel) — giữ costCats + revCats
+  if (window.__DEMO_STORE__) {
+    window.__DEMO_STORE__ = {
+      vessels: [],
+      costCats: savedCats.DEMO_costCats,
+      revCats: savedCats.DEMO_revCats,
+      projects: [],
+      costEntries: [],
+      revEntries: [],
+      capex: [],
+      investments: [],
+      fxRates: [],
+      annualPlan: [],
+    };
+  }
+
+  // Reset OM_DEMO — giữ omCostCats + omRevCats
+  if (typeof OM_DEMO !== 'undefined') {
+    OM_DEMO.contracts = [];
+    OM_DEMO.omCostCats = savedCats.OM_costCats;
+    OM_DEMO.omRevCats = savedCats.OM_revCats;
+    OM_DEMO.omCostEntries = [];
+    OM_DEMO.omRevEntries = [];
+    OM_DEMO.omPlans = [];
+  }
+
+  // Reset SM_DEMO (không có danh mục cố định)
+  if (typeof SM_DEMO !== 'undefined') {
+    SM_DEMO.contracts = [];
+    SM_DEMO.passthroughEntries = [];
+    SM_DEMO.smCosts = [];
+    SM_DEMO.smRevEntries = [];
+  }
+
+  // Reset GA_DEMO — giữ categories + revCategories
+  if (typeof GA_DEMO !== 'undefined') {
+    GA_DEMO.categories = savedCats.GA_categories;
+    GA_DEMO.revCategories = savedCats.GA_revCategories;
+    GA_DEMO.entries = [];
+    GA_DEMO.revEntries = [];
+    GA_DEMO.fixedAssets = [];
+    GA_DEMO.taxAdj = [];
+  }
+
+  // Reset FUEL_DEMO
+  if (typeof FUEL_DEMO !== 'undefined') {
+    FUEL_DEMO.receipts = [];
+    FUEL_DEMO.issues = [];
+  }
+
+  // Lưu lại
+  if (typeof _lsSaveAll === 'function') _lsSaveAll();
+  toast('Đã xoá dữ liệu, giữ danh mục. Đang tải lại...', 'ok');
+  setTimeout(() => location.reload(), 1500);
+}
+
 function wipeAllData() {
   const confirmText = 'XOA TAT CA';
   const input = prompt(
-    '⚠ NGUY HIỂM: Xoá toàn bộ dữ liệu sẽ XOÁ:\n' +
-    '• Tất cả tàu, dự án, doanh thu, chi phí\n' +
-    '• Tất cả hợp đồng O&M, Ship Mgmt, Corporate\n' +
-    '• Tất cả tỷ giá, kế hoạch, đầu tư, capex\n' +
-    '• Quỹ lương, kho nhiên liệu\n\n' +
-    'Danh mục mặc định sẽ được tạo lại.\n\n' +
+    '🔴 CẤP 3: XOÁ TẤT CẢ — Reset hoàn toàn\n\n' +
+    '⚠ NGUY HIỂM: Sẽ XOÁ:\n' +
+    '• Tất cả tàu, dự án, doanh thu, chi phí (Vessel)\n' +
+    '• Tất cả hợp đồng + bút toán O&M, Ship Mgmt, Corporate\n' +
+    '• Tất cả tỷ giá, kế hoạch, đầu tư, capex, TSCĐ\n' +
+    '• Kho nhiên liệu\n' +
+    '• ❌ TẤT CẢ DANH MỤC anh đã chỉnh sửa\n\n' +
+    '✅ KẾT QUẢ: App về trạng thái MỚI CÀI\n' +
+    '• Danh mục mặc định gốc được tạo lại (anh sẽ phải chỉnh lại nếu đã custom)\n\n' +
+    `⚠ Nếu anh chỉ muốn xoá DỮ LIỆU và giữ danh mục → DÙNG CẤP 2 thay thế.\n\n` +
     `Để xác nhận, gõ chính xác: ${confirmText}`
   );
   if (input !== confirmText) {
@@ -9939,22 +10060,33 @@ async function renderConsolidated() {
       </button>
     </div>
 
-    <div style="font-size:14px;font-weight:600;color:var(--navy);margin-bottom:8px">Năm ${S.year}</div>
+    <!-- Bộ chọn năm cho tab "Năm hiện tại" -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:10px 14px;background:#f0f9ff;border-left:4px solid var(--blue);border-radius:6px">
+      <span style="font-size:13px;font-weight:600;color:#1e3a8a">📅 Xem báo cáo cho năm:</span>
+      <select onchange="S.year=parseInt(this.value);renderConsolidated()" style="padding:6px 12px;border:1.5px solid var(--blue);border-radius:6px;font-family:var(--mono);font-weight:700;color:var(--navy);background:#fff;font-size:14px;cursor:pointer">
+        ${(()=>{
+          const opts=[]; const now=new Date().getFullYear();
+          for(let y=now+1; y>=now-5; y--) opts.push(`<option value="${y}"${y===S.year?' selected':''}>${y}</option>`);
+          return opts.join('');
+        })()}
+      </select>
+      <span style="font-size:11px;color:var(--text3);font-style:italic">Đang xem: chi tiết năm ${S.year}</span>
+    </div>
 
     <!-- FX Rate Banner -->
     <div style="background:var(--navy2);color:#fff;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:16px">
       <div style="display:flex;align-items:center;gap:16px">
         <div>
-          <div style="font-size:10px;opacity:.55;text-transform:uppercase;letter-spacing:.06em">Tỷ giá USD bình quân gia quyền ${S.year}</div>
+          <div style="font-size:10px;opacity:.85;text-transform:uppercase;letter-spacing:.06em">Tỷ giá USD bình quân gia quyền ${S.year}</div>
           <div style="font-size:20px;font-weight:700;font-family:var(--font-mono,monospace)">1 USD = ${fmt(fxRate)} ₫</div>
         </div>
-        <div style="width:1px;height:36px;background:rgba(255,255,255,.15)"></div>
-        <div style="font-size:11px;opacity:.7;line-height:1.6">
+        <div style="width:1px;height:36px;background:rgba(255,255,255,.25)"></div>
+        <div style="font-size:11px;opacity:.9;line-height:1.6">
           ${fxInfo.note}<br>
           ${fxInfo.txCount > 0 ? `Tổng GT ngoại tệ: ${fmtUsd(fxInfo.totalUsd)} → ${fmtB(fxInfo.totalVnd)}` : ''}
         </div>
       </div>
-      <div style="font-size:11px;opacity:.55;text-align:right">Phương pháp:<br><strong style="opacity:1">Bình quân gia quyền</strong><br>(Weighted Average)</div>
+      <div style="font-size:11px;opacity:.8;text-align:right">Phương pháp:<br><strong style="opacity:1">Bình quân gia quyền</strong><br>(Weighted Average)</div>
     </div>
 
     <!-- BẢNG TỔNG HỢP KẾ HOẠCH & TIẾN ĐỘ -->
