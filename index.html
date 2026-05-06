@@ -2108,8 +2108,30 @@ function buildDemoProject(D, p) {
   // Tổng trích quỹ T (tách riêng để hiển thị)
   const totalAccrualT = computedTEntries.reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0)
                      + cEntriesPL.filter(r => r.accountType === 'T').reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
-  const totalProjectCostVnd = cEntriesPLWithT.reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
+  const totalProjectCostVnd_beforeF = cEntriesPLWithT.reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
 
+  // ─── PHÂN BỔ F (Phân bổ) VÀO DỰ ÁN THEO NGÀY ───
+  // F là chi phí phân bổ theo thời gian, mỗi bút toán có cách phân bổ riêng
+  // (đến cuối năm / số ngày / ngày kết thúc). Dùng allocateFCostsToProjects
+  // để chia daily F vào các ngày, ngày nào trong dự án này thì cộng vào.
+  // Tính cho năm liên quan của dự án (lấy năm onhire làm chính, nếu kéo nhiều năm thì cộng từng năm).
+  const projStartYr = parseInt((proj.onhireAt || proj.startDate || '').slice(0,4)) || 0;
+  const projEndYr = parseInt((proj.offhireAt || proj.endDate || '').slice(0,4)) || projStartYr;
+  let fAllocatedVnd = 0;
+  if (projStartYr) {
+    for (let yr = projStartYr; yr <= projEndYr; yr++) {
+      const fAlloc = allocateFCostsToProjects(
+        proj.vesselId,
+        D.costEntries || [],
+        D.costCats || [],
+        D.projects || [],
+        yr
+      );
+      fAllocatedVnd += (fAlloc.byProject[proj.id] || 0);
+    }
+  }
+
+  const totalProjectCostVnd = totalProjectCostVnd_beforeF + fAllocatedVnd;
   const projectMarginVnd = totalRevVnd - totalProjectCostVnd;
   const projectMarginPct = totalRevVnd ? (projectMarginVnd / totalRevVnd * 100) : 0;
 
@@ -2119,6 +2141,7 @@ function buildDemoProject(D, p) {
   const dailyOpexCost   = totalOpexVnd / days;
   const dailyFuelCost   = totalFuelVnd / days;
   const dailyTotalCost  = totalProjectCostVnd / days;
+  const dailyOffhireCost = fAllocatedVnd / days;  // F phân bổ tính daily (offhire cost = F phân bổ)
 
   return {
     project: proj,
@@ -2127,6 +2150,7 @@ function buildDemoProject(D, p) {
       totalRevVnd, planRevVnd,
       totalOpexVnd, totalFuelVnd, totalDVnd,
       totalAccrualT,                  // ← tổng trích quỹ T (manual + computed)
+      fAllocatedVnd,                  // ← F phân bổ vào dự án
       allocatedForProject: 0,
       totalProjectCostVnd,
       projectMarginVnd,
@@ -2135,6 +2159,7 @@ function buildDemoProject(D, p) {
       dailyOpexCost: Math.round(dailyOpexCost),
       dailyFuelCost: Math.round(dailyFuelCost),
       dailyTotalCost: Math.round(dailyTotalCost),
+      dailyOffhireCost: Math.round(dailyOffhireCost),
     },
     catBreakdown,
     costEntries: [...cEntries, ...computedTEntries],  // ← T computed có trong list để hiển thị
@@ -3393,8 +3418,10 @@ function openCostForm(e={}) {
     </div>
 
     <div class="form-grid cols2">
-      <div class="field required"><label>Loại chi phí</label><select id="cetype">${typeOpts}</select></div>
-      <div class="field required"><label>Ngày phát sinh</label><input type="date" id="cedate" value="${e.entryDate||today()}"/></div>
+      <div class="field required"><label>Loại chi phí</label>
+        <select id="cetype" onchange="onCostTypeChange()">${typeOpts}</select>
+      </div>
+      <div class="field required"><label>Ngày phát sinh</label><input type="date" id="cedate" value="${e.entryDate||today()}" onchange="recalcFAllocPreview()"/></div>
       <div class="field required"><label>Số tiền</label>
         <input type="number" id="ceamt" value="${e.amount||''}" min="0" step="1000" oninput="computeVnd()"/>
       </div>
@@ -3422,6 +3449,34 @@ function openCostForm(e={}) {
           <option value="">— Đang tải danh sách tài sản... —</option>
         </select>
         <span style="font-size:11px;color:var(--text3)">Số tiền sẽ cộng vào giá trị tài sản này (không tính khấu hao thêm cho CapEx tàu).</span>
+      </div>
+    </div>
+
+    <!-- ── KHỐI PHÂN BỔ F (chỉ hiển thị khi type='allocated') ── -->
+    <div id="ce_falloc_block" style="background:#FFF8E1;border:1px solid var(--amber);border-radius:var(--radius);padding:12px;margin:10px 0;${e.type==='allocated'?'':'display:none'}">
+      <div class="section-title" style="margin-bottom:8px;color:var(--amber)">📅 Cấu hình phân bổ F (chia đều theo ngày)</div>
+      <div class="form-grid cols2">
+        <div class="field">
+          <label>Cách phân bổ</label>
+          <select id="ce_falloc_mode" onchange="onFAllocModeChange()">
+            <option value="toYearEnd"${(e.fAllocMode||'toYearEnd')==='toYearEnd'?' selected':''}>Đến cuối năm (mặc định)</option>
+            <option value="days"${e.fAllocMode==='days'?' selected':''}>Số ngày cụ thể</option>
+            <option value="endDate"${e.fAllocMode==='endDate'?' selected':''}>Ngày kết thúc cụ thể</option>
+          </select>
+        </div>
+        <div class="field" id="ce_falloc_days_field" style="${e.fAllocMode==='days'?'':'display:none'}">
+          <label>Số ngày phân bổ</label>
+          <input type="number" id="ce_falloc_days" value="${e.fAllocDays||365}" min="1" max="3650" oninput="recalcFAllocPreview()"/>
+        </div>
+        <div class="field" id="ce_falloc_enddate_field" style="${e.fAllocMode==='endDate'?'':'display:none'}">
+          <label>Ngày kết thúc phân bổ</label>
+          <input type="date" id="ce_falloc_enddate" value="${e.fAllocEndDate||''}" onchange="recalcFAllocPreview()"/>
+        </div>
+        <div class="field" style="grid-column:span 2">
+          <div id="ce_falloc_preview" style="background:#fff;border:1px dashed var(--amber);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--text2)">
+            <em>Nhập số tiền và ngày phát sinh để xem preview phân bổ.</em>
+          </div>
+        </div>
       </div>
     </div>`;
 
@@ -3453,6 +3508,10 @@ function openCostForm(e={}) {
       description:gv('cedesc'), invoiceNo:gv('ceinv'), type:gv('cetype'),
       accountType: acctType,
       capitalizedToAssetId,                                // ID tài sản nhận capitalize (nếu accountType='Capitalize')
+      // ── Fields phân bổ F (chỉ relevant khi type='allocated') ──
+      fAllocMode: gv('cetype')==='allocated' ? (gv('ce_falloc_mode')||'toYearEnd') : '',
+      fAllocDays: gv('cetype')==='allocated' && gv('ce_falloc_mode')==='days' ? (parseInt(gv('ce_falloc_days'))||365) : 0,
+      fAllocEndDate: gv('cetype')==='allocated' && gv('ce_falloc_mode')==='endDate' ? gv('ce_falloc_enddate') : '',
       createdAt:e.createdAt||new Date().toISOString(),
     };
     if (!payload.vesselId||!payload.categoryId||!payload.amount) { toast('Điền đủ thông tin bắt buộc (*)','warn'); return; }
@@ -3470,6 +3529,81 @@ function onAcctTypeChange() {
   const acc = gv('ceacc');
   const field = document.getElementById('ce_asset_field');
   if (field) field.style.display = (acc === 'Capitalize') ? '' : 'none';
+}
+
+// Toggle khối phân bổ F khi đổi Loại chi phí
+function onCostTypeChange() {
+  const t = gv('cetype');
+  const block = document.getElementById('ce_falloc_block');
+  if (block) block.style.display = (t === 'allocated') ? '' : 'none';
+  if (t === 'allocated') recalcFAllocPreview();
+}
+
+// Toggle field 'số ngày' / 'ngày kết thúc' khi đổi mode phân bổ
+function onFAllocModeChange() {
+  const mode = gv('ce_falloc_mode');
+  const daysField = document.getElementById('ce_falloc_days_field');
+  const endField = document.getElementById('ce_falloc_enddate_field');
+  if (daysField) daysField.style.display = (mode === 'days') ? '' : 'none';
+  if (endField)  endField.style.display  = (mode === 'endDate') ? '' : 'none';
+  recalcFAllocPreview();
+}
+
+// Tính khoảng phân bổ F dựa trên mode + entryDate
+// Trả về { startDate, endDate, totalDays } — totalDays >=1
+function _computeFAllocRange(entryDate, mode, days, endDate) {
+  if (!entryDate) return null;
+  const start = new Date(entryDate);
+  if (isNaN(start.getTime())) return null;
+  let end;
+  if (mode === 'days') {
+    const n = parseInt(days) || 1;
+    end = new Date(start);
+    end.setDate(end.getDate() + n - 1);  // inclusive
+  } else if (mode === 'endDate') {
+    if (!endDate) return null;
+    end = new Date(endDate);
+    if (isNaN(end.getTime())) return null;
+  } else {
+    // toYearEnd
+    end = new Date(start.getFullYear(), 11, 31);
+  }
+  const totalDays = Math.max(1, Math.round((end - start) / (1000*60*60*24)) + 1);
+  return { startDate: start, endDate: end, totalDays };
+}
+
+// Render preview phân bổ F trong form (live update)
+function recalcFAllocPreview() {
+  const preview = document.getElementById('ce_falloc_preview');
+  if (!preview) return;
+  if (gv('cetype') !== 'allocated') return;
+  const amt = parseFloat(gv('ceamt')) || 0;
+  const fx  = parseFloat(gv('cefx')) || 1;
+  const amtVnd = Math.round(amt * fx);
+  const entryDate = gv('cedate');
+  const mode = gv('ce_falloc_mode') || 'toYearEnd';
+  const days = gv('ce_falloc_days');
+  const endDate = gv('ce_falloc_enddate');
+  if (!amtVnd || !entryDate) {
+    preview.innerHTML = '<em>Nhập số tiền và ngày phát sinh để xem preview phân bổ.</em>';
+    return;
+  }
+  const range = _computeFAllocRange(entryDate, mode, days, endDate);
+  if (!range) {
+    preview.innerHTML = '<em style="color:var(--red)">⚠ Khoảng phân bổ không hợp lệ.</em>';
+    return;
+  }
+  const dailyF = amtVnd / range.totalDays;
+  const fmtDDMMYY = d => {
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    return `${dd}/${mm}/${d.getFullYear()}`;
+  };
+  preview.innerHTML = `
+    Phân bổ <strong>${fmtDDMMYY(range.startDate)} → ${fmtDDMMYY(range.endDate)}</strong>
+    (${range.totalDays} ngày)<br>
+    <strong style="color:var(--amber)">Daily F = ${fmtVnd(Math.round(dailyF))}/ngày</strong>
+  `;
 }
 
 // Load danh sách tài sản (Capex tàu + Capex O&M + Capex QLC + FixedAsset Corporate) vào dropdown
@@ -4369,7 +4503,12 @@ async function loadProjectReport() {
     <div class="kpi-grid cols4 mb16">
       <div class="kpi-card accent-blue"><div class="kpi-label">Số ngày dự án</div><div class="kpi-value">${fmtDays(s.projectDays)}</div></div>
       <div class="kpi-card accent-teal"><div class="kpi-label">Doanh thu</div><div class="kpi-value">${fmtB(s.totalRevVnd)}</div></div>
-      <div class="kpi-card accent-amber"><div class="kpi-label">Tổng chi phí dự án</div><div class="kpi-value">${fmtB(s.totalProjectCostVnd)}</div>${s.totalAccrualT>0?`<div class="kpi-sub" style="color:var(--amber)">Bao gồm trích T: ${fmtB(s.totalAccrualT)}</div>`:''}</div>
+      <div class="kpi-card accent-amber">
+        <div class="kpi-label">Tổng chi phí dự án</div>
+        <div class="kpi-value">${fmtB(s.totalProjectCostVnd)}</div>
+        ${s.totalAccrualT>0?`<div class="kpi-sub" style="color:var(--amber)">Bao gồm trích T: ${fmtB(s.totalAccrualT)}</div>`:''}
+        ${s.fAllocatedVnd>0?`<div class="kpi-sub" style="color:var(--amber)">Bao gồm F phân bổ: ${fmtB(s.fAllocatedVnd)}</div>`:''}
+      </div>
       <div class="kpi-card ${s.projectMarginPct>0?'accent-green':'accent-red'}">
         <div class="kpi-label">Margin dự án (sau trích T)</div>
         <div class="kpi-value ${s.projectMarginPct>0?'kpi-positive':'kpi-negative'}">${pct(s.projectMarginPct)}</div>
@@ -4385,6 +4524,7 @@ async function loadProjectReport() {
               <tr><td>Daily revenue rate</td><td class="num">${fmtVnd(s.dailyRevRate)}/ngày</td></tr>
               <tr><td>Daily opex cost (A+B)</td><td class="num">${fmtVnd(s.dailyOpexCost)}/ngày</td></tr>
               <tr><td>Daily fuel cost (C)</td><td class="num">${fmtVnd(s.dailyFuelCost)}/ngày</td></tr>
+              ${s.dailyOffhireCost ? `<tr style="background:#FFFBF0"><td>Daily F (phân bổ vào dự án)</td><td class="num" style="color:var(--amber)">${fmtVnd(s.dailyOffhireCost)}/ngày</td></tr>` : ''}
               <tr><td>Daily total project cost</td><td class="num"><strong>${fmtVnd(s.dailyTotalCost)}/ngày</strong></td></tr>
             </tbody>
           </table>
@@ -8495,6 +8635,108 @@ function calcDeprForYear(inv, year) {
   return Math.max(0, dEnd - dStart);
 }
 
+// ─── PHÂN BỔ F — Daily allocation theo khoảng phân bổ ───
+// F (Phân bổ) chia đều theo ngày từ entryDate đến hết khoảng phân bổ.
+// Mỗi ngày trong khoảng được phân vào dự án nếu ngày đó tàu đang chạy dự án,
+// ngược lại vào "vessel-level" (offhire/standby).
+//
+// Input:
+//   - vesselId: id tàu cần tính
+//   - costEntries: tất cả bút toán chi phí của tàu (filter group F bên trong)
+//   - costCats: danh mục để check group F
+//   - projects: danh sách dự án (cần onhireAt, offhireAt)
+//   - year: năm xem báo cáo (chỉ tính phần F rơi vào năm này)
+//
+// Output:
+//   {
+//     byProject: {[projectId]: amount},  // F phân bổ vào từng dự án
+//     vesselOnly: amount,                 // F phân bổ vào ngày không có dự án
+//     totalAllocated: amount,             // tổng đã phân bổ trong năm
+//     totalRaw: amount,                   // tổng giá trị F gốc (toàn bộ khoảng)
+//   }
+function allocateFCostsToProjects(vesselId, costEntries, costCats, projects, year) {
+  const result = { byProject: {}, vesselOnly: 0, totalAllocated: 0, totalRaw: 0 };
+  if (!vesselId || !year) return result;
+  const cats = costCats || [];
+  const isF = catId => {
+    const c = cats.find(x => x.id === catId);
+    return c && c.group === 'F';
+  };
+
+  const yStart = new Date(year, 0, 1);
+  const yEnd = new Date(year, 11, 31, 23, 59, 59);
+  const yEndStr = `${year}-12-31`;
+
+  // Lọc dự án của tàu (có onhireAt + offhireAt) — sort theo onhireAt
+  const vProjects = (projects || [])
+    .filter(p => p.vesselId === vesselId && p.onhireAt)
+    .map(p => ({
+      id: p.id,
+      start: new Date(p.onhireAt),
+      end: p.offhireAt ? new Date(p.offhireAt) : new Date(2099, 11, 31),
+    }))
+    .filter(p => !isNaN(p.start.getTime()))
+    .sort((a, b) => a.start - b.start);
+
+  // Helper: ngày D thuộc dự án nào (return projectId or null)
+  const findProjectAt = (D) => {
+    for (const p of vProjects) {
+      if (D >= p.start && D <= p.end) return p.id;
+    }
+    return null;
+  };
+
+  // Lọc bút toán F của tàu
+  const fEntries = (costEntries || []).filter(e =>
+    e.vesselId === vesselId &&
+    isF(e.categoryId) &&
+    e.accountType !== 'Q' && e.accountType !== 'Capitalize' &&
+    e.entryDate
+  );
+
+  fEntries.forEach(e => {
+    const amt = parseFloat(e.amountVnd) || 0;
+    if (amt <= 0) return;
+    result.totalRaw += amt;
+
+    // Tính khoảng phân bổ
+    const range = _computeFAllocRange(
+      e.entryDate,
+      e.fAllocMode || 'toYearEnd',
+      e.fAllocDays,
+      e.fAllocEndDate
+    );
+    if (!range) return;
+
+    const dailyF = amt / range.totalDays;
+
+    // Cắt khoảng [start, end] giao với năm Y
+    const allocStart = range.startDate < yStart ? yStart : range.startDate;
+    const allocEnd = range.endDate > yEnd ? yEnd : range.endDate;
+    if (allocEnd < allocStart) return;  // ngoài năm Y
+
+    // Iterate từng ngày trong [allocStart, allocEnd]
+    const cursor = new Date(allocStart);
+    while (cursor <= allocEnd) {
+      const projId = findProjectAt(cursor);
+      if (projId) {
+        result.byProject[projId] = (result.byProject[projId] || 0) + dailyF;
+      } else {
+        result.vesselOnly += dailyF;
+      }
+      result.totalAllocated += dailyF;
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  });
+
+  // Round
+  Object.keys(result.byProject).forEach(k => result.byProject[k] = Math.round(result.byProject[k]));
+  result.vesselOnly = Math.round(result.vesselOnly);
+  result.totalAllocated = Math.round(result.totalAllocated);
+  result.totalRaw = Math.round(result.totalRaw);
+  return result;
+}
+
 // ─── TRÍCH QUỸ T — Computed (T = DT × accrualPct) ───
 // Mục đích: Tính tổng quỹ T đã trích trong 1 năm dựa trên doanh thu thực tế của tàu.
 // Quy tắc đọc pct (LOCK theo năm):
@@ -8833,7 +9075,7 @@ let _INV_CAPEX_CACHE = { vessels: [], capex: [], fixedAssets: [], vesselNameById
 
 // Build options Capex/TSCĐ dropdown — gọi lại mỗi khi scope/vesselId đổi
 function _invBuildCapexOpts(scope, vesselId, selectedId) {
-  const { vessels, capex, fixedAssets, vesselNameById } = _INV_CAPEX_CACHE;
+  const { vessels, capex, fixedAssets, omCapex = [], gaCapex = [], vesselNameById } = _INV_CAPEX_CACHE;
   const _fmtVnd = n => {
     const x = parseFloat(n) || 0;
     if (x >= 1e9) return (x/1e9).toFixed(1).replace(/\.0$/, '') + ' tỷ';
@@ -8851,9 +9093,25 @@ function _invBuildCapexOpts(scope, vesselId, selectedId) {
          + (c.year ? ' ' + c.year : '')
          + (c.amountVnd ? ' • ' + _fmtVnd(c.amountVnd) + 'đ' : ''),
   }));
+  const omCapexItems = (omCapex||[]).map(c => ({
+    id: 'omcx:' + c.id,
+    source: 'om',
+    vesselId: '',
+    label: (c.description || '(không mô tả)')
+         + (c.year ? ' ' + c.year : '')
+         + (c.amountVnd ? ' • ' + _fmtVnd(c.amountVnd) + 'đ' : ''),
+  }));
+  const gaCapexItems = (gaCapex||[]).map(c => ({
+    id: 'gacx:' + c.id,
+    source: 'ga-capex',
+    vesselId: '',
+    label: (c.description || '(không mô tả)')
+         + (c.year ? ' ' + c.year : '')
+         + (c.amountVnd ? ' • ' + _fmtVnd(c.amountVnd) + 'đ' : ''),
+  }));
   const fixedAssetItems = fixedAssets.map(a => ({
     id: 'fa:' + a.id,
-    source: 'ga',
+    source: 'ga-fa',
     vesselId: '',
     label: (a.name || '(không tên)')
          + (a.startDate ? ' — ' + (a.startDate.slice(0,7)) : '')
@@ -8863,21 +9121,25 @@ function _invBuildCapexOpts(scope, vesselId, selectedId) {
   // Filter theo scope:
   // - vessel + đã chọn tàu → chỉ Capex tàu đó
   // - vessel chưa chọn tàu → tất cả Capex tàu
-  // - om → cả 2 nguồn
-  // - corporate → chỉ TSCĐ chung
+  // - om → Capex O&M + 2 nguồn còn lại (FixedAsset, Capex QLC)
+  // - corporate → TSCĐ chung (FixedAsset) + Capex QLC
   let candidates;
   if (scope === 'corporate') {
-    candidates = fixedAssetItems;
+    candidates = [...fixedAssetItems, ...gaCapexItems];
   } else if (scope === 'vessel') {
     candidates = vesselId
       ? vesselCapexItems.filter(x => x.vesselId === vesselId)
       : vesselCapexItems;
+  } else if (scope === 'om') {
+    candidates = [...omCapexItems, ...fixedAssetItems, ...gaCapexItems];
   } else {
-    candidates = [...vesselCapexItems, ...fixedAssetItems];
+    candidates = [...vesselCapexItems, ...omCapexItems, ...gaCapexItems, ...fixedAssetItems];
   }
 
   const grpVessel = candidates.filter(x => x.source === 'vessel');
-  const grpGa     = candidates.filter(x => x.source === 'ga');
+  const grpOm     = candidates.filter(x => x.source === 'om');
+  const grpGaCx   = candidates.filter(x => x.source === 'ga-capex');
+  const grpGaFa   = candidates.filter(x => x.source === 'ga-fa');
 
   // Bắt buộc chọn → dùng option placeholder không có value
   let opts = '<option value="" disabled' + (selectedId ? '' : ' selected') + '>— Chọn Capex/TSCĐ —</option>';
@@ -8886,13 +9148,23 @@ function _invBuildCapexOpts(scope, vesselId, selectedId) {
       `<option value="${x.id}"${x.id===selectedId?' selected':''}>${_esc(x.label)}</option>`
     ).join('') + '</optgroup>';
   }
-  if (grpGa.length) {
-    opts += '<optgroup label="🏢 TSCĐ Quản lý chung">' + grpGa.map(x =>
+  if (grpOm.length) {
+    opts += '<optgroup label="🔧 Capex O&amp;M">' + grpOm.map(x =>
       `<option value="${x.id}"${x.id===selectedId?' selected':''}>${_esc(x.label)}</option>`
     ).join('') + '</optgroup>';
   }
-  if (!grpVessel.length && !grpGa.length) {
-    opts += '<option value="" disabled>— Chưa có Capex/TSCĐ phù hợp — Vui lòng tạo trước ở trang Capex (Tàu) hoặc TSCĐ (Quản lý chung) —</option>';
+  if (grpGaCx.length) {
+    opts += '<optgroup label="🏢 Capex Quản lý chung">' + grpGaCx.map(x =>
+      `<option value="${x.id}"${x.id===selectedId?' selected':''}>${_esc(x.label)}</option>`
+    ).join('') + '</optgroup>';
+  }
+  if (grpGaFa.length) {
+    opts += '<optgroup label="📊 TSCĐ Quản lý chung (có khấu hao)">' + grpGaFa.map(x =>
+      `<option value="${x.id}"${x.id===selectedId?' selected':''}>${_esc(x.label)}</option>`
+    ).join('') + '</optgroup>';
+  }
+  if (!grpVessel.length && !grpOm.length && !grpGaCx.length && !grpGaFa.length) {
+    opts += '<option value="" disabled>— Chưa có Capex/TSCĐ phù hợp — Vui lòng tạo trước ở trang Capex (Tàu/O&M/QLC) hoặc Đầu tư &amp; Khấu hao —</option>';
   }
   return opts;
 }
@@ -8909,19 +9181,21 @@ function _invRefreshCapexOpts() {
 
 // Form thêm/sửa khoản đầu tư
 async function openInvestForm(inv = {}) {
-  let vessels = [], omContracts = [], capex = [], fixedAssets = [];
+  let vessels = [], omContracts = [], capex = [], fixedAssets = [], omCapex = [], gaCapex = [];
   try {
-    [vessels, omContracts, capex, fixedAssets] = await Promise.all([
+    [vessels, omContracts, capex, fixedAssets, omCapex, gaCapex] = await Promise.all([
       api('getVessels', {}),
       api('getOmContracts', {}),
       api('getCapex', {}),
       api('getFixedAssets', {}).catch(()=>[]),
+      api('getOmCapex', {}).catch(()=>[]),
+      api('getGaCapex', {}).catch(()=>[]),
     ]);
   } catch(e) {}
 
   // Lưu cache để _invRefreshCapexOpts dùng
   _INV_CAPEX_CACHE = {
-    vessels, capex, fixedAssets,
+    vessels, capex, fixedAssets, omCapex, gaCapex,
     vesselNameById: Object.fromEntries(vessels.map(v => [v.id, v.name])),
   };
 
