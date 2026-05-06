@@ -973,8 +973,13 @@ function _migrateCostCatsSchema(demo) {
   const hasOldA4Sua   = cats.some(c => c.category === 'A4' && c.categoryLabel === 'Sửa chữa & Bảo dưỡng');
   const hasOldA5Dock  = cats.some(c => c.category === 'A5' && c.categoryLabel === 'Dock & Docking');
   const missingA3     = !cats.some(c => c.category === 'A3' && c.categoryLabel === 'Thông tin liên lạc');
+  // E nhóm: bỏ E2 (Đầu tư & Nâng cấp), đổi E3 → E2
+  const hasOldE2Invest= cats.some(c => c.group === 'E' && c.category === 'E2' && c.categoryLabel === 'Đầu tư & Nâng cấp tài sản');
+  const hasOldE3      = cats.some(c => c.group === 'E' && c.category === 'E3' && c.categoryLabel === 'Chi phí bất thường khác');
+  // F nhóm: bỏ F4 (Khấu hao) — đã có module Đầu tư & Khấu hao
+  const hasOldF4Khauhao = cats.some(c => c.group === 'F' && c.category === 'F4' && c.categoryLabel === 'Khấu hao' && c.active !== false);
 
-  const needMigration = hasOldFuelC || hasOldB2 || hasOldB3PTN || hasB3VatTu || hasB4Khac || hasOldB4HSE || hasOldA4Sua || hasOldA5Dock || missingA3;
+  const needMigration = hasOldFuelC || hasOldB2 || hasOldB3PTN || hasB3VatTu || hasB4Khac || hasOldB4HSE || hasOldA4Sua || hasOldA5Dock || missingA3 || hasOldE2Invest || hasOldE3 || hasOldF4Khauhao;
   if (!needMigration) return;
 
   console.log('[migration] Phát hiện schema cũ — cập nhật danh mục chi phí sang schema mới...');
@@ -1032,6 +1037,26 @@ function _migrateCostCatsSchema(demo) {
     );
   }
 
+  // 7b. ─── E2 (Đầu tư & Nâng cấp tài sản) → ẨN — đã có module Đầu tư & Khấu hao ───
+  cats.forEach(c => {
+    if (c.group === 'E' && c.category === 'E2' && c.categoryLabel === 'Đầu tư & Nâng cấp tài sản') {
+      c.active = false;
+    }
+  });
+  // 7c. ─── E3 (Chi phí bất thường khác) → đổi sang E2 ───
+  cats.forEach(c => {
+    if (c.group === 'E' && c.category === 'E3' && c.categoryLabel === 'Chi phí bất thường khác') {
+      c.category = 'E2';
+    }
+  });
+
+  // 7d. ─── F4 (Khấu hao) → ẨN — đã có module Đầu tư & Khấu hao tự tính ───
+  cats.forEach(c => {
+    if (c.group === 'F' && c.category === 'F4' && c.categoryLabel === 'Khấu hao') {
+      c.active = false;
+    }
+  });
+
   // 8. Bổ sung mục mới cho A3 (Thông tin liên lạc) nếu chưa có
   const hasA3 = cats.some(c => c.category === 'A3');
   if (!hasA3) {
@@ -1064,7 +1089,7 @@ function _migrateCostCatsSchema(demo) {
   }
 
   // Đánh dấu đã migrate
-  demo._schemaVersion = '2026.05.07-b';
+  demo._schemaVersion = '2026.05.07-d';
   console.log('[migration] Hoàn tất cập nhật danh mục.');
 }
 
@@ -1808,18 +1833,17 @@ function _buildInitialDemo() {
       {id:'c7b',group:'F',groupLabel:'Phân bổ',  category:'F2',categoryLabel:'Bảo hiểm',          name:'Bảo hiểm P&I',                 unit:'năm',  currency:'VND',active:true},
       {id:'c7c',group:'F',groupLabel:'Phân bổ',  category:'F2',categoryLabel:'Bảo hiểm',          name:'Bảo hiểm thuyền viên',         unit:'năm',  currency:'VND',active:true},
       {id:'c8', group:'F',groupLabel:'Phân bổ',  category:'F3',categoryLabel:'Thuế & Phí hàng năm',name:'Lệ phí đăng ký tàu',          unit:'năm',  currency:'VND',active:true},
-      {id:'c9', group:'F',groupLabel:'Phân bổ',  category:'F4',categoryLabel:'Khấu hao',          name:'Khấu hao vỏ tàu',              unit:'năm',  currency:'VND',active:true},
+      // F4 (Khấu hao) đã bỏ — sử dụng module "Đầu tư & Khấu hao" thay thế
       // E — Chi phí không thường xuyên (Marketing/Broker/BD)
       {id:'e01',group:'E',groupLabel:'Hoạt động chung',category:'E1',categoryLabel:'Marketing & Phát triển KD',name:'Chi phí marketing & quảng bá',unit:'lần',currency:'VND',active:true},
       {id:'e02',group:'E',groupLabel:'Hoạt động chung',category:'E1',categoryLabel:'Marketing & Phát triển KD',name:'Phí môi giới (Broker fee)',unit:'lần',currency:'VND',active:true},
       {id:'e03',group:'E',groupLabel:'Hoạt động chung',category:'E1',categoryLabel:'Marketing & Phát triển KD',name:'Hoa hồng đại lý / commission',unit:'lần',currency:'VND',active:true},
       {id:'e04',group:'E',groupLabel:'Hoạt động chung',category:'E1',categoryLabel:'Marketing & Phát triển KD',name:'Chi phí tiếp khách / entertainment',unit:'lần',currency:'VND',active:true},
       {id:'e05',group:'E',groupLabel:'Hoạt động chung',category:'E1',categoryLabel:'Marketing & Phát triển KD',name:'Chi phí triển lãm / hội thảo',unit:'lần',currency:'VND',active:true},
-      {id:'e06',group:'E',groupLabel:'Hoạt động chung',category:'E2',categoryLabel:'Đầu tư & Nâng cấp tài sản',name:'Mua sắm thiết bị mới',unit:'item',currency:'VND',active:true},
-      {id:'e07',group:'E',groupLabel:'Hoạt động chung',category:'E2',categoryLabel:'Đầu tư & Nâng cấp tài sản',name:'Nâng cấp hệ thống / thiết bị tàu',unit:'job',currency:'VND',active:true},
-      {id:'e08',group:'E',groupLabel:'Hoạt động chung',category:'E3',categoryLabel:'Chi phí bất thường khác',name:'Chi phí pháp lý / tranh chấp',unit:'lần',currency:'VND',active:true},
-      {id:'e09',group:'E',groupLabel:'Hoạt động chung',category:'E3',categoryLabel:'Chi phí bất thường khác',name:'Phạt hợp đồng / liquidated damages',unit:'lần',currency:'VND',active:true},
-      {id:'e10',group:'E',groupLabel:'Hoạt động chung',category:'E3',categoryLabel:'Chi phí bất thường khác',name:'Chi phí khác không thường xuyên',unit:'lot',currency:'VND',active:true},
+      // E2 (Đầu tư & Nâng cấp tài sản) đã bỏ — sử dụng module "Đầu tư & Khấu hao" thay thế
+      {id:'e08',group:'E',groupLabel:'Hoạt động chung',category:'E2',categoryLabel:'Chi phí bất thường khác',name:'Chi phí pháp lý / tranh chấp',unit:'lần',currency:'VND',active:true},
+      {id:'e09',group:'E',groupLabel:'Hoạt động chung',category:'E2',categoryLabel:'Chi phí bất thường khác',name:'Phạt hợp đồng / liquidated damages',unit:'lần',currency:'VND',active:true},
+      {id:'e10',group:'E',groupLabel:'Hoạt động chung',category:'E2',categoryLabel:'Chi phí bất thường khác',name:'Chi phí khác không thường xuyên',unit:'lot',currency:'VND',active:true},
       // ── P. THUÊ NGOÀI / PASS-THROUGH (tính vào BCTC) ──
       {id:'cp01',group:'P',groupLabel:'Thuê ngoài / Pass-through',category:'P1',categoryLabel:'Máy móc & Thiết bị',name:'Thuê máy móc thiết bị chuyên dụng',unit:'ngày',currency:'VND',active:true},
       {id:'cp02',group:'P',groupLabel:'Thuê ngoài / Pass-through',category:'P1',categoryLabel:'Máy móc & Thiết bị',name:'Thuê thiết bị nâng hạ / cần cẩu',unit:'ngày',currency:'VND',active:true},
@@ -1844,7 +1868,6 @@ function _buildInitialDemo() {
       {id:'ct03',group:'T',groupLabel:'Trích quỹ lương dự án',category:'T1',categoryLabel:'Trích quỹ lương từ DT',name:'Trích quỹ lương từ DT vận chuyển',unit:'%DT',currency:'VND',active:true,accrualPct:2},
       {id:'ct04',group:'T',groupLabel:'Trích quỹ lương dự án',category:'T2',categoryLabel:'Trích quỹ thưởng dự án',name:'Trích quỹ thưởng KPI dự án',unit:'%DT',currency:'VND',active:true,accrualPct:1},
       {id:'ct05',group:'T',groupLabel:'Trích quỹ lương dự án',category:'T2',categoryLabel:'Trích quỹ thưởng dự án',name:'Trích quỹ phụ cấp đặc biệt dự án',unit:'lần',currency:'VND',active:true,accrualPct:0},
-      {id:'c9b',group:'F',groupLabel:'Phân bổ',  category:'F4',categoryLabel:'Khấu hao',          name:'Khấu hao máy móc thiết bị',    unit:'năm',  currency:'VND',active:true},
     ],
     revCats: [
       {id:'r1',name:'Charter hire',active:true},
