@@ -1627,6 +1627,7 @@ function _buildInitialDemo() {
   return {
     vessels: [],
     costCats: [
+      // ─── Nhóm A — Hàng hải ───
       {id:'c1', group:'A',groupLabel:'Hàng hải', category:'A1',categoryLabel:'Thuyền viên',       name:'Lương cơ bản',                  unit:'tháng',currency:'VND',active:true},
       {id:'c1b',group:'A',groupLabel:'Hàng hải', category:'A1',categoryLabel:'Thuyền viên',       name:'Bảo hiểm xã hội (BHXH)',        unit:'tháng',currency:'VND',active:true},
       {id:'c1c',group:'A',groupLabel:'Hàng hải', category:'A1',categoryLabel:'Thuyền viên',       name:'Phụ cấp đi biển',               unit:'ngày', currency:'VND',active:true},
@@ -1635,13 +1636,28 @@ function _buildInitialDemo() {
       {id:'c2', group:'A',groupLabel:'Hàng hải', category:'A2',categoryLabel:'Cảng phí & Hoa tiêu',name:'Phí cảng (port dues)',          unit:'lần',  currency:'VND',active:true},
       {id:'c2b',group:'A',groupLabel:'Hàng hải', category:'A2',categoryLabel:'Cảng phí & Hoa tiêu',name:'Phí hoa tiêu (pilotage)',       unit:'lần',  currency:'VND',active:true},
       {id:'c2c',group:'A',groupLabel:'Hàng hải', category:'A2',categoryLabel:'Cảng phí & Hoa tiêu',name:'Phí lai dắt (towage)',          unit:'lần',  currency:'VND',active:true},
-      {id:'c3', group:'A',groupLabel:'Hàng hải', category:'A4',categoryLabel:'Sửa chữa & Bảo dưỡng',name:'Sửa chữa máy chính',         unit:'job',  currency:'VND',active:true},
-      {id:'c3b',group:'A',groupLabel:'Hàng hải', category:'A4',categoryLabel:'Sửa chữa & Bảo dưỡng',name:'Sửa chữa máy phụ / phát điện',unit:'job', currency:'VND',active:true},
-      {id:'c3c',group:'A',groupLabel:'Hàng hải', category:'A4',categoryLabel:'Sửa chữa & Bảo dưỡng', name:'Phụ tùng máy chính',            unit:'lot',  currency:'VND',active:true},
-      {id:'c3d',group:'A',groupLabel:'Hàng hải', category:'A5',categoryLabel:'Dock & Docking',    name:'Chi phí vào dock',              unit:'lần',  currency:'VND',active:true},
-      {id:'c4', group:'C',groupLabel:'Nhiên liệu',category:'C1',categoryLabel:'Dầu chạy máy',     name:'Dầu DO (Marine Gas Oil)',       unit:'lít',  currency:'VND',active:true},
-      {id:'c4b',group:'C',groupLabel:'Nhiên liệu',category:'C1',categoryLabel:'Dầu chạy máy',     name:'Dầu FO (Heavy Fuel Oil)',       unit:'lít',  currency:'VND',active:true},
-      {id:'c4c',group:'C',groupLabel:'Nhiên liệu',category:'C2',categoryLabel:'Dầu bôi trơn',     name:'Nhớt máy chính (cylinder oil)', unit:'lít',  currency:'VND',active:true},
+      // A3 — Thông tin liên lạc (mới)
+      {id:'a31',group:'A',groupLabel:'Hàng hải', category:'A3',categoryLabel:'Thông tin liên lạc',name:'Cước Inmarsat (vệ tinh)',       unit:'tháng',currency:'VND',active:true},
+      {id:'a32',group:'A',groupLabel:'Hàng hải', category:'A3',categoryLabel:'Thông tin liên lạc',name:'Cước Starlink',                 unit:'tháng',currency:'VND',active:true},
+      {id:'a33',group:'A',groupLabel:'Hàng hải', category:'A3',categoryLabel:'Thông tin liên lạc',name:'Cước VHF / điện thoại tàu',     unit:'tháng',currency:'VND',active:true},
+      {id:'a34',group:'A',groupLabel:'Hàng hải', category:'A3',categoryLabel:'Thông tin liên lạc',name:'Internet / data trên tàu',      unit:'tháng',currency:'VND',active:true},
+      // A4 — Ấn phẩm hàng hải (mới)
+      {id:'a41',group:'A',groupLabel:'Hàng hải', category:'A4',categoryLabel:'Ấn phẩm hàng hải', name:'Hải đồ (paper charts)',         unit:'lần',  currency:'VND',active:true},
+      {id:'a42',group:'A',groupLabel:'Hàng hải', category:'A4',categoryLabel:'Ấn phẩm hàng hải', name:'ENC / cập nhật bản đồ điện tử', unit:'năm',  currency:'VND',active:true},
+      {id:'a43',group:'A',groupLabel:'Hàng hải', category:'A4',categoryLabel:'Ấn phẩm hàng hải', name:'Tide tables / Sailing Directions',unit:'năm',currency:'VND',active:true},
+      {id:'a44',group:'A',groupLabel:'Hàng hải', category:'A4',categoryLabel:'Ấn phẩm hàng hải', name:'Ấn phẩm hàng hải khác',         unit:'lần',  currency:'VND',active:true},
+      // A5 — Sửa chữa & Bảo dưỡng (đổi từ A4 cũ)
+      {id:'c3', group:'A',groupLabel:'Hàng hải', category:'A5',categoryLabel:'Sửa chữa & Bảo dưỡng',name:'Sửa chữa máy chính',         unit:'job',  currency:'VND',active:true},
+      {id:'c3b',group:'A',groupLabel:'Hàng hải', category:'A5',categoryLabel:'Sửa chữa & Bảo dưỡng',name:'Sửa chữa máy phụ / phát điện',unit:'job', currency:'VND',active:true},
+      {id:'c3c',group:'A',groupLabel:'Hàng hải', category:'A5',categoryLabel:'Sửa chữa & Bảo dưỡng', name:'Phụ tùng máy chính',            unit:'lot',  currency:'VND',active:true},
+      // A6 — Chi khác (mới)
+      {id:'a61',group:'A',groupLabel:'Hàng hải', category:'A6',categoryLabel:'Chi khác',          name:'Văn phòng phẩm tàu (VPP)',     unit:'tháng',currency:'VND',active:true},
+      {id:'a62',group:'A',groupLabel:'Hàng hải', category:'A6',categoryLabel:'Chi khác',          name:'Chi phí chung tàu',             unit:'lần',  currency:'VND',active:true},
+      {id:'a63',group:'A',groupLabel:'Hàng hải', category:'A6',categoryLabel:'Chi khác',          name:'Chi phí sinh hoạt thuyền viên', unit:'tháng',currency:'VND',active:true},
+      {id:'a64',group:'A',groupLabel:'Hàng hải', category:'A6',categoryLabel:'Chi khác',          name:'Chi phí phát sinh khác',        unit:'lần',  currency:'VND',active:true},
+      // A7 — Dock & Docking (đổi từ A5 cũ)
+      {id:'c3d',group:'A',groupLabel:'Hàng hải', category:'A7',categoryLabel:'Dock & Docking',    name:'Chi phí vào dock',              unit:'lần',  currency:'VND',active:true},
+      // (Nhóm C — Nhiên liệu — đã bỏ. Dùng module Kho nhiên liệu thay thế)
       {id:'c5', group:'D',groupLabel:'Phát sinh dự án',category:'D1',categoryLabel:'Thuê ngoài',         name:'Thuê thiết bị đặc chủng',        unit:'ngày', currency:'VND',active:true},
       {id:'c5b',group:'D',groupLabel:'Phát sinh dự án',category:'D2',categoryLabel:'Chi phí dự án',       name:'Chi phí di chuyển nhân sự',      unit:'chuyến',currency:'VND',active:true},
       // D3 — Nhân sự KT Khoan & ĐCCT
@@ -1653,30 +1669,34 @@ function _buildInitialDemo() {
       {id:'d36',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B1',categoryLabel:'Nhân sự KT Khoan & ĐCCT',name:'Chi phí đi lại / vé máy bay nhân sự',unit:'chuyến',currency:'VND',active:true},
       {id:'d37',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B1',categoryLabel:'Nhân sự KT Khoan & ĐCCT',name:'Lưu trú nhân sự kỹ thuật',         unit:'ngày', currency:'VND',active:true},
       {id:'d38',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B1',categoryLabel:'Nhân sự KT Khoan & ĐCCT',name:'Huấn luyện / chứng chỉ an toàn',   unit:'lần',  currency:'VND',active:true},
-      // D4 — Thiết bị khoan & lấy mẫu
-      {id:'d41',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Thiết bị Khoan & Lấy mẫu',name:'Thuê máy khoan (drilling rig)',   unit:'ngày', currency:'VND',active:true},
-      {id:'d42',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Thiết bị Khoan & Lấy mẫu',name:'Ống mẫu (core barrel / sampler)', unit:'bộ',   currency:'VND',active:true},
-      {id:'d43',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Thiết bị Khoan & Lấy mẫu',name:'Casing & drill pipe',             unit:'m',    currency:'VND',active:true},
-      {id:'d44',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Thiết bị Khoan & Lấy mẫu',name:'Thiết bị SPT / CPT / vane shear',unit:'lần',  currency:'VND',active:true},
-      {id:'d45',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Thiết bị Khoan & Lấy mẫu',name:'Thiết bị đo địa vật lý (logging)',unit:'ngày', currency:'VND',active:true},
-      {id:'d46',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Thiết bị Khoan & Lấy mẫu',name:'Bơm khoan & phụ kiện',            unit:'ngày', currency:'VND',active:true},
-      {id:'d47',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Thiết bị Khoan & Lấy mẫu',name:'Vận chuyển / cẩu hạ thiết bị khoan',unit:'lần',currency:'VND',active:true},
-      // D5 — Vật tư tiêu hao & PTN
-      {id:'d51',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao & PTN',name:'Dung dịch khoan (drilling mud)',    unit:'m3',   currency:'VND',active:true},
-      {id:'d52',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao & PTN',name:'Hoá chất phụ gia dung dịch khoan',  unit:'kg',   currency:'VND',active:true},
-      {id:'d53',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao & PTN',name:'Mũi khoan / bit (PDC, roller...)',  unit:'cái',  currency:'VND',active:true},
-      {id:'d54',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao & PTN',name:'Xi măng trám giếng (cementing)',    unit:'kg',   currency:'VND',active:true},
-      {id:'d55',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao & PTN',name:'Phân tích mẫu đất / đá tại PTN',   unit:'mẫu',  currency:'VND',active:true},
-      {id:'d56',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao & PTN',name:'Thí nghiệm cơ học đất (đặc biệt)',  unit:'bộ TN',currency:'VND',active:true},
-      {id:'d57',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao & PTN',name:'Bảo quản & vận chuyển mẫu',         unit:'lần',  currency:'VND',active:true},
-      {id:'d58',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao & PTN',name:'Lập báo cáo địa chất / địa kỹ thuật',unit:'báo cáo',currency:'VND',active:true},
-      // D6 — An toàn / HSE
-      {id:'d61',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'An toàn / HSE Khoan & ĐCCT',name:'Trang bị bảo hộ (PPE) đặc thù',unit:'bộ',  currency:'VND',active:true},
-      {id:'d62',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'An toàn / HSE Khoan & ĐCCT',name:'Kiểm tra khí / phát hiện H2S',unit:'ngày', currency:'VND',active:true},
-      {id:'d63',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'An toàn / HSE Khoan & ĐCCT',name:'Thiết bị kiểm soát giếng (BOP)',unit:'ngày', currency:'VND',active:true},
-      {id:'d64',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'An toàn / HSE Khoan & ĐCCT',name:'Xử lý / thải bỏ mùn khoan',    unit:'lần',  currency:'VND',active:true},
-      {id:'d65',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'An toàn / HSE Khoan & ĐCCT',name:'Kiểm tra / audit an toàn',      unit:'lần',  currency:'VND',active:true},
-      {id:'d66',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'An toàn / HSE Khoan & ĐCCT',name:'Bảo vệ môi trường tại chỗ',     unit:'lot',  currency:'VND',active:true},
+      // B2 — Bảo dưỡng, sửa chữa thiết bị khoan (Giàn, CPT, PS Logging, HiPAP...)
+      {id:'d41',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Bảo dưỡng, sửa chữa thiết bị khoan',name:'Bảo dưỡng / sửa chữa Giàn khoan',     unit:'job',  currency:'VND',active:true},
+      {id:'d42',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Bảo dưỡng, sửa chữa thiết bị khoan',name:'Bảo dưỡng / sửa chữa CPT (Cone Penetration Test)',unit:'job',currency:'VND',active:true},
+      {id:'d43',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Bảo dưỡng, sửa chữa thiết bị khoan',name:'Bảo dưỡng / sửa chữa PS Logging',     unit:'job',  currency:'VND',active:true},
+      {id:'d44',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Bảo dưỡng, sửa chữa thiết bị khoan',name:'Bảo dưỡng / sửa chữa HiPAP (định vị thuỷ âm)',unit:'job',currency:'VND',active:true},
+      {id:'d45',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Bảo dưỡng, sửa chữa thiết bị khoan',name:'Bảo dưỡng / sửa chữa thiết bị đo địa vật lý (logging)',unit:'ngày',currency:'VND',active:true},
+      {id:'d46',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Bảo dưỡng, sửa chữa thiết bị khoan',name:'Bảo dưỡng / sửa chữa bơm khoan & phụ kiện',unit:'job',currency:'VND',active:true},
+      {id:'d47',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Bảo dưỡng, sửa chữa thiết bị khoan',name:'Phụ tùng thay thế thiết bị khoan',    unit:'lot',  currency:'VND',active:true},
+      {id:'d48',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Bảo dưỡng, sửa chữa thiết bị khoan',name:'Hiệu chuẩn / kiểm định thiết bị',     unit:'lần',  currency:'VND',active:true},
+      // B3 — Vật tư tiêu hao
+      {id:'d51',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Dung dịch khoan (drilling mud)',    unit:'m3',   currency:'VND',active:true},
+      {id:'d52',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Hoá chất phụ gia dung dịch khoan',  unit:'kg',   currency:'VND',active:true},
+      {id:'d53',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Mũi khoan / bit (PDC, roller...)',  unit:'cái',  currency:'VND',active:true},
+      {id:'d54',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Xi măng trám giếng (cementing)',    unit:'kg',   currency:'VND',active:true},
+      {id:'d55',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Ống mẫu (core barrel / sampler)',   unit:'bộ',   currency:'VND',active:true},
+      {id:'d56',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Casing & drill pipe',               unit:'m',    currency:'VND',active:true},
+      {id:'d57',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Phân tích mẫu đất / đá tại PTN',    unit:'mẫu',  currency:'VND',active:true},
+      {id:'d58',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Thí nghiệm cơ học đất (đặc biệt)',  unit:'bộ TN',currency:'VND',active:true},
+      // B4 — Chi khác
+      {id:'d61',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Bảo quản & vận chuyển mẫu',          unit:'lần',  currency:'VND',active:true},
+      {id:'d62',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Lập báo cáo địa chất / địa kỹ thuật',unit:'báo cáo',currency:'VND',active:true},
+      {id:'d63',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Trang bị bảo hộ (PPE) đặc thù',      unit:'bộ',   currency:'VND',active:true},
+      {id:'d64',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Kiểm tra khí / phát hiện H2S',       unit:'ngày', currency:'VND',active:true},
+      {id:'d65',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Vận chuyển / cẩu hạ thiết bị',       unit:'lần',  currency:'VND',active:true},
+      {id:'d66',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Kiểm tra / audit an toàn',           unit:'lần',  currency:'VND',active:true},
+      {id:'d67',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Xử lý / thải bỏ mùn khoan',          unit:'lần',  currency:'VND',active:true},
+      {id:'d68',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Bảo vệ môi trường tại chỗ',          unit:'lot',  currency:'VND',active:true},
+      {id:'d69',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Chi phí phát sinh khác',             unit:'lần',  currency:'VND',active:true},
       {id:'c6', group:'F',groupLabel:'Phân bổ',  category:'F1',categoryLabel:'Đăng kiểm & Chứng nhận',name:'Đăng kiểm định kỳ (Annual survey)',unit:'năm',currency:'VND',active:true},
       {id:'c6b',group:'F',groupLabel:'Phân bổ',  category:'F1',categoryLabel:'Đăng kiểm & Chứng nhận',name:'Chứng chỉ ISPS / ISM',    unit:'năm',  currency:'VND',active:true},
       {id:'c7', group:'F',groupLabel:'Phân bổ',  category:'F2',categoryLabel:'Bảo hiểm',          name:'Bảo hiểm H&M (Hull & Machinery)',unit:'năm',currency:'VND',active:true},
@@ -3387,19 +3407,24 @@ async function renderCosts() {
 
 // ── 3-level cascade helpers ──────────────────────────
 function getCatGroups() {
-  // Returns unique groups from S.costCats
+  // Returns unique groups from S.costCats, sorted A→Z
   const groups = {};
   S.costCats.filter(c=>c.active!==false&&c.active!=='false').forEach(c=>{
     if (!groups[c.group]) groups[c.group] = {group:c.group, label:c.groupLabel};
   });
-  return Object.values(groups);
+  return Object.values(groups).sort((a,b) => String(a.group).localeCompare(String(b.group)));
 }
 function getCatCategories(group) {
+  // Sort theo số trong code (A1 < A2 < A10)
   const cats = {};
   S.costCats.filter(c=>c.group===group&&c.active!==false&&c.active!=='false').forEach(c=>{
     if (!cats[c.category]) cats[c.category] = {category:c.category, label:c.categoryLabel};
   });
-  return Object.values(cats);
+  return Object.values(cats).sort((a,b) => {
+    const na = parseInt((String(a.category).match(/(\d+)/)||[0,0])[1]) || 0;
+    const nb = parseInt((String(b.category).match(/(\d+)/)||[0,0])[1]) || 0;
+    return na - nb;
+  });
 }
 function getCatItems(group, category) {
   return S.costCats.filter(c=>c.group===group&&c.category===category&&c.active!==false&&c.active!=='false');
@@ -4074,18 +4099,27 @@ async function renderCapex() {
               <th></th>
             </tr></thead>
             <tbody>
-              ${rows.length ? rows.slice().sort((a,b) => parseInt(b.year||0) - parseInt(a.year||0)).map(r=>`
-                <tr>
+              ${rows.length ? rows.slice().sort((a,b) => parseInt(b.year||0) - parseInt(a.year||0)).map(r=>{
+                const isAuto = r._autoSource === 'vessel-purchase';
+                return `<tr${isAuto?' style="background:#FFFBF0"':''}>
                   <td class="mono">${r.year}</td>
                   <td><span class="badge badge-navy">${vName(r.vesselId)}</span></td>
-                  <td>${r.description||'—'}<br><span class="text-muted" style="font-size:11px">${r.notes||''}</span></td>
+                  <td>
+                    ${r.description||'—'}
+                    ${isAuto?'<span class="badge badge-amber" style="font-size:10px;margin-left:6px">🔒 Tự sinh từ form Tàu</span>':''}
+                    <br><span class="text-muted" style="font-size:11px">${r.notes||''}</span>
+                  </td>
                   <td class="num">${fmtVnd(r.amountVnd)}</td>
                   <td>${r.currency&&r.currency!=='VND'?`${fmt(r.amount)} ${r.currency}`:'—'}</td>
                   <td class="row-actions">
-                    <button class="btn btn-ghost btn-xs" onclick="openCapexForm(${JSON.stringify(r).replace(/"/g,'&quot;')})">✏️</button>
-                    <button class="btn btn-ghost btn-xs" onclick="deleteCapex('${r.id}')">🗑</button>
+                    ${isAuto
+                      ? `<span class="text-muted" style="font-size:11px" title="Sửa qua Cài đặt → Tàu">🔒 chỉ đọc</span>`
+                      : `<button class="btn btn-ghost btn-xs" onclick="openCapexForm(${JSON.stringify(r).replace(/"/g,'&quot;')})">✏️</button>
+                         <button class="btn btn-ghost btn-xs" onclick="deleteCapex('${r.id}')">🗑</button>`
+                    }
                   </td>
-                </tr>`).join('') : `<tr><td colspan="6"><div class="empty-state">Chưa có Capex nào.</div></td></tr>`}
+                </tr>`;
+              }).join('') : `<tr><td colspan="6"><div class="empty-state">Chưa có Capex nào.</div></td></tr>`}
             </tbody>
           </table>
         </div>
@@ -4270,10 +4304,14 @@ async function renderOmCapex() {
             </tr></thead>
             <tbody>
               ${rows.length ? rows.slice().sort((a,b) => parseInt(b.year||0) - parseInt(a.year||0)).map(r=>`
-                <tr>
+                <tr${r.recordAsInvestment?' style="background:#F0F4FF"':''}>
                   <td class="mono">${r.year}</td>
                   <td>${r.contractId ? cName(r.contractId) : '<span class="text-muted">—</span>'}</td>
-                  <td>${r.description||'—'}<br><span class="text-muted" style="font-size:11px">${r.notes||''}</span></td>
+                  <td>
+                    ${r.description||'—'}
+                    ${r.recordAsInvestment?'<span class="badge badge-blue" style="font-size:10px;margin-left:6px">📊 Có KH</span>':''}
+                    <br><span class="text-muted" style="font-size:11px">${r.notes||''}</span>
+                  </td>
                   <td class="num">${fmtVnd(r.amountVnd)}</td>
                   <td>${r.currency&&r.currency!=='VND'?`${fmt(r.amount)} ${r.currency}`:'—'}</td>
                   <td class="row-actions">
@@ -4317,7 +4355,8 @@ function openOmCapexForm(r={}) {
     const yr = r.year||S.year;
     const html=`
       <div style="background:#FFF8E1;border-left:4px solid var(--amber);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--text2)">
-        <strong>📌 Lưu ý:</strong> Capex O&amp;M chỉ <strong>theo dõi đầu tư đích danh</strong>. KHÔNG trích khấu hao, KHÔNG vào P/L &amp; BCTC.
+        <strong>📌 Lưu ý:</strong> Capex O&amp;M chỉ <strong>theo dõi đầu tư đích danh</strong>. KHÔNG trích khấu hao, KHÔNG vào P/L &amp; BCTC.<br>
+        Tick checkbox bên dưới nếu là TSCĐ giá trị cao có khấu hao (sẽ tự sinh khoản trong "Đầu tư &amp; Khấu hao").
       </div>
       <div class="form-grid cols2">
         <div class="field"><label>Hợp đồng O&M (tùy chọn)</label><select id="omcx_c">${cOpts}</select></div>
@@ -4330,9 +4369,36 @@ function openOmCapexForm(r={}) {
         <div class="field"><label>Tỷ giá</label><input type="number" id="omcx_fx" value="${r.fxRate||1}"/></div>
         <div class="field"><label>Ngày mua</label><input type="date" id="omcx_idate" value="${r.investDate||(yr+'-01-01')}"/></div>
         <div class="field" style="grid-column:span 2"><label>Ghi chú</label><input id="omcx_notes" value="${r.notes||''}"/></div>
+
+        <!-- ── ĐỒNG BỘ ĐẦU TƯ & KHẤU HAO ── -->
+        <div class="field" style="grid-column:span 2;background:#F0F4FF;border:1px solid var(--blue);border-radius:6px;padding:10px">
+          <label style="color:var(--blue);font-weight:600;display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="omcx_invest" ${r.recordAsInvestment?'checked':''} onchange="onOmCapexInvestToggle()" style="margin:0"/>
+            <span>📊 Ghi vào "Đầu tư &amp; Khấu hao" (có khấu hao, vào BCTC)</span>
+          </label>
+          <span style="font-size:11px;color:var(--text3);margin-left:24px;display:block">
+            Tick nếu là TSCĐ giá trị cao có khấu hao. Bỏ tick cho thiết bị đơn giản.
+          </span>
+        </div>
+        <div class="field" id="omcx_invest_config" style="grid-column:span 2;${r.recordAsInvestment?'':'display:none'};background:#FAFCFF;border:1px solid var(--blue);border-radius:6px;padding:10px">
+          <div class="form-grid cols2" style="margin:0">
+            <div class="field">
+              <label>Phương pháp khấu hao</label>
+              <select id="omcx_invest_method">
+                <option value="straight"${(r.investMethod||'straight')==='straight'?' selected':''}>Đường thẳng (SL)</option>
+                <option value="declining"${r.investMethod==='declining'?' selected':''}>Số dư giảm dần</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Thời gian khấu hao (năm)</label>
+              <input type="number" id="omcx_invest_years" value="${r.investYears||5}" min="1" max="50"/>
+            </div>
+          </div>
+        </div>
       </div>`;
     openModal(r.id?'Cập nhật Capex O&M':'Thêm Capex O&M',html,async()=>{
       const amt=parseFloat(gv('omcx_amt'))||0;const fx=parseFloat(gv('omcx_fx'))||1;
+      const recordAsInvestment = !!document.getElementById('omcx_invest')?.checked;
       const payload={
         id:r.id||newId(),
         contractId:gv('omcx_c')||'', year:gv('omcx_yr'),
@@ -4341,14 +4407,81 @@ function openOmCapexForm(r={}) {
         amountVnd:Math.round(amt*fx),
         notes:gv('omcx_notes'),
         investDate: gv('omcx_idate') || (gv('omcx_yr')+'-01-01'),
+        recordAsInvestment,
+        investMethod: recordAsInvestment ? (gv('omcx_invest_method')||'straight') : '',
+        investYears: recordAsInvestment ? (parseInt(gv('omcx_invest_years'))||5) : 0,
         createdAt:r.createdAt||new Date().toISOString(),
       };
       if(!payload.description||!payload.amount){toast('Điền đủ thông tin','warn');return;}
-      showLoading();try{await api('saveOmCapex',payload);toast('Đã lưu','ok');closeModal();renderOmCapex();}catch(e){toast('Lỗi: '+e.message,'err');}hideLoading();
+      showLoading();
+      try{
+        await api('saveOmCapex',payload);
+        if (payload.amountVnd > 0) {
+          await _syncOmCapexInvestment(payload);
+        }
+        toast('Đã lưu','ok');closeModal();renderOmCapex();
+      }catch(e){toast('Lỗi: '+e.message,'err');}
+      hideLoading();
     },'md');
   });
 }
-async function deleteOmCapex(id){if(!confirm('Xoá?'))return;try{await api('deleteOmCapex',{id});toast('Đã xoá','ok');renderOmCapex();}catch(e){toast('Lỗi','err');}}
+
+// Toggle config khấu hao trong form Capex O&M
+function onOmCapexInvestToggle() {
+  const checked = !!document.getElementById('omcx_invest')?.checked;
+  const cfg = document.getElementById('omcx_invest_config');
+  if (cfg) cfg.style.display = checked ? '' : 'none';
+}
+
+// Đồng bộ Investment từ Capex O&M (auto-sync)
+async function _syncOmCapexInvestment(capexPayload) {
+  const c = capexPayload;
+  const AUTO_TAG = 'omcapex-source';
+  const linkId = 'omcx:' + c.id;
+
+  const allInvest = await api('getInvestments', {}).catch(()=>[]);
+  const existingInvest = (allInvest||[]).find(inv =>
+    inv.capexLinkId === linkId && inv._autoSource === AUTO_TAG
+  );
+
+  if (c.recordAsInvestment && c.amountVnd > 0) {
+    const investPayload = {
+      id: existingInvest?.id || newId(),
+      name: 'Đầu tư O&M — ' + (c.description || ''),
+      scope: 'om',
+      vesselId: '',
+      capexLinkId: linkId,
+      investDate: c.investDate || (c.year + '-01-01'),
+      cost: c.amountVnd,
+      currency: 'VND',
+      fxRate: 1,
+      amountVnd: c.amountVnd,
+      method: c.investMethod || 'straight',
+      usefulLife: c.investYears || 5,
+      salvageValue: 0,
+      notes: 'Tự đồng bộ từ Capex O&M. Sửa qua trang Capex O&M để cập nhật.',
+      _autoSource: AUTO_TAG,
+      createdAt: existingInvest?.createdAt || new Date().toISOString(),
+    };
+    await api('saveInvestment', investPayload);
+  } else if (existingInvest) {
+    await api('deleteInvestment', { id: existingInvest.id });
+  }
+}
+
+async function deleteOmCapex(id){
+  if(!confirm('Xoá Capex O&M này? (Khoản Đầu tư liên kết - nếu có - cũng bị xoá)'))return;
+  try{
+    const allInvest = await api('getInvestments', {}).catch(()=>[]);
+    const linked = (allInvest||[]).find(inv =>
+      inv.capexLinkId === ('omcx:'+id) && inv._autoSource === 'omcapex-source'
+    );
+    if (linked) await api('deleteInvestment', { id: linked.id });
+    await api('deleteOmCapex',{id});
+    toast('Đã xoá','ok');
+    renderOmCapex();
+  }catch(e){toast('Lỗi','err');}
+}
 
 // ═══════════════════════════════════════════════════════
 // CAPEX QUẢN LÝ CHUNG (G&A) — Tài sản chung công ty
@@ -4431,9 +4564,13 @@ async function renderGaCapex() {
             </tr></thead>
             <tbody>
               ${rows.length ? rows.slice().sort((a,b) => parseInt(b.year||0) - parseInt(a.year||0)).map(r=>`
-                <tr>
+                <tr${r.recordAsInvestment?' style="background:#F0F4FF"':''}>
                   <td class="mono">${r.year}</td>
-                  <td>${r.description||'—'}<br><span class="text-muted" style="font-size:11px">${r.notes||''}</span></td>
+                  <td>
+                    ${r.description||'—'}
+                    ${r.recordAsInvestment?'<span class="badge badge-blue" style="font-size:10px;margin-left:6px">📊 Có KH</span>':''}
+                    <br><span class="text-muted" style="font-size:11px">${r.notes||''}</span>
+                  </td>
                   <td class="num">${fmtVnd(r.amountVnd)}</td>
                   <td>${r.currency&&r.currency!=='VND'?`${fmt(r.amount)} ${r.currency}`:'—'}</td>
                   <td class="row-actions">
@@ -4473,7 +4610,7 @@ function openGaCapexForm(r={}) {
   const html=`
     <div style="background:#FFF8E1;border-left:4px solid var(--amber);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--text2)">
       <strong>📌 Lưu ý:</strong> Capex Quản lý chung chỉ <strong>theo dõi đầu tư đích danh</strong>. KHÔNG khấu hao, KHÔNG vào P/L &amp; BCTC.<br>
-      TSCĐ có khấu hao (xe, tòa nhà, máy chủ…) → dùng <strong>Đầu tư &amp; Khấu hao</strong>.
+      Tick checkbox bên dưới nếu muốn ghi nhận khấu hao vào BCTC (sẽ tự sinh khoản trong "Đầu tư &amp; Khấu hao").
     </div>
     <div class="form-grid cols2">
       <div class="field required"><label>Năm</label><input type="number" id="gacx_yr" value="${yr}" min="2000" max="2099"/></div>
@@ -4485,9 +4622,36 @@ function openGaCapexForm(r={}) {
       <div class="field"><label>Tỷ giá</label><input type="number" id="gacx_fx" value="${r.fxRate||1}"/></div>
       <div class="field"><label>Ngày mua</label><input type="date" id="gacx_idate" value="${r.investDate||(yr+'-01-01')}"/></div>
       <div class="field" style="grid-column:span 2"><label>Ghi chú</label><input id="gacx_notes" value="${r.notes||''}"/></div>
+
+      <!-- ── ĐỒNG BỘ ĐẦU TƯ & KHẤU HAO ── -->
+      <div class="field" style="grid-column:span 2;background:#F0F4FF;border:1px solid var(--blue);border-radius:6px;padding:10px">
+        <label style="color:var(--blue);font-weight:600;display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="gacx_invest" ${r.recordAsInvestment?'checked':''} onchange="onGaCapexInvestToggle()" style="margin:0"/>
+          <span>📊 Ghi vào "Đầu tư &amp; Khấu hao" (có khấu hao, vào BCTC)</span>
+        </label>
+        <span style="font-size:11px;color:var(--text3);margin-left:24px;display:block">
+          Tick nếu là TSCĐ giá trị cao có khấu hao (xe, tòa nhà, máy chủ...). Bỏ tick cho đồ dùng đơn giản.
+        </span>
+      </div>
+      <div class="field" id="gacx_invest_config" style="grid-column:span 2;${r.recordAsInvestment?'':'display:none'};background:#FAFCFF;border:1px solid var(--blue);border-radius:6px;padding:10px">
+        <div class="form-grid cols2" style="margin:0">
+          <div class="field">
+            <label>Phương pháp khấu hao</label>
+            <select id="gacx_invest_method">
+              <option value="straight"${(r.investMethod||'straight')==='straight'?' selected':''}>Đường thẳng (SL)</option>
+              <option value="declining"${r.investMethod==='declining'?' selected':''}>Số dư giảm dần</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Thời gian khấu hao (năm)</label>
+            <input type="number" id="gacx_invest_years" value="${r.investYears||5}" min="1" max="50"/>
+          </div>
+        </div>
+      </div>
     </div>`;
   openModal(r.id?'Cập nhật Capex QLC':'Thêm Capex Quản lý chung',html,async()=>{
     const amt=parseFloat(gv('gacx_amt'))||0;const fx=parseFloat(gv('gacx_fx'))||1;
+    const recordAsInvestment = !!document.getElementById('gacx_invest')?.checked;
     const payload={
       id:r.id||newId(),
       year:gv('gacx_yr'),
@@ -4496,13 +4660,84 @@ function openGaCapexForm(r={}) {
       amountVnd:Math.round(amt*fx),
       notes:gv('gacx_notes'),
       investDate: gv('gacx_idate') || (gv('gacx_yr')+'-01-01'),
+      // ── Đồng bộ Đầu tư & Khấu hao ──
+      recordAsInvestment,
+      investMethod: recordAsInvestment ? (gv('gacx_invest_method')||'straight') : '',
+      investYears: recordAsInvestment ? (parseInt(gv('gacx_invest_years'))||5) : 0,
       createdAt:r.createdAt||new Date().toISOString(),
     };
     if(!payload.description||!payload.amount){toast('Điền đủ thông tin','warn');return;}
-    showLoading();try{await api('saveGaCapex',payload);toast('Đã lưu','ok');closeModal();renderGaCapex();}catch(e){toast('Lỗi: '+e.message,'err');}hideLoading();
+    showLoading();
+    try{
+      await api('saveGaCapex',payload);
+      // Auto-sync Investment nếu tick checkbox
+      if (payload.amountVnd > 0) {
+        await _syncGaCapexInvestment(payload);
+      }
+      toast('Đã lưu','ok');closeModal();renderGaCapex();
+    }catch(e){toast('Lỗi: '+e.message,'err');}
+    hideLoading();
   },'md');
 }
-async function deleteGaCapex(id){if(!confirm('Xoá?'))return;try{await api('deleteGaCapex',{id});toast('Đã xoá','ok');renderGaCapex();}catch(e){toast('Lỗi','err');}}
+
+// Toggle hiển thị config khấu hao khi tick checkbox trong form Capex QLC
+function onGaCapexInvestToggle() {
+  const checked = !!document.getElementById('gacx_invest')?.checked;
+  const cfg = document.getElementById('gacx_invest_config');
+  if (cfg) cfg.style.display = checked ? '' : 'none';
+}
+
+// Đồng bộ Investment từ Capex QLC (auto-sync)
+async function _syncGaCapexInvestment(capexPayload) {
+  const c = capexPayload;
+  const AUTO_TAG = 'gacapex-source';
+
+  const allInvest = await api('getInvestments', {}).catch(()=>[]);
+  const linkId = 'gacx:' + c.id;
+  const existingInvest = (allInvest||[]).find(inv =>
+    inv.capexLinkId === linkId && inv._autoSource === AUTO_TAG
+  );
+
+  if (c.recordAsInvestment && c.amountVnd > 0) {
+    const investPayload = {
+      id: existingInvest?.id || newId(),
+      name: 'Đầu tư — ' + (c.description || ''),
+      scope: 'corporate',
+      vesselId: '',
+      capexLinkId: linkId,
+      investDate: c.investDate || (c.year + '-01-01'),
+      cost: c.amountVnd,
+      currency: 'VND',
+      fxRate: 1,
+      amountVnd: c.amountVnd,
+      method: c.investMethod || 'straight',
+      usefulLife: c.investYears || 5,
+      salvageValue: 0,
+      notes: 'Tự đồng bộ từ Capex Quản lý chung. Sửa qua trang Capex QLC để cập nhật.',
+      _autoSource: AUTO_TAG,
+      createdAt: existingInvest?.createdAt || new Date().toISOString(),
+    };
+    await api('saveInvestment', investPayload);
+  } else if (existingInvest) {
+    // User bỏ tick → xoá Investment auto cũ
+    await api('deleteInvestment', { id: existingInvest.id });
+  }
+}
+
+async function deleteGaCapex(id){
+  if(!confirm('Xoá Capex QLC này? (Khoản Đầu tư liên kết - nếu có - cũng bị xoá)'))return;
+  try{
+    // Xoá luôn Investment auto link tới Capex này
+    const allInvest = await api('getInvestments', {}).catch(()=>[]);
+    const linked = (allInvest||[]).find(inv =>
+      inv.capexLinkId === ('gacx:'+id) && inv._autoSource === 'gacapex-source'
+    );
+    if (linked) await api('deleteInvestment', { id: linked.id });
+    await api('deleteGaCapex',{id});
+    toast('Đã xoá','ok');
+    renderGaCapex();
+  }catch(e){toast('Lỗi','err');}
+}
 
 // ═══════════════════════════════════════════════════════
 // PAGE: REPORT — PROJECT
@@ -5005,9 +5240,37 @@ function openVesselForm(v={}) {
       <div class="field"><label>Trạng thái</label>
         <select id="vact">
           <option value="true"${v.active===true||v.active==='true'?'selected':''}>Đang hoạt động</option>
-          <option value="false"${v.active===false||v.active==='false'?'selected':''}>Không hoạt động</option>
+          <option value="false"${v.active===false||v.active==='true'?'selected':''}>Không hoạt động</option>
         </select>
       </div>
+
+      <!-- ── ĐỒNG BỘ CAPEX & ĐẦU TƯ ── -->
+      <div class="field" style="grid-column:span 2;background:#FFF8E1;border:1px solid var(--amber);border-radius:6px;padding:10px">
+        <label style="color:var(--amber);font-weight:600;display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="vrecord_invest" ${v.recordAsInvestment?'checked':''} onchange="onVesselInvestToggle()" style="margin:0"/>
+          <span>📊 Ghi giá mua vào "Đầu tư &amp; Khấu hao" (có khấu hao, vào BCTC)</span>
+        </label>
+        <span style="font-size:11px;color:var(--text3);margin-left:24px;display:block">
+          Mặc định: giá mua chỉ vào <strong>Capex tàu</strong> (theo dõi đầu tư đích danh, KHÔNG khấu hao). Tick nếu muốn ghi nhận khấu hao vào BCTC.
+        </span>
+      </div>
+      <div class="field" id="vinvest_config" style="grid-column:span 2;${v.recordAsInvestment?'':'display:none'};background:#F0F4FF;border:1px solid var(--blue);border-radius:6px;padding:10px">
+        <div class="form-grid cols2" style="margin:0">
+          <div class="field">
+            <label>Phương pháp khấu hao</label>
+            <select id="vinvest_method">
+              <option value="straight"${(v.investMethod||'straight')==='straight'?' selected':''}>Đường thẳng (SL) — chia đều theo năm</option>
+              <option value="declining"${v.investMethod==='declining'?' selected':''}>Số dư giảm dần</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Thời gian khấu hao (năm)</label>
+            <input type="number" id="vinvest_years" value="${v.investYears||10}" min="1" max="50"/>
+            <span style="font-size:11px;color:var(--text3)">Tàu kỹ thuật: thường 10-15 năm</span>
+          </div>
+        </div>
+      </div>
+
       <div class="field" style="grid-column:span 2"><label>Ghi chú</label><textarea id="vnotes">${v.notes||''}</textarea></div>
     </div>`;
 
@@ -5015,18 +5278,30 @@ function openVesselForm(v={}) {
     const cur = gv('vpcur')||'VND';
     const fx  = parseFloat(gv('vpfx'))||1;
     const cost= parseFloat(gv('vpc'))||0;
+    const recordAsInvestment = !!document.getElementById('vrecord_invest')?.checked;
     const payload={
       id:v.id||newId(), name:gv('vn'), type:gv('vt'), flag:gv('vflag'),
       imoNumber:gv('vimo'), grt:gv('vgrt'), dwt:gv('vdwt'),
       purchaseDate:gv('vpd'),
       purchaseCurrency:cur, purchaseFxRate:fx,
       purchaseCost:cost, purchaseCostVND:Math.round(cost*fx),
+      // ── Đồng bộ Capex / Đầu tư ──
+      recordAsInvestment,
+      investMethod: recordAsInvestment ? (gv('vinvest_method')||'straight') : '',
+      investYears: recordAsInvestment ? (parseInt(gv('vinvest_years'))||10) : 0,
       active:gv('vact')==='true', notes:gv('vnotes'),
       createdAt:v.createdAt||new Date().toISOString()
     };
     if(!payload.name){toast('Nhập tên tàu','warn');return;}
     showLoading();try{
       await api('saveVessel',payload);
+
+      // ─── TỰ ĐỘNG ĐỒNG BỘ CAPEX & ĐẦU TƯ ───
+      // Chỉ sync khi có giá mua > 0
+      if (payload.purchaseCostVND > 0) {
+        await _syncVesselCapexAndInvest(payload);
+      }
+
       // Refresh vessel list
       const updated = await api('getVessels');
       S.vessels = Array.isArray(updated) ? updated : [];
@@ -5040,6 +5315,77 @@ function openVesselForm(v={}) {
       toast('Đã lưu tàu ✓','ok');closeModal();renderVessels();
     }catch(e){toast('Lỗi: '+e.message,'err');}hideLoading();
   });
+}
+
+// Toggle hiển thị config khấu hao khi tick checkbox
+function onVesselInvestToggle() {
+  const checked = !!document.getElementById('vrecord_invest')?.checked;
+  const cfg = document.getElementById('vinvest_config');
+  if (cfg) cfg.style.display = checked ? '' : 'none';
+}
+
+// Đồng bộ Capex tàu (auto-sync) + Investment (nếu recordAsInvestment)
+// Tìm Capex auto cũ của tàu này, update hoặc tạo mới.
+// Nếu user tick recordAsInvestment → tạo/update Investment liên kết.
+async function _syncVesselCapexAndInvest(vesselPayload) {
+  const v = vesselPayload;
+  const AUTO_TAG = 'vessel-purchase';  // Flag đánh dấu Capex tự sinh từ form Tàu
+
+  // 1. Tìm Capex auto cũ của tàu này
+  const allCapex = await api('getCapex', {}).catch(()=>[]);
+  const existingCapex = (allCapex||[]).find(c =>
+    c.vesselId === v.id && c._autoSource === AUTO_TAG
+  );
+
+  const yr = parseInt((v.purchaseDate||'').slice(0,4)) || new Date().getFullYear();
+
+  const capexPayload = {
+    id: existingCapex?.id || newId(),
+    vesselId: v.id, year: yr,
+    description: 'Giá mua tàu — ' + (v.name || ''),
+    amount: v.purchaseCost,
+    currency: v.purchaseCurrency,
+    fxRate: v.purchaseFxRate,
+    amountVnd: v.purchaseCostVND,
+    notes: 'Tự đồng bộ từ form Tàu (Giá mua). Sửa qua form Tàu để cập nhật.',
+    investDate: v.purchaseDate || (yr + '-01-01'),
+    years: 0, method: 'none',  // Capex tàu KHÔNG khấu hao
+    _autoSource: AUTO_TAG,      // Flag để UI hiển thị badge "tự sinh"
+    createdAt: existingCapex?.createdAt || new Date().toISOString(),
+  };
+  await api('saveCapex', capexPayload);
+
+  // 2. Tìm Investment auto cũ link với Capex này
+  const allInvest = await api('getInvestments', {}).catch(()=>[]);
+  const existingInvest = (allInvest||[]).find(inv =>
+    inv.capexLinkId === ('cx:' + capexPayload.id) && inv._autoSource === AUTO_TAG
+  );
+
+  if (v.recordAsInvestment && v.purchaseCostVND > 0) {
+    // Tạo / update Investment với khấu hao
+    const investPayload = {
+      id: existingInvest?.id || newId(),
+      name: 'Đầu tư mua tàu — ' + (v.name || ''),
+      scope: 'vessel',
+      vesselId: v.id,
+      capexLinkId: 'cx:' + capexPayload.id,
+      investDate: v.purchaseDate || (yr + '-01-01'),
+      cost: v.purchaseCostVND,
+      currency: 'VND',
+      fxRate: 1,
+      amountVnd: v.purchaseCostVND,
+      method: v.investMethod || 'straight',
+      usefulLife: v.investYears || 10,
+      salvageValue: 0,
+      notes: 'Tự đồng bộ từ form Tàu (đánh dấu "Ghi vào Đầu tư & Khấu hao"). Sửa qua form Tàu để cập nhật.',
+      _autoSource: AUTO_TAG,
+      createdAt: existingInvest?.createdAt || new Date().toISOString(),
+    };
+    await api('saveInvestment', investPayload);
+  } else if (existingInvest) {
+    // User bỏ tick → xoá Investment auto cũ
+    await api('deleteInvestment', { id: existingInvest.id });
+  }
 }
 
 function vesselCalcVnd() {
@@ -5077,8 +5423,15 @@ async function renderCategories() {
     tree[c.group].cats[c.category].items.push(c);
   });
 
-  const treeRows = Object.entries(tree).map(([g, gData])=>{
-    const catSections = Object.entries(gData.cats).map(([catCode, catData])=>{
+  // Sắp xếp groups theo alphabet (A→Z), categories theo số (A1 < A2 < A10)
+  const _catNum = code => { const m = String(code||'').match(/(\d+)/); return m ? parseInt(m[1]) : 0; };
+  const sortedGroups = Object.entries(tree).sort(([a],[b]) => a.localeCompare(b));
+  sortedGroups.forEach(([g, gData]) => {
+    gData._sortedCats = Object.entries(gData.cats).sort(([a],[b]) => _catNum(a) - _catNum(b));
+  });
+
+  const treeRows = sortedGroups.map(([g, gData])=>{
+    const catSections = gData._sortedCats.map(([catCode, catData])=>{
       const itemRows = catData.items.map(c=>`
         <tr style="background:#fff">
           <td style="padding-left:48px;border-left:3px solid transparent">
@@ -5204,8 +5557,15 @@ function _renderCostCatsContent() {
     tree[c.group].cats[c.category].items.push(c);
   });
 
-  const treeRows = Object.entries(tree).map(([g, gData])=>{
-    const catSections = Object.entries(gData.cats).map(([catCode, catData])=>{
+  // Sắp xếp groups theo alphabet, categories theo số
+  const _catNum = code => { const m = String(code||'').match(/(\d+)/); return m ? parseInt(m[1]) : 0; };
+  const sortedGroups = Object.entries(tree).sort(([a],[b]) => a.localeCompare(b));
+  sortedGroups.forEach(([g, gData]) => {
+    gData._sortedCats = Object.entries(gData.cats).sort(([a],[b]) => _catNum(a) - _catNum(b));
+  });
+
+  const treeRows = sortedGroups.map(([g, gData])=>{
+    const catSections = gData._sortedCats.map(([catCode, catData])=>{
       const itemRows = catData.items.map(c=>`
         <tr style="background:#fff">
           <td style="padding-left:48px;border-left:3px solid transparent">
@@ -8158,10 +8518,12 @@ let _S_INV_MODULE = 'vessel';
 
 async function renderInventory() {
   showLoading();
-  let entries = [], vessels = [], projects = [], omContracts = [];
+  let entries = [], allEntries = [], vessels = [], projects = [], omContracts = [];
   try {
-    [entries, vessels, projects, omContracts] = await Promise.all([
+    [entries, allEntries, vessels, projects, omContracts] = await Promise.all([
       api('getInventoryEntries', { module: _S_INV_MODULE, year: S.year }),
+      // Lấy toàn bộ entries lifetime của module này để tính tồn kho cộng dồn qua các năm
+      api('getInventoryEntries', { module: _S_INV_MODULE }),
       api('getVessels', {}),
       api('getProjects', {}),
       api('getOmContracts', {}).catch(()=>[]),
@@ -8178,12 +8540,69 @@ async function renderInventory() {
 
   // Sắp xếp theo tháng giảm dần (mới nhất trên cùng), trong cùng tháng theo đối tượng
   entries.sort((a,b) => {
+    const aType = a.entryType || 'out';
+    const bType = b.entryType || 'out';
+    // Opening luôn ở trên cùng của năm
+    if (aType === 'opening' && bType !== 'opening') return -1;
+    if (bType === 'opening' && aType !== 'opening') return 1;
     const aKey = `${a.year||0}-${String(a.month||0).padStart(2,'0')}`;
     const bKey = `${b.year||0}-${String(b.month||0).padStart(2,'0')}`;
     return bKey.localeCompare(aKey);
   });
 
-  const totalAll = entries.reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
+  // ─── TÍNH TỒN KHO THEO THÁNG ───
+  // Tồn đầu năm Y = sum(opening của năm Y) + (Tồn cuối năm Y-1)
+  // Tồn cuối tháng M = Tồn đầu năm + sum(in tháng 1..M) - sum(out tháng 1..M)
+  // Vì entries đã filter theo year, mình dùng allEntries để tính tồn cuối năm trước.
+  const _entryType = e => e.entryType || 'out';
+  const _amt = e => parseFloat(e.amountVnd) || 0;
+
+  // Tồn đầu năm S.year:
+  //   1. Lấy tất cả opening của S.year
+  const openingThisYear = (entries||[])
+    .filter(e => _entryType(e) === 'opening')
+    .reduce((s, e) => s + _amt(e), 0);
+  //   2. Tồn cuối năm trước (lifetime tính tới năm S.year-1)
+  let endOfPrevYear = 0;
+  (allEntries||[]).forEach(e => {
+    const yr = parseInt(e.year)||0;
+    if (yr >= S.year) return;
+    const t = _entryType(e);
+    if (t === 'opening' || t === 'in') endOfPrevYear += _amt(e);
+    else if (t === 'out') endOfPrevYear -= _amt(e);
+  });
+  const stockOpening = openingThisYear + endOfPrevYear;
+
+  // Tổng nhập/xuất từng tháng năm S.year
+  const monthlyData = {};
+  for (let m = 1; m <= 12; m++) monthlyData[m] = { in: 0, out: 0 };
+  (entries||[]).forEach(e => {
+    const m = parseInt(e.month) || 0;
+    if (m < 1 || m > 12) return;
+    const t = _entryType(e);
+    if (t === 'in') monthlyData[m].in += _amt(e);
+    else if (t === 'out') monthlyData[m].out += _amt(e);
+    // 'opening' không vào monthlyData (tính riêng)
+  });
+
+  // Tính tồn cuối từng tháng (cộng dồn)
+  let runningStock = stockOpening;
+  const monthlyStock = {};
+  for (let m = 1; m <= 12; m++) {
+    const opening_m = runningStock;
+    const ending_m = opening_m + monthlyData[m].in - monthlyData[m].out;
+    monthlyStock[m] = {
+      opening: opening_m,
+      in: monthlyData[m].in,
+      out: monthlyData[m].out,
+      ending: ending_m,
+    };
+    runningStock = ending_m;
+  }
+  const stockEnding = runningStock;
+
+  const totalIn  = Object.values(monthlyData).reduce((s,d) => s + d.in,  0);
+  const totalOut = Object.values(monthlyData).reduce((s,d) => s + d.out, 0);
 
   // Build object label helper
   const objLabel = e => {
@@ -8197,17 +8616,33 @@ async function renderInventory() {
 
   // Module tabs
   const moduleTabs = [
-    { k:'vessel', label:'🚢 Tàu / Vessel', count: 0 },
-    { k:'om',     label:'🏥 O&M',          count: 0 },
-    { k:'ga',     label:'🏢 Quản lý chung', count: 0 },
+    { k:'vessel', label:'🚢 Tàu / Vessel' },
+    { k:'om',     label:'🏥 O&M' },
+    { k:'ga',     label:'🏢 Quản lý chung' },
   ];
+
+  // Helper render entry type badge
+  const typeBadge = e => {
+    const t = _entryType(e);
+    if (t === 'opening') return '<span class="badge badge-purple" style="font-size:10px">📋 Tồn đầu kỳ</span>';
+    if (t === 'in')      return '<span class="badge badge-blue" style="font-size:10px">📥 Nhập</span>';
+    return '<span class="badge badge-amber" style="font-size:10px">📤 Xuất</span>';
+  };
+
+  // Tháng có dữ liệu (để bảng tồn không quá dài)
+  const activeMonths = [];
+  for (let m = 1; m <= 12; m++) {
+    if (monthlyStock[m].in > 0 || monthlyStock[m].out > 0 || (m === 1 && stockOpening > 0)) {
+      activeMonths.push(m);
+    }
+  }
 
   document.getElementById('content').innerHTML = `
     <div style="background:linear-gradient(135deg,#0a1628,#162d55);border-radius:var(--radius);padding:14px 20px;margin-bottom:16px;color:#fff">
       <div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Kho vật tư</div>
       <div style="font-size:13px;line-height:1.7">
-        Theo dõi <strong>tổng hợp tiêu hao vật tư theo tháng</strong> — mỗi tháng nhập 1 dòng cho mỗi tổ hợp đối tượng × loại vật tư.<br>
-        Giá trị xuất kho <strong>VÀO P&amp;L và BCTC</strong> như chi phí thường.
+        <strong>Nhập kho:</strong> mua/nhập thêm — tăng tồn, KHÔNG vào P&amp;L. <strong>Xuất kho:</strong> sử dụng — vào P&amp;L &amp; BCTC.<br>
+        <strong>Tồn đầu kỳ:</strong> khai khi bắt đầu năm. <strong>Chuyển năm tự động:</strong> tồn cuối năm Y → tồn đầu năm Y+1.
       </div>
     </div>
 
@@ -8218,16 +8653,67 @@ async function renderInventory() {
                 style="border-radius:8px 8px 0 0;border-bottom:none"
                 onclick="switchInventoryModule('${t.k}')">${t.label}</button>
       `).join('')}
-      <div style="flex:1"></div>
-      <div class="kpi-card" style="padding:8px 14px">
-        <div class="kpi-label">Tổng giá trị xuất kho ${S.year}</div>
-        <div style="font-size:16px;font-weight:700;color:var(--teal)">${fmtB(totalAll)}</div>
+    </div>
+
+    <!-- 4 KPI: Tồn đầu năm | Nhập | Xuất | Tồn cuối năm -->
+    <div class="kpi-grid cols4 mb16">
+      <div class="kpi-card accent-purple">
+        <div class="kpi-label">Tồn đầu năm ${S.year}</div>
+        <div class="kpi-value">${fmtB(stockOpening)}</div>
+        <div class="kpi-sub" style="font-size:10px">Kế thừa từ năm trước: ${fmtB(endOfPrevYear)}</div>
+      </div>
+      <div class="kpi-card accent-blue">
+        <div class="kpi-label">📥 Nhập trong năm</div>
+        <div class="kpi-value">${fmtB(totalIn)}</div>
+      </div>
+      <div class="kpi-card accent-amber">
+        <div class="kpi-label">📤 Xuất trong năm</div>
+        <div class="kpi-value">${fmtB(totalOut)}</div>
+        <div class="kpi-sub" style="font-size:10px">Vào P&amp;L &amp; BCTC</div>
+      </div>
+      <div class="kpi-card ${stockEnding>=0?'accent-green':'accent-red'}">
+        <div class="kpi-label">Tồn cuối năm ${S.year}</div>
+        <div class="kpi-value ${stockEnding>=0?'kpi-positive':'kpi-negative'}">${fmtB(stockEnding)}</div>
+        <div class="kpi-sub" style="font-size:10px">${stockEnding < 0 ? '⚠ Xuất vượt tồn — kiểm tra' : 'Sẽ chuyển sang năm sau'}</div>
       </div>
     </div>
 
+    ${stockEnding < 0 ? `<div style="background:#fee2e2;border-left:4px solid #ef4444;color:#991b1b;border-radius:6px;padding:12px 16px;margin-bottom:16px;font-weight:600">⚠ Xuất kho vượt tồn — Có thể thiếu bút toán Tồn đầu kỳ hoặc Nhập kho. Kiểm tra lại số liệu.</div>` : ''}
+
+    <!-- Bảng Tồn kho theo tháng (gọn) -->
+    ${activeMonths.length > 0 ? `<div class="card mb16">
+      <div class="card-header"><h3>📊 Tồn kho theo tháng năm ${S.year}</h3></div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th>Tháng</th>
+              <th class="num">Tồn đầu kỳ</th>
+              <th class="num">📥 Nhập</th>
+              <th class="num">📤 Xuất</th>
+              <th class="num" style="background:var(--gray2)">Tồn cuối kỳ</th>
+            </tr></thead>
+            <tbody>
+              ${activeMonths.map(m => {
+                const d = monthlyStock[m];
+                return `<tr>
+                  <td class="mono">T${String(m).padStart(2,'0')}/${S.year}</td>
+                  <td class="num" style="font-family:var(--mono);font-size:12px">${fmtB(d.opening)}</td>
+                  <td class="num pos" style="font-family:var(--mono);font-size:12px">${d.in?'+'+fmtB(d.in):'—'}</td>
+                  <td class="num neg" style="font-family:var(--mono);font-size:12px">${d.out?'−'+fmtB(d.out):'—'}</td>
+                  <td class="num" style="font-family:var(--mono);font-weight:700;background:var(--gray1);color:${d.ending<0?'var(--red)':'inherit'}">${fmtB(d.ending)}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>` : ''}
+
+    <!-- Bảng list bút toán -->
     <div class="card">
       <div class="card-header flex items-center justify-between">
-        <h3>📦 Bút toán xuất kho — ${entries.length} dòng</h3>
+        <h3>📦 Bút toán kho — ${entries.length} dòng</h3>
         <button class="btn btn-primary" onclick="openInventoryForm({module:'${_S_INV_MODULE}'})">+ Nhập số liệu tháng</button>
       </div>
       <div class="card-body no-pad">
@@ -8235,16 +8721,20 @@ async function renderInventory() {
           <table>
             <thead><tr>
               <th style="width:100px">Tháng/Năm</th>
+              <th style="width:110px">Loại</th>
               <th>Đối tượng</th>
               <th>Loại vật tư</th>
               <th class="num">Giá trị (VNĐ)</th>
-              <th>Mô tả / Diễn giải</th>
+              <th>Mô tả</th>
               <th></th>
             </tr></thead>
             <tbody>
-              ${entries.length ? entries.map(e => `
-                <tr>
-                  <td class="mono" style="font-size:12px">${String(e.month||'').padStart(2,'0')}/${e.year||''}</td>
+              ${entries.length ? entries.map(e => {
+                const t = _entryType(e);
+                const rowBg = t === 'opening' ? 'background:#F5F0FF' : t === 'in' ? 'background:#F0F4FF' : '';
+                return `<tr style="${rowBg}">
+                  <td class="mono" style="font-size:12px">${t==='opening'?'01/'+(e.year||''):String(e.month||'').padStart(2,'0')+'/'+(e.year||'')}</td>
+                  <td>${typeBadge(e)}</td>
                   <td><strong>${objLabel(e)}</strong></td>
                   <td><span class="badge badge-teal" style="font-size:11px">${getInvCategoryLabel(e.category, e.module||_S_INV_MODULE)}</span></td>
                   <td class="num">${fmtVnd(e.amountVnd)}</td>
@@ -8253,8 +8743,9 @@ async function renderInventory() {
                     <button class="btn btn-ghost btn-xs" onclick="openInventoryForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">✏️</button>
                     <button class="btn btn-ghost btn-xs" onclick="deleteInventoryEntry('${e.id}')">🗑</button>
                   </td>
-                </tr>`).join('') : `<tr><td colspan="6"><div class="empty-state">
-                  Chưa có bút toán xuất kho nào trong năm ${S.year} cho module ${_S_INV_MODULE.toUpperCase()}.<br>
+                </tr>`;
+              }).join('') : `<tr><td colspan="7"><div class="empty-state">
+                  Chưa có bút toán nào trong năm ${S.year} cho module ${_S_INV_MODULE.toUpperCase()}.<br>
                   <span style="font-size:12px;color:var(--text3)">Click "+ Nhập số liệu tháng" để thêm.</span>
                 </div></td></tr>`}
             </tbody>
@@ -8305,6 +8796,17 @@ async function openInventoryForm(e = {}) {
 
   const html = `
     <div class="form-grid cols2">
+      <!-- Loại bút toán: Nhập / Xuất / Tồn đầu kỳ -->
+      <div class="field required" style="grid-column:span 2;background:#F0F4FF;border:1px solid var(--blue);border-radius:6px;padding:10px">
+        <label style="color:var(--blue);font-weight:600">Loại bút toán</label>
+        <select id="inv_entry_type" onchange="onInvEntryTypeChange()" style="font-weight:600">
+          <option value="out"${(e.entryType||'out')==='out'?' selected':''}>📤 Xuất kho — VÀO P&amp;L và BCTC như chi phí</option>
+          <option value="in"${e.entryType==='in'?' selected':''}>📥 Nhập kho — Tăng tồn kho, KHÔNG vào P&amp;L</option>
+          <option value="opening"${e.entryType==='opening'?' selected':''}>📋 Tồn đầu kỳ năm — Khai số dư đầu năm</option>
+        </select>
+        <span id="inv_type_hint" style="font-size:11px;color:var(--text3);display:block;margin-top:4px"></span>
+      </div>
+
       <div class="field required" style="grid-column:span 2">
         <label>Module / Phân hệ</label>
         <select id="inv_module" onchange="onInvModuleChange()">${moduleOpts}</select>
@@ -8312,7 +8814,7 @@ async function openInventoryForm(e = {}) {
       </div>
 
       <div class="field required"><label>Năm</label><input type="number" id="inv_year" value="${yNum}" min="2000" max="2099"/></div>
-      <div class="field required"><label>Tháng</label><input type="number" id="inv_month" value="${mNum}" min="1" max="12"/></div>
+      <div class="field required" id="inv_month_field"><label>Tháng</label><input type="number" id="inv_month" value="${mNum}" min="1" max="12"/></div>
 
       <!-- Đối tượng nhận vật tư -->
       <div class="field required" id="inv_obj_field" style="grid-column:span 2">
@@ -8327,7 +8829,7 @@ async function openInventoryForm(e = {}) {
         <select id="inv_cat">${catOpts}</select>
       </div>
 
-      <div class="field required"><label>Giá trị xuất kho (VNĐ)</label>
+      <div class="field required"><label id="inv_amt_label">Giá trị (VNĐ)</label>
         <input type="number" id="inv_amt" value="${e.amountVnd||''}" min="0" step="1000"/>
       </div>
       <div class="field"><label>Mô tả / Diễn giải</label>
@@ -8335,12 +8837,14 @@ async function openInventoryForm(e = {}) {
       </div>
     </div>`;
 
-  openModal(isEdit ? 'Cập nhật bút toán xuất kho' : 'Nhập số liệu xuất kho tháng', html, async () => {
-    const m = parseInt(gv('inv_month')) || 0;
+  openModal(isEdit ? 'Cập nhật bút toán kho' : 'Nhập số liệu kho vật tư tháng', html, async () => {
+    const entryType = gv('inv_entry_type') || 'out';
+    const isOpening = entryType === 'opening';
+    const m = isOpening ? 1 : (parseInt(gv('inv_month')) || 0);
     const y = parseInt(gv('inv_year')) || 0;
     const cat = gv('inv_cat');
     const amt = parseFloat(gv('inv_amt')) || 0;
-    if (!m || m < 1 || m > 12) { toast('Tháng không hợp lệ','warn'); return; }
+    if (!isOpening && (!m || m < 1 || m > 12)) { toast('Tháng không hợp lệ','warn'); return; }
     if (!y) { toast('Nhập năm','warn'); return; }
     if (!cat) { toast('Chọn loại vật tư','warn'); return; }
     if (!amt || amt <= 0) { toast('Giá trị phải lớn hơn 0','warn'); return; }
@@ -8353,20 +8857,23 @@ async function openInventoryForm(e = {}) {
       category: cat,
       amountVnd: Math.round(amt),
       description: gv('inv_desc') || '',
+      entryType,                                            // 'out' | 'in' | 'opening'
       // Đối tượng theo module
       vesselId:   mod === 'vessel' ? (gv('inv_vessel') || '') : '',
       projectId:  mod === 'vessel' ? (gv('inv_project') || '') : '',
       contractId: mod === 'om'     ? (gv('inv_contract') || '') : '',
-      entryDate:  `${y}-${String(m).padStart(2,'0')}-15`,  // Quy ước: ngày 15 giữa tháng
+      entryDate:  `${y}-${String(m).padStart(2,'0')}-${isOpening?'01':'15'}`,
       createdAt: e.createdAt || new Date().toISOString(),
     };
 
-    // Validate đối tượng theo module
-    if (mod === 'vessel' && !payload.vesselId) {
-      toast('Chọn tàu','warn'); return;
-    }
-    if (mod === 'om' && !payload.contractId) {
-      toast('Chọn hợp đồng O&M','warn'); return;
+    // Tồn đầu kỳ KHÔNG yêu cầu đối tượng cụ thể nếu user không chọn (nó là tồn chung)
+    if (!isOpening) {
+      if (mod === 'vessel' && !payload.vesselId) {
+        toast('Chọn tàu','warn'); return;
+      }
+      if (mod === 'om' && !payload.contractId) {
+        toast('Chọn hợp đồng O&M','warn'); return;
+      }
     }
 
     showLoading();
@@ -8385,7 +8892,33 @@ async function openInventoryForm(e = {}) {
   // Render đối tượng inputs theo module ban đầu
   setTimeout(() => {
     _renderInvObjInputs(module, e, vessels, projects, omContracts);
+    // Trigger entry type change để cập nhật label/hint ban đầu
+    onInvEntryTypeChange();
   }, 50);
+}
+
+// Toggle UI khi đổi loại bút toán (Xuất / Nhập / Tồn đầu kỳ)
+function onInvEntryTypeChange() {
+  const t = gv('inv_entry_type') || 'out';
+  const monthField = document.getElementById('inv_month_field');
+  const amtLabel = document.getElementById('inv_amt_label');
+  const hint = document.getElementById('inv_type_hint');
+
+  if (t === 'opening') {
+    // Tồn đầu kỳ: ẩn tháng (gán = 1 tự động)
+    if (monthField) monthField.style.display = 'none';
+    if (amtLabel) amtLabel.textContent = 'Giá trị tồn đầu kỳ (VNĐ)';
+    if (hint) hint.innerHTML = '📋 <strong>Tồn đầu kỳ năm:</strong> giá trị vật tư đã có sẵn lúc bắt đầu năm. Thường chỉ nhập 1 lần khi bắt đầu dùng app — các năm sau sẽ tự kế thừa từ tồn cuối năm trước.';
+  } else if (t === 'in') {
+    if (monthField) monthField.style.display = '';
+    if (amtLabel) amtLabel.textContent = 'Giá trị nhập kho (VNĐ)';
+    if (hint) hint.innerHTML = '📥 <strong>Nhập kho:</strong> mua/nhập thêm vật tư trong tháng. Tăng tồn kho, KHÔNG tính chi phí (chưa xuất sử dụng).';
+  } else {
+    // out
+    if (monthField) monthField.style.display = '';
+    if (amtLabel) amtLabel.textContent = 'Giá trị xuất kho (VNĐ)';
+    if (hint) hint.innerHTML = '📤 <strong>Xuất kho:</strong> sử dụng vật tư từ kho cho dự án/tàu. Giảm tồn kho, ghi nhận chi phí vào P&L và BCTC.';
+  }
 }
 
 // Render input cho field "Đối tượng" theo module
@@ -8490,13 +9023,16 @@ async function renderInventoryReport() {
     return c ? (c.contractName||c.contractNo||'—') : '—';
   };
 
-  const totalAll = entries.reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
-  const total_v = entries.filter(e => e.module==='vessel').reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
-  const total_o = entries.filter(e => e.module==='om').reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
-  const total_g = entries.filter(e => e.module==='ga').reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
+  // Báo cáo TIÊU HAO chỉ tính bút toán XUẤT KHO ('out') — Nhập/Tồn đầu kỳ không phải tiêu hao
+  const outEntries = (entries||[]).filter(e => (e.entryType||'out') === 'out');
+
+  const totalAll = outEntries.reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
+  const total_v = outEntries.filter(e => e.module==='vessel').reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
+  const total_o = outEntries.filter(e => e.module==='om').reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
+  const total_g = outEntries.filter(e => e.module==='ga').reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
 
   // ─── Báo cáo 1: Theo tàu × loại vật tư (chỉ module Vessel) ───
-  const vesselEntries = entries.filter(e => e.module === 'vessel');
+  const vesselEntries = outEntries.filter(e => e.module === 'vessel');
   const byVessel = {};
   vesselEntries.forEach(e => {
     const k = e.vesselId || 'none';
@@ -8519,12 +9055,12 @@ async function renderInventoryReport() {
     byProject[k].byCategory[e.category] = (byProject[k].byCategory[e.category]||0) + (parseFloat(e.amountVnd)||0);
   });
 
-  // ─── Báo cáo 3: Theo tháng × module ───
+  // ─── Báo cáo 3: Theo tháng × module (chỉ XUẤT KHO) ───
   const byMonth = {};
   for (let m = 1; m <= 12; m++) {
     byMonth[m] = { vessel:0, om:0, ga:0 };
   }
-  entries.forEach(e => {
+  outEntries.forEach(e => {
     const m = parseInt(e.month) || 0;
     if (m >= 1 && m <= 12 && byMonth[m][e.module] !== undefined) {
       byMonth[m][e.module] += parseFloat(e.amountVnd) || 0;
@@ -9105,8 +9641,17 @@ async function renderInvestments() {
             ${enriched.length === 0 ? '<tr><td colspan="10"><div class="empty-state">Chưa có khoản đầu tư nào</div></td></tr>' :
               enriched.map(x => {
                 const methodLabel = x.method === 'declining' ? 'Giảm dần' : x.method === 'usage' ? 'Theo SL' : 'Đường thẳng';
-                return `<tr>
-                  <td style="font-weight:500">${x.name||'—'}${x.description?`<div style="font-size:11px;color:var(--text3);font-weight:400;margin-top:2px">${x.description}</div>`:''}</td>
+                const isAuto = !!x._autoSource;
+                const autoLabel = x._autoSource === 'vessel-purchase' ? '🔒 Tự sinh từ Tàu'
+                                : x._autoSource === 'gacapex-source'  ? '🔒 Tự sinh từ Capex QLC'
+                                : x._autoSource === 'omcapex-source'  ? '🔒 Tự sinh từ Capex O&M'
+                                : '🔒 Tự sinh';
+                return `<tr${isAuto?' style="background:#FFFBF0"':''}>
+                  <td style="font-weight:500">
+                    ${x.name||'—'}
+                    ${isAuto?`<span class="badge badge-amber" style="font-size:10px;margin-left:6px">${autoLabel}</span>`:''}
+                    ${x.description?`<div style="font-size:11px;color:var(--text3);font-weight:400;margin-top:2px">${x.description}</div>`:''}
+                  </td>
                   <td style="font-size:12px">${x.scopeLabel}</td>
                   <td class="mono" style="font-size:12px">${fmtDate(x.investDate)}</td>
                   <td class="num" style="font-family:var(--mono)">${fmtB(x.amountVnd)}</td>
@@ -9116,8 +9661,11 @@ async function renderInvestments() {
                   <td class="num pos" style="font-family:var(--mono);font-size:12px;font-weight:600">${fmtB(x.currentNbv)}</td>
                   <td class="num" style="font-family:var(--mono);font-size:12px;color:var(--amber)">${fmtB(x.deprThisYear)}</td>
                   <td>
-                    <button class="btn btn-ghost btn-xs" onclick='openInvestForm(${JSON.stringify(x).replace(/'/g, "&apos;")})' title="Sửa">✏️</button>
-                    <button class="btn btn-ghost btn-xs" onclick="deleteInvest('${x.id}')" title="Xoá">🗑</button>
+                    ${isAuto
+                      ? '<span class="text-muted" style="font-size:11px" title="Sửa qua form Tàu hoặc Capex liên kết">🔒 chỉ đọc</span>'
+                      : `<button class="btn btn-ghost btn-xs" onclick='openInvestForm(${JSON.stringify(x).replace(/'/g, "&apos;")})' title="Sửa">✏️</button>
+                         <button class="btn btn-ghost btn-xs" onclick="deleteInvest('${x.id}')" title="Xoá">🗑</button>`
+                    }
                   </td>
                 </tr>`;
               }).join('')
@@ -9561,7 +10109,10 @@ async function renderTaxReport() {
   }).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const finCost  = (gaEntries||[]).filter(e=>finIds.includes(e.categoryId)).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   // Vật tư xuất kho — vào BCTC như chi phí hoạt động (toàn bộ 3 module gộp chung)
-  const inventoryCost = (inventoryEntries||[]).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  // Vật tư XUẤT KHO — chỉ entryType='out' vào BCTC như chi phí (in/opening = tăng tồn, không phải chi phí)
+  const inventoryCost = (inventoryEntries||[])
+    .filter(e => (e.entryType||'out') === 'out')
+    .reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const totalOpex= vesselCostOp + omCostAmt + smCostAmt + gaOp + inventoryCost;
   const grossProfit = totalRev - totalOpex;
 
@@ -12703,9 +13254,11 @@ async function _renderProgressTable() {
   const vesselRevs_inP = allRevs.filter(r => inPeriod(r) && !r.isPlan && r.isPlan!=='true');
   const vesselCosts_inP = allCosts.filter(e => inPeriod(e) && e.accountType !== 'Q' && e.accountType !== 'Capitalize');
   const vesselTtRev = vesselRevs_inP.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
-  // Inventory cost cho Vessel module — cộng vào tổng chi phí Vessel
+  // Inventory cost cho Vessel module — chỉ XUẤT KHO ('out') mới vào P&L
   const vesselInv_inP = (inventoryEntries||[]).filter(e =>
-    e.module === 'vessel' && inPeriod({entryDate: e.entryDate || `${e.year}-${String(e.month||1).padStart(2,'0')}-15`})
+    e.module === 'vessel' &&
+    (e.entryType||'out') === 'out' &&
+    inPeriod({entryDate: e.entryDate || `${e.year}-${String(e.month||1).padStart(2,'0')}-15`})
   );
   const vesselInvCost = vesselInv_inP.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
   const vesselTtCost = vesselCosts_inP.reduce((s,c) => s+(parseFloat(c.amountVnd)||0), 0) + vesselInvCost;
@@ -12734,9 +13287,11 @@ async function _renderProgressTable() {
   const omRevs_inP = omRevs.filter(r => inPeriod(r) && !r.isPlan && r.isPlan!=='true');
   const omCosts_inP = omCosts.filter(e => inPeriod(e) && e.accountType !== 'Q' && e.accountType !== 'Capitalize');
   const omTtRev = omRevs_inP.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
-  // Inventory cost cho O&M module
+  // Inventory cost cho O&M module — chỉ XUẤT KHO ('out') mới vào P&L
   const omInv_inP = (inventoryEntries||[]).filter(e =>
-    e.module === 'om' && inPeriod({entryDate: e.entryDate || `${e.year}-${String(e.month||1).padStart(2,'0')}-15`})
+    e.module === 'om' &&
+    (e.entryType||'out') === 'out' &&
+    inPeriod({entryDate: e.entryDate || `${e.year}-${String(e.month||1).padStart(2,'0')}-15`})
   );
   const omInvCost = omInv_inP.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
   const omTtCost = omCosts_inP.reduce((s,c) => s+(parseFloat(c.amountVnd)||0), 0) + omInvCost;
@@ -12837,9 +13392,11 @@ async function _renderProgressTable() {
   const gaRevs_inP = gaRevs.filter(e => inPeriod(e));
   const gaEntries_inP = gaEntries.filter(e => inPeriod(e) && e.accountType !== 'Q' && e.accountType !== 'Capitalize');
   const corpTtRev = gaRevs_inP.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
-  // Inventory cost cho QLC module
+  // Inventory cost cho QLC module — chỉ XUẤT KHO ('out') mới vào P&L
   const gaInv_inP = (inventoryEntries||[]).filter(e =>
-    e.module === 'ga' && inPeriod({entryDate: e.entryDate || `${e.year}-${String(e.month||1).padStart(2,'0')}-15`})
+    e.module === 'ga' &&
+    (e.entryType||'out') === 'out' &&
+    inPeriod({entryDate: e.entryDate || `${e.year}-${String(e.month||1).padStart(2,'0')}-15`})
   );
   const gaInvCost = gaInv_inP.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0);
   const corpTtCost = gaEntries_inP.reduce((s,e) => s+(parseFloat(e.amountVnd)||0), 0) + gaInvCost;
