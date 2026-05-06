@@ -2189,20 +2189,40 @@ function buildDemoAnnual(D, p) {
   // Lấy projects của tàu này
   const vesselProjects = (D.projects||[]).filter(p => p.vesselId === vId);
 
-  // Tính onhire/offhire từ projects (project days = transit+mob+standby+onfield)
+  // ─── TÍNH 4 LOẠI NGÀY THEO NĂM ───
+  // Phân loại từ projects: 
+  //   - projectKind='project' → Onhire days
+  //   - projectKind='docking' → Docking days
+  //   - commercialDays của bất kỳ project → Commercial days
+  // Offhire = daysInYear - Onhire - Docking - Commercial
   let onhireDays = 0;
+  let dockingDays = 0;
+  let commercialDays = 0;
   vesselProjects.forEach(proj => {
-    const ps = new Date(proj.startDate||'2000-01-01');
-    const pe = new Date(proj.endDate||'2099-12-31');
-    // Chỉ tính nếu dự án nằm trong năm
+    const ps = new Date(proj.startDate || proj.onhireAt || '2000-01-01');
+    const pe = new Date(proj.endDate   || proj.offhireAt || '2099-12-31');
     if (pe.getFullYear() < year || ps.getFullYear() > year) return;
-    const days = (parseFloat(proj.transitDays)||0) + (parseFloat(proj.mobDemobDays)||0) + (parseFloat(proj.standbyDays)||0) + (parseFloat(proj.onfieldDays)||0);
-    onhireDays += days;
+    const projDays = (parseFloat(proj.transitDays)||0)
+                   + (parseFloat(proj.mobDemobDays)||0)
+                   + (parseFloat(proj.standbyDays)||0)
+                   + (parseFloat(proj.onfieldDays)||0);
+    if (proj.projectKind === 'docking') {
+      dockingDays += projDays;
+    } else {
+      onhireDays += projDays;
+    }
+    commercialDays += parseFloat(proj.commercialDays) || 0;
   });
-  // Đảm bảo không vượt quá số ngày trong năm
-  onhireDays = Math.min(onhireDays, daysInYear);
-  const offhireDays = parseFloat(p.offhireDays)||0;
-  const commercialDays = Math.max(0, daysInYear - onhireDays - offhireDays);
+  // Cap ở số ngày trong năm để tránh overflow do data sai
+  const usedDays = onhireDays + dockingDays + commercialDays;
+  if (usedDays > daysInYear) {
+    // Co lại theo tỉ lệ — giữ nguyên cấu trúc
+    const ratio = daysInYear / usedDays;
+    onhireDays *= ratio;
+    dockingDays *= ratio;
+    commercialDays *= ratio;
+  }
+  const offhireDays = Math.max(0, daysInYear - onhireDays - dockingDays - commercialDays);
 
   // Doanh thu năm
   const totalRevVnd = allRevs.reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
@@ -2237,7 +2257,18 @@ function buildDemoAnnual(D, p) {
   const annualMarginVnd = totalRevVnd - totalAnnualCost;
   const annualMarginPct = totalRevVnd ? (annualMarginVnd / totalRevVnd * 100) : 0;
 
-  // Phân bổ F theo onhire/offhire/commercial
+  // ─── CHI PHÍ THEO TÌNH HUỐNG TÀU (cost.type) — dùng cho daily rates ───
+  // Daily offhire = chi phí thực type='offhire' / số ngày offhire
+  // Daily commercial = chi phí thực type='commercial' / số ngày commercial
+  // Lưu ý: F (Phân bổ) KHÔNG vào đây nữa — đã chuyển sang cơ chế phân bổ theo ngày riêng.
+  const totalOffhireCostVnd = costsPL
+    .filter(r => r.type === 'offhire')
+    .reduce((s, r) => s + (parseFloat(r.amountVnd) || 0), 0);
+  const totalCommercialCostVnd = costsPL
+    .filter(r => r.type === 'commercial')
+    .reduce((s, r) => s + (parseFloat(r.amountVnd) || 0), 0);
+
+  // Phân bổ F (chỉ giữ để hiển thị nội bộ — không dùng cho daily offhire/commercial)
   const fOnhire = daysInYear ? totalFVnd * onhireDays / daysInYear : 0;
   const fOffhire = daysInYear ? totalFVnd * offhireDays / daysInYear : 0;
   const fCommercial = daysInYear ? totalFVnd * commercialDays / daysInYear : 0;
@@ -2251,7 +2282,10 @@ function buildDemoAnnual(D, p) {
     const costVnd = projCosts.reduce((s,r) => s + (parseFloat(r.amountVnd)||0), 0);
     const marginVnd = revVnd - costVnd;
     const marginPct = revVnd ? marginVnd/revVnd*100 : 0;
-    return { name: proj.name, client: proj.client, days, revVnd, costVnd, marginVnd, marginPct };
+    return {
+      name: proj.name, client: proj.client, days, revVnd, costVnd, marginVnd, marginPct,
+      projectKind: proj.projectKind || 'project',
+    };
   }).filter(p => p.days > 0 || p.revVnd > 0 || p.costVnd > 0);
 
   // Daily rates
@@ -2259,12 +2293,19 @@ function buildDemoAnnual(D, p) {
   const dailyOpexCost = onhireDays ? totalOpexVnd / onhireDays : 0;
   const dailyFuelCost = onhireDays ? totalFuelVnd / onhireDays : 0;
   const dailyProjectCost = onhireDays ? (totalOpexVnd + totalFuelVnd + totalDVnd + fOnhire) / onhireDays : 0;
-  const dailyOffhireCost = offhireDays ? fOffhire / offhireDays : 0;
-  const dailyCommercialCost = commercialDays ? (totalEVnd + fCommercial) / commercialDays : 0;
+  // Daily offhire/commercial: chi phí thực của tình huống / số ngày tương ứng
+  const dailyOffhireCost    = offhireDays    ? totalOffhireCostVnd    / offhireDays    : 0;
+  const dailyCommercialCost = commercialDays ? totalCommercialCostVnd / commercialDays : 0;
 
   return {
     vessel, year,
-    days: { daysInYear, onhireDays: +onhireDays.toFixed(1), offhireDays, commercialDays: +commercialDays.toFixed(1) },
+    days: {
+      daysInYear,
+      onhireDays: +onhireDays.toFixed(1),
+      offhireDays: +offhireDays.toFixed(1),
+      commercialDays: +commercialDays.toFixed(1),
+      dockingDays: +dockingDays.toFixed(1),
+    },
     revenue: { totalRevVnd },
     costs: {
       totalAnnualCost,
@@ -2287,7 +2328,7 @@ function buildDemoAnnual(D, p) {
 function _emptyAnnual(year, vessel) {
   return {
     vessel, year,
-    days: { daysInYear:365, onhireDays:0, offhireDays:0, commercialDays:365 },
+    days: { daysInYear:365, onhireDays:0, offhireDays:0, commercialDays:0, dockingDays:0 },
     revenue: { totalRevVnd:0 },
     costs: { totalAnnualCost:0, totalOpexVnd:0, totalFuelVnd:0, totalDVnd:0, totalEVnd:0, totalFVnd:0, fOnhire:0, fOffhire:0, fCommercial:0 },
     margin: { annualMarginVnd:0, annualMarginPct:0 },
@@ -3133,9 +3174,9 @@ async function renderProjects() {
             </tr></thead>
             <tbody>
               ${projects.length ? projects.map(p=>`
-                <tr>
+                <tr${p.projectKind==='docking'?' style="background:#FFF8E1"':''}>
                   <td><span class="badge badge-navy">${vesselName(p.vesselId)}</span></td>
-                  <td><strong>${p.name||'—'}</strong><br><span class="text-muted text-small">${p.contractNo||''}</span></td>
+                  <td><strong>${p.name||'—'}</strong>${p.projectKind==='docking'?' <span class="badge badge-amber" style="font-size:10px">🔧 Docking</span>':''}<br><span class="text-muted text-small">${p.contractNo||''}</span></td>
                   <td>${p.client||'—'}</td>
                   <td>${p.location||'—'}</td>
                   <td class="mono">${fmtDT(p.onhireAt)}</td>
@@ -3158,8 +3199,17 @@ async function renderProjects() {
 function openProjectForm(p={}) {
   const isEdit = !!p.id;
   const vesselOpts = S.vessels.map(v=>`<option value="${v.id}"${v.id===p.vesselId?'selected':''}>${v.name}</option>`).join('');
+  const kind = p.projectKind || 'project';
   const html = `
     <div class="form-grid cols2">
+      <div class="field required" style="grid-column:span 2;background:#FFF8E1;border:1px solid var(--amber);border-radius:6px;padding:10px">
+        <label style="color:var(--amber);font-weight:600">Loại dự án / giai đoạn</label>
+        <select id="fkind" style="font-weight:600">
+          <option value="project"${kind==='project'?' selected':''}>🚢 Dự án thương mại — tính vào ONHIRE days</option>
+          <option value="docking"${kind==='docking'?' selected':''}>🔧 Sửa chữa / Docking — tính vào DOCKING days (không onhire)</option>
+        </select>
+        <span style="font-size:11px;color:var(--text3)">Chi phí phát sinh trong giai đoạn dock vẫn ghi nhận bình thường, gắn vào dự án này.</span>
+      </div>
       <div class="field required"><label>Tàu</label><select id="fv">${vesselOpts}</select></div>
       <div class="field"><label>Trạng thái</label>
         <select id="fstatus">
@@ -3192,6 +3242,11 @@ function openProjectForm(p={}) {
       <div class="field"><label>Mob / Demob</label><input type="number" id="fmob" value="${p.mobDemobDays||0}" min="0" step="0.5"/></div>
       <div class="field"><label>Standby</label><input type="number" id="fstandby" value="${p.standbyDays||0}" min="0" step="0.5"/></div>
       <div class="field"><label>Onfield</label><input type="number" id="fonfield" value="${p.onfieldDays||0}" min="0" step="0.5"/></div>
+      <div class="field" style="grid-column:span 4;background:#F0F4FF;border:1px dashed var(--blue);border-radius:6px;padding:8px 10px">
+        <label style="color:var(--blue);font-weight:600">⏸ Commercial standby (dự án chờ thương mại — KHÔNG tính vào Onhire)</label>
+        <input type="number" id="fcommercial" value="${p.commercialDays||0}" min="0" step="0.5"/>
+        <span style="font-size:11px;color:var(--text3)">Số ngày chờ giữa các giai đoạn dự án, có thể có giá thầu nhưng chưa onhire. Tính riêng để loại khỏi Offhire days.</span>
+      </div>
     </div>
     <div class="divider"></div>
     <div class="field"><label>Ghi chú</label><textarea id="fnotes">${p.notes||''}</textarea></div>`;
@@ -3201,6 +3256,7 @@ function openProjectForm(p={}) {
     const mob      = parseFloat(gv('fmob'))||0;
     const standby  = parseFloat(gv('fstandby'))||0;
     const onfield  = parseFloat(gv('fonfield'))||0;
+    const commercial = parseFloat(gv('fcommercial'))||0;
     const totalDays= +(transit + mob + standby + onfield).toFixed(2);
     // Ghép Date + Time
     const onhireD = gv('fonhire_d'), onhireT = gv('fonhire_t')||'00:00';
@@ -3210,9 +3266,11 @@ function openProjectForm(p={}) {
     const payload = {
       id: p.id||newId(), vesselId:gv('fv'), name:gv('fname'), client:gv('fclient'),
       contractNo:gv('fcontract'), location:gv('floc'),
+      projectKind: gv('fkind') || 'project',
       onhireAt, offhireAt,
       transitDays: transit, mobDemobDays: mob,
       standbyDays: standby, onfieldDays: onfield,
+      commercialDays: commercial,
       totalDays,
       status:gv('fstatus'), notes:gv('fnotes'), createdAt: p.createdAt||new Date().toISOString()
     };
@@ -4609,9 +4667,10 @@ async function renderReportAnnual() {
           <table>
             <tbody>
               <tr><td>Tổng ngày trong năm</td><td class="num">${s.days.daysInYear} ngày</td></tr>
-              <tr><td>Onhire (dự án)</td><td class="num pos">${fmtDays(s.days.onhireDays)}</td></tr>
-              <tr><td>Offhire</td><td class="num neg">${fmtDays(s.days.offhireDays)}</td></tr>
+              <tr><td>Onhire (dự án thương mại)</td><td class="num pos">${fmtDays(s.days.onhireDays)}</td></tr>
+              <tr><td>🔧 Docking (sửa chữa)</td><td class="num" style="color:var(--amber)">${fmtDays(s.days.dockingDays||0)}</td></tr>
               <tr><td>Commercial standby</td><td class="num">${fmtDays(s.days.commercialDays)}</td></tr>
+              <tr><td>Offhire (nằm bờ)</td><td class="num neg">${fmtDays(s.days.offhireDays)}</td></tr>
             </tbody>
           </table>
         </div>
@@ -4625,7 +4684,7 @@ async function renderReportAnnual() {
               <tr><td>Daily opex cost (A+B)</td><td class="num">${fmtVnd(s.dailyRates.dailyOpexCost)}</td></tr>
               <tr><td>Daily fuel cost (C)</td><td class="num">${fmtVnd(s.dailyRates.dailyFuelCost)}</td></tr>
               <tr><td>Daily project cost</td><td class="num"><strong>${fmtVnd(s.dailyRates.dailyProjectCost)}</strong></td></tr>
-              <tr><td>Daily offhire cost (F phân bổ)</td><td class="num">${fmtVnd(s.dailyRates.dailyOffhireCost)}</td></tr>
+              <tr><td>Daily offhire cost</td><td class="num">${fmtVnd(s.dailyRates.dailyOffhireCost)}</td></tr>
               <tr><td>Daily commercial cost</td><td class="num">${fmtVnd(s.dailyRates.dailyCommercialCost)}</td></tr>
             </tbody>
           </table>
