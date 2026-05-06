@@ -966,13 +966,15 @@ function _migrateCostCatsSchema(demo) {
   // Dấu hiệu schema cũ
   const hasOldFuelC   = cats.some(c => c.group === 'C' && c.categoryLabel === 'Dầu chạy máy');
   const hasOldB2      = cats.some(c => c.category === 'B2' && c.categoryLabel === 'Thiết bị Khoan & Lấy mẫu');
-  const hasOldB3      = cats.some(c => c.category === 'B3' && c.categoryLabel === 'Vật tư tiêu hao & PTN');
-  const hasOldB4      = cats.some(c => c.category === 'B4' && c.categoryLabel === 'An toàn / HSE Khoan & ĐCCT');
+  const hasOldB3PTN   = cats.some(c => c.category === 'B3' && c.categoryLabel === 'Vật tư tiêu hao & PTN');
+  const hasB3VatTu    = cats.some(c => c.category === 'B3' && c.categoryLabel === 'Vật tư tiêu hao' && c.active !== false);
+  const hasB4Khac     = cats.some(c => c.category === 'B4' && c.categoryLabel === 'Chi khác');
+  const hasOldB4HSE   = cats.some(c => c.category === 'B4' && c.categoryLabel === 'An toàn / HSE Khoan & ĐCCT');
   const hasOldA4Sua   = cats.some(c => c.category === 'A4' && c.categoryLabel === 'Sửa chữa & Bảo dưỡng');
   const hasOldA5Dock  = cats.some(c => c.category === 'A5' && c.categoryLabel === 'Dock & Docking');
   const missingA3     = !cats.some(c => c.category === 'A3' && c.categoryLabel === 'Thông tin liên lạc');
 
-  const needMigration = hasOldFuelC || hasOldB2 || hasOldB3 || hasOldB4 || hasOldA4Sua || hasOldA5Dock || missingA3;
+  const needMigration = hasOldFuelC || hasOldB2 || hasOldB3PTN || hasB3VatTu || hasB4Khac || hasOldB4HSE || hasOldA4Sua || hasOldA5Dock || missingA3;
   if (!needMigration) return;
 
   console.log('[migration] Phát hiện schema cũ — cập nhật danh mục chi phí sang schema mới...');
@@ -995,26 +997,42 @@ function _migrateCostCatsSchema(demo) {
     }
   });
 
-  // 4. Đổi label B2 + bổ sung mục mới
+  // 4. Đổi label B2
   cats.forEach(c => {
     if (c.category === 'B2' && c.categoryLabel === 'Thiết bị Khoan & Lấy mẫu') {
       c.categoryLabel = 'Bảo dưỡng, sửa chữa thiết bị khoan';
     }
   });
-  // 5. Đổi label B3
+
+  // 5. ─── B3 (Vật tư tiêu hao) → ẨN (đã có module Kho vật tư riêng) ───
   cats.forEach(c => {
-    if (c.category === 'B3' && c.categoryLabel === 'Vật tư tiêu hao & PTN') {
-      c.categoryLabel = 'Vật tư tiêu hao';
-    }
-  });
-  // 6. Đổi label B4
-  cats.forEach(c => {
-    if (c.category === 'B4' && c.categoryLabel === 'An toàn / HSE Khoan & ĐCCT') {
-      c.categoryLabel = 'Chi khác';
+    if (c.category === 'B3' &&
+        (c.categoryLabel === 'Vật tư tiêu hao' || c.categoryLabel === 'Vật tư tiêu hao & PTN')) {
+      c.active = false;  // Ẩn — KHÔNG xóa hoàn toàn để bảo toàn data nếu có bút toán cũ trỏ tới
     }
   });
 
-  // 7. Bổ sung mục mới cho A3 (Thông tin liên lạc) nếu chưa có
+  // 6. ─── B4 (Chi khác) → đổi sang B3 ───
+  cats.forEach(c => {
+    if (c.category === 'B4' &&
+        (c.categoryLabel === 'Chi khác' || c.categoryLabel === 'An toàn / HSE Khoan & ĐCCT')) {
+      c.category = 'B3';
+      c.categoryLabel = 'Chi khác';  // Đảm bảo label đúng (kể cả từ HSE cũ)
+    }
+  });
+
+  // 7. Nếu sau migration vẫn chưa có B3 "Chi khác" (vd: user mới hoàn toàn) → seed mục mới
+  const hasB3ChiKhac = cats.some(c => c.category === 'B3' && c.categoryLabel === 'Chi khác' && c.active !== false);
+  if (!hasB3ChiKhac) {
+    cats.push(
+      {id:'d61',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Chi khác',name:'Bảo quản & vận chuyển mẫu',unit:'lần',currency:'VND',active:true},
+      {id:'d62',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Chi khác',name:'Lập báo cáo địa chất / địa kỹ thuật',unit:'báo cáo',currency:'VND',active:true},
+      {id:'d63',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Chi khác',name:'Trang bị bảo hộ (PPE) đặc thù',unit:'bộ',currency:'VND',active:true},
+      {id:'d69',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Chi khác',name:'Chi phí phát sinh khác',unit:'lần',currency:'VND',active:true},
+    );
+  }
+
+  // 8. Bổ sung mục mới cho A3 (Thông tin liên lạc) nếu chưa có
   const hasA3 = cats.some(c => c.category === 'A3');
   if (!hasA3) {
     cats.push(
@@ -1024,7 +1042,7 @@ function _migrateCostCatsSchema(demo) {
       {id:'a34',group:'A',groupLabel:'Hàng hải',category:'A3',categoryLabel:'Thông tin liên lạc',name:'Internet / data trên tàu',unit:'tháng',currency:'VND',active:true},
     );
   }
-  // 8. Bổ sung A4 (Ấn phẩm hàng hải) nếu chưa có
+  // 9. Bổ sung A4 (Ấn phẩm hàng hải) nếu chưa có
   const hasA4Anpham = cats.some(c => c.category === 'A4' && c.categoryLabel === 'Ấn phẩm hàng hải');
   if (!hasA4Anpham) {
     cats.push(
@@ -1034,7 +1052,7 @@ function _migrateCostCatsSchema(demo) {
       {id:'a44',group:'A',groupLabel:'Hàng hải',category:'A4',categoryLabel:'Ấn phẩm hàng hải',name:'Ấn phẩm hàng hải khác',unit:'lần',currency:'VND',active:true},
     );
   }
-  // 9. Bổ sung A6 (Chi khác) nếu chưa có
+  // 10. Bổ sung A6 (Chi khác) nếu chưa có
   const hasA6 = cats.some(c => c.category === 'A6' && c.categoryLabel === 'Chi khác');
   if (!hasA6) {
     cats.push(
@@ -1045,8 +1063,8 @@ function _migrateCostCatsSchema(demo) {
     );
   }
 
-  // Đánh dấu đã migrate để lưu xuống localStorage
-  demo._schemaVersion = '2026.05.07';
+  // Đánh dấu đã migrate
+  demo._schemaVersion = '2026.05.07-b';
   console.log('[migration] Hoàn tất cập nhật danh mục.');
 }
 
@@ -1774,25 +1792,16 @@ function _buildInitialDemo() {
       {id:'d46',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Bảo dưỡng, sửa chữa thiết bị khoan',name:'Bảo dưỡng / sửa chữa bơm khoan & phụ kiện',unit:'job',currency:'VND',active:true},
       {id:'d47',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Bảo dưỡng, sửa chữa thiết bị khoan',name:'Phụ tùng thay thế thiết bị khoan',    unit:'lot',  currency:'VND',active:true},
       {id:'d48',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B2',categoryLabel:'Bảo dưỡng, sửa chữa thiết bị khoan',name:'Hiệu chuẩn / kiểm định thiết bị',     unit:'lần',  currency:'VND',active:true},
-      // B3 — Vật tư tiêu hao
-      {id:'d51',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Dung dịch khoan (drilling mud)',    unit:'m3',   currency:'VND',active:true},
-      {id:'d52',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Hoá chất phụ gia dung dịch khoan',  unit:'kg',   currency:'VND',active:true},
-      {id:'d53',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Mũi khoan / bit (PDC, roller...)',  unit:'cái',  currency:'VND',active:true},
-      {id:'d54',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Xi măng trám giếng (cementing)',    unit:'kg',   currency:'VND',active:true},
-      {id:'d55',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Ống mẫu (core barrel / sampler)',   unit:'bộ',   currency:'VND',active:true},
-      {id:'d56',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Casing & drill pipe',               unit:'m',    currency:'VND',active:true},
-      {id:'d57',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Phân tích mẫu đất / đá tại PTN',    unit:'mẫu',  currency:'VND',active:true},
-      {id:'d58',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Vật tư tiêu hao',name:'Thí nghiệm cơ học đất (đặc biệt)',  unit:'bộ TN',currency:'VND',active:true},
-      // B4 — Chi khác
-      {id:'d61',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Bảo quản & vận chuyển mẫu',          unit:'lần',  currency:'VND',active:true},
-      {id:'d62',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Lập báo cáo địa chất / địa kỹ thuật',unit:'báo cáo',currency:'VND',active:true},
-      {id:'d63',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Trang bị bảo hộ (PPE) đặc thù',      unit:'bộ',   currency:'VND',active:true},
-      {id:'d64',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Kiểm tra khí / phát hiện H2S',       unit:'ngày', currency:'VND',active:true},
-      {id:'d65',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Vận chuyển / cẩu hạ thiết bị',       unit:'lần',  currency:'VND',active:true},
-      {id:'d66',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Kiểm tra / audit an toàn',           unit:'lần',  currency:'VND',active:true},
-      {id:'d67',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Xử lý / thải bỏ mùn khoan',          unit:'lần',  currency:'VND',active:true},
-      {id:'d68',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Bảo vệ môi trường tại chỗ',          unit:'lot',  currency:'VND',active:true},
-      {id:'d69',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B4',categoryLabel:'Chi khác',name:'Chi phí phát sinh khác',             unit:'lần',  currency:'VND',active:true},
+      // B3 — Chi khác (đổi từ B4 cũ; B3 cũ "Vật tư tiêu hao" đã chuyển sang module Kho vật tư)
+      {id:'d61',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Chi khác',name:'Bảo quản & vận chuyển mẫu',          unit:'lần',  currency:'VND',active:true},
+      {id:'d62',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Chi khác',name:'Lập báo cáo địa chất / địa kỹ thuật',unit:'báo cáo',currency:'VND',active:true},
+      {id:'d63',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Chi khác',name:'Trang bị bảo hộ (PPE) đặc thù',      unit:'bộ',   currency:'VND',active:true},
+      {id:'d64',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Chi khác',name:'Kiểm tra khí / phát hiện H2S',       unit:'ngày', currency:'VND',active:true},
+      {id:'d65',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Chi khác',name:'Vận chuyển / cẩu hạ thiết bị',       unit:'lần',  currency:'VND',active:true},
+      {id:'d66',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Chi khác',name:'Kiểm tra / audit an toàn',           unit:'lần',  currency:'VND',active:true},
+      {id:'d67',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Chi khác',name:'Xử lý / thải bỏ mùn khoan',          unit:'lần',  currency:'VND',active:true},
+      {id:'d68',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Chi khác',name:'Bảo vệ môi trường tại chỗ',          unit:'lot',  currency:'VND',active:true},
+      {id:'d69',group:'B',groupLabel:'Kỹ thuật (Khoan/Khảo sát/ĐCCT)',category:'B3',categoryLabel:'Chi khác',name:'Chi phí phát sinh khác',             unit:'lần',  currency:'VND',active:true},
       {id:'c6', group:'F',groupLabel:'Phân bổ',  category:'F1',categoryLabel:'Đăng kiểm & Chứng nhận',name:'Đăng kiểm định kỳ (Annual survey)',unit:'năm',currency:'VND',active:true},
       {id:'c6b',group:'F',groupLabel:'Phân bổ',  category:'F1',categoryLabel:'Đăng kiểm & Chứng nhận',name:'Chứng chỉ ISPS / ISM',    unit:'năm',  currency:'VND',active:true},
       {id:'c7', group:'F',groupLabel:'Phân bổ',  category:'F2',categoryLabel:'Bảo hiểm',          name:'Bảo hiểm H&M (Hull & Machinery)',unit:'năm',currency:'VND',active:true},
