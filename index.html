@@ -950,8 +950,104 @@ function _lsLoadAll() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return null;
-    return JSON.parse(raw);
+    const blob = JSON.parse(raw);
+    // ─── AUTO MIGRATION: cập nhật danh mục cũ khi schema thay đổi ───
+    if (blob && blob.DEMO) _migrateCostCatsSchema(blob.DEMO);
+    return blob;
   } catch(e) { console.warn('[persist] load failed:', e); return null; }
+}
+
+// Migration: cập nhật danh mục costCats từ schema cũ sang mới (2026.05).
+// Phát hiện schema cũ qua dấu hiệu: có cat C (Nhiên liệu), B2 cũ, hoặc thiếu A3/A4/A6.
+function _migrateCostCatsSchema(demo) {
+  if (!demo || !Array.isArray(demo.costCats) || demo.costCats.length === 0) return;
+  const cats = demo.costCats;
+
+  // Dấu hiệu schema cũ
+  const hasOldFuelC   = cats.some(c => c.group === 'C' && c.categoryLabel === 'Dầu chạy máy');
+  const hasOldB2      = cats.some(c => c.category === 'B2' && c.categoryLabel === 'Thiết bị Khoan & Lấy mẫu');
+  const hasOldB3      = cats.some(c => c.category === 'B3' && c.categoryLabel === 'Vật tư tiêu hao & PTN');
+  const hasOldB4      = cats.some(c => c.category === 'B4' && c.categoryLabel === 'An toàn / HSE Khoan & ĐCCT');
+  const hasOldA4Sua   = cats.some(c => c.category === 'A4' && c.categoryLabel === 'Sửa chữa & Bảo dưỡng');
+  const hasOldA5Dock  = cats.some(c => c.category === 'A5' && c.categoryLabel === 'Dock & Docking');
+  const missingA3     = !cats.some(c => c.category === 'A3' && c.categoryLabel === 'Thông tin liên lạc');
+
+  const needMigration = hasOldFuelC || hasOldB2 || hasOldB3 || hasOldB4 || hasOldA4Sua || hasOldA5Dock || missingA3;
+  if (!needMigration) return;
+
+  console.log('[migration] Phát hiện schema cũ — cập nhật danh mục chi phí sang schema mới...');
+
+  // 1. Bỏ nhóm C (Nhiên liệu) — chỉ ẩn, không xóa (đề phòng có bút toán đã dùng)
+  cats.forEach(c => {
+    if (c.group === 'C') c.active = false;
+  });
+
+  // 2. Đổi A4 cũ "Sửa chữa & Bảo dưỡng" → A5
+  cats.forEach(c => {
+    if (c.category === 'A4' && c.categoryLabel === 'Sửa chữa & Bảo dưỡng') {
+      c.category = 'A5';
+    }
+  });
+  // 3. Đổi A5 cũ "Dock & Docking" → A7
+  cats.forEach(c => {
+    if (c.category === 'A5' && c.categoryLabel === 'Dock & Docking') {
+      c.category = 'A7';
+    }
+  });
+
+  // 4. Đổi label B2 + bổ sung mục mới
+  cats.forEach(c => {
+    if (c.category === 'B2' && c.categoryLabel === 'Thiết bị Khoan & Lấy mẫu') {
+      c.categoryLabel = 'Bảo dưỡng, sửa chữa thiết bị khoan';
+    }
+  });
+  // 5. Đổi label B3
+  cats.forEach(c => {
+    if (c.category === 'B3' && c.categoryLabel === 'Vật tư tiêu hao & PTN') {
+      c.categoryLabel = 'Vật tư tiêu hao';
+    }
+  });
+  // 6. Đổi label B4
+  cats.forEach(c => {
+    if (c.category === 'B4' && c.categoryLabel === 'An toàn / HSE Khoan & ĐCCT') {
+      c.categoryLabel = 'Chi khác';
+    }
+  });
+
+  // 7. Bổ sung mục mới cho A3 (Thông tin liên lạc) nếu chưa có
+  const hasA3 = cats.some(c => c.category === 'A3');
+  if (!hasA3) {
+    cats.push(
+      {id:'a31',group:'A',groupLabel:'Hàng hải',category:'A3',categoryLabel:'Thông tin liên lạc',name:'Cước Inmarsat (vệ tinh)',unit:'tháng',currency:'VND',active:true},
+      {id:'a32',group:'A',groupLabel:'Hàng hải',category:'A3',categoryLabel:'Thông tin liên lạc',name:'Cước Starlink',unit:'tháng',currency:'VND',active:true},
+      {id:'a33',group:'A',groupLabel:'Hàng hải',category:'A3',categoryLabel:'Thông tin liên lạc',name:'Cước VHF / điện thoại tàu',unit:'tháng',currency:'VND',active:true},
+      {id:'a34',group:'A',groupLabel:'Hàng hải',category:'A3',categoryLabel:'Thông tin liên lạc',name:'Internet / data trên tàu',unit:'tháng',currency:'VND',active:true},
+    );
+  }
+  // 8. Bổ sung A4 (Ấn phẩm hàng hải) nếu chưa có
+  const hasA4Anpham = cats.some(c => c.category === 'A4' && c.categoryLabel === 'Ấn phẩm hàng hải');
+  if (!hasA4Anpham) {
+    cats.push(
+      {id:'a41',group:'A',groupLabel:'Hàng hải',category:'A4',categoryLabel:'Ấn phẩm hàng hải',name:'Hải đồ (paper charts)',unit:'lần',currency:'VND',active:true},
+      {id:'a42',group:'A',groupLabel:'Hàng hải',category:'A4',categoryLabel:'Ấn phẩm hàng hải',name:'ENC / cập nhật bản đồ điện tử',unit:'năm',currency:'VND',active:true},
+      {id:'a43',group:'A',groupLabel:'Hàng hải',category:'A4',categoryLabel:'Ấn phẩm hàng hải',name:'Tide tables / Sailing Directions',unit:'năm',currency:'VND',active:true},
+      {id:'a44',group:'A',groupLabel:'Hàng hải',category:'A4',categoryLabel:'Ấn phẩm hàng hải',name:'Ấn phẩm hàng hải khác',unit:'lần',currency:'VND',active:true},
+    );
+  }
+  // 9. Bổ sung A6 (Chi khác) nếu chưa có
+  const hasA6 = cats.some(c => c.category === 'A6' && c.categoryLabel === 'Chi khác');
+  if (!hasA6) {
+    cats.push(
+      {id:'a61',group:'A',groupLabel:'Hàng hải',category:'A6',categoryLabel:'Chi khác',name:'Văn phòng phẩm tàu (VPP)',unit:'tháng',currency:'VND',active:true},
+      {id:'a62',group:'A',groupLabel:'Hàng hải',category:'A6',categoryLabel:'Chi khác',name:'Chi phí chung tàu',unit:'lần',currency:'VND',active:true},
+      {id:'a63',group:'A',groupLabel:'Hàng hải',category:'A6',categoryLabel:'Chi khác',name:'Chi phí sinh hoạt thuyền viên',unit:'tháng',currency:'VND',active:true},
+      {id:'a64',group:'A',groupLabel:'Hàng hải',category:'A6',categoryLabel:'Chi khác',name:'Chi phí phát sinh khác',unit:'lần',currency:'VND',active:true},
+    );
+  }
+
+  // Đánh dấu đã migrate để lưu xuống localStorage
+  demo._schemaVersion = '2026.05.07';
+  console.log('[migration] Hoàn tất cập nhật danh mục.');
 }
 
 // Khôi phục dữ liệu cho SM/GA/OM ngay sau khi chúng được khai báo
