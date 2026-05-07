@@ -3923,7 +3923,7 @@ function openCostForm(e={}) {
         <select id="cev" onchange="loadProjectOpts()">${vOpts}</select>
       </div>
       <div class="field"><label>Dự án</label>
-        <select id="cep"><option value="">— Ngoài dự án —</option></select>
+        <select id="cep" onchange="_autoDetectDockReturnDate()"><option value="">— Ngoài dự án —</option></select>
       </div>
     </div>
 
@@ -3968,15 +3968,25 @@ function openCostForm(e={}) {
         <select id="ceacc" onchange="onAcctTypeChange()" title="Chọn cách hạch toán bút toán này.">
           <option value=""${!e.accountType?' selected':''}>(1) Ghi nhận BCTC (mặc định) — Chi phí thường, vào cả P/L &amp; BCTC</option>
           <option value="Q"${e.accountType==='Q'?' selected':''}>(2) Chi từ quỹ lương dự án — Không vào P/L (đã trích T trước)</option>
-          <option value="Capitalize"${e.accountType==='Capitalize'?' selected':''}>(3) Capitalize vào tài sản — KHÔNG vào P/L &amp; BCTC, cộng vào giá trị TS</option>
+          <option value="Capitalize"${e.accountType==='Capitalize'?' selected':''}>(3) Vốn hoá vào tài sản — KHÔNG vào P/L &amp; BCTC, tự sinh KH theo TG còn lại của tàu</option>
         </select>
       </div>
       <div class="field" id="ce_asset_field" style="grid-column:span 2;${e.accountType==='Capitalize'?'':'display:none'}">
-        <label>Tài sản nhận capitalize <span style="color:var(--red)">*</span></label>
+        <label>Tài sản nhận vốn hoá <span style="color:var(--red)">*</span></label>
         <select id="ce_asset">
           <option value="">— Đang tải danh sách tài sản... —</option>
         </select>
-        <span style="font-size:11px;color:var(--text3)">Số tiền sẽ cộng vào giá trị tài sản này (không tính khấu hao thêm cho CapEx tàu).</span>
+        <span style="font-size:11px;color:var(--text3)">📊 Hệ thống sẽ tự tạo 1 khoản đầu tư riêng trong "Đầu tư &amp; Khấu hao" — KH theo kỳ Dock mới (riêng với tàu).</span>
+      </div>
+      <div class="field" id="ce_capdate_field" style="${e.accountType==='Capitalize'?'':'display:none'}">
+        <label>📅 Ngày bắt đầu khấu hao <span style="color:var(--red)">*</span></label>
+        <input type="date" id="ce_capdate" value="${e.capDeprStartDate||''}"/>
+        <span style="font-size:11px;color:var(--text3)" id="ce_capdate_hint">Ngày tàu trở lại hoạt động sau dock. Auto-fill từ Offhire của dự án docking nếu có.</span>
+      </div>
+      <div class="field" id="ce_capyears_field" style="${e.accountType==='Capitalize'?'':'display:none'}">
+        <label>♻️ Số năm KH chu kỳ Dock <span style="color:var(--red)">*</span></label>
+        <input type="number" id="ce_capyears" value="${e.capDeprYears||''}" min="0.5" max="30" step="0.5" placeholder="Vd: 5"/>
+        <span style="font-size:11px;color:var(--text3)">Chu kỳ KH riêng cho lần dock này (đến lần dock kế tiếp). Tàu khảo sát thường 5 năm.</span>
       </div>
     </div>
 
@@ -4022,11 +4032,14 @@ function openCostForm(e={}) {
     } else {
       acctType = gv('ceacc') || '';  // '' = bình thường (mặc định), 'Q' = chi từ quỹ, 'Capitalize' = capitalize
     }
-    // Validate: nếu chọn Capitalize thì bắt buộc chọn tài sản
+    // Validate: nếu chọn Capitalize thì bắt buộc chọn tài sản + ngày bắt đầu KH + số năm KH
     const capitalizedToAssetId = (acctType === 'Capitalize') ? (gv('ce_asset') || '') : '';
-    if (acctType === 'Capitalize' && !capitalizedToAssetId) {
-      toast('Vui lòng chọn tài sản nhận capitalize','warn');
-      return;
+    const capDeprStartDate = (acctType === 'Capitalize') ? (gv('ce_capdate') || '') : '';
+    const capDeprYears = (acctType === 'Capitalize') ? (parseFloat(gv('ce_capyears')) || 0) : 0;
+    if (acctType === 'Capitalize') {
+      if (!capitalizedToAssetId) { toast('Vui lòng chọn tài sản nhận vốn hoá','warn'); return; }
+      if (!capDeprStartDate) { toast('Vui lòng nhập ngày bắt đầu khấu hao (ngày ra dock)','warn'); return; }
+      if (!capDeprYears || capDeprYears <= 0) { toast('Vui lòng nhập số năm KH chu kỳ Dock','warn'); return; }
     }
     const payload = {
       id:e.id||newId(), vesselId:gv('cev'), projectId:gv('cep')||'',
@@ -4036,6 +4049,8 @@ function openCostForm(e={}) {
       description:gv('cedesc'), invoiceNo:gv('ceinv'), type:gv('cetype'),
       accountType: acctType,
       capitalizedToAssetId,                                // ID tài sản nhận capitalize (nếu accountType='Capitalize')
+      capDeprStartDate,                                    // Ngày ra dock = ngày bắt đầu KH cho khoản vốn hoá
+      capDeprYears,                                        // Số năm KH chu kỳ Dock (riêng với chu kỳ KH của tàu)
       // ── Fields phân bổ F (chỉ relevant khi type='allocated') ──
       fAllocMode: gv('cetype')==='allocated' ? (gv('ce_falloc_mode')||'toYearEnd') : '',
       fAllocDays: gv('cetype')==='allocated' && gv('ce_falloc_mode')==='days' ? (parseInt(gv('ce_falloc_days'))||365) : 0,
@@ -4044,19 +4059,141 @@ function openCostForm(e={}) {
     };
     if (!payload.vesselId||!payload.categoryId||!payload.amount) { toast('Điền đủ thông tin bắt buộc (*)','warn'); return; }
     showLoading();
-    try { await api('saveCostEntry',payload); toast('Đã lưu','ok'); closeModal(); renderCosts(); }
+    try {
+      await api('saveCostEntry',payload);
+      // ─── VỐN HOÁ: Tự tạo Investment riêng cho khoản chi phí được Capitalize ───
+      if (payload.accountType === 'Capitalize' && payload.amountVnd > 0 && payload.vesselId) {
+        await _syncCapitalizeInvestment(payload);
+      }
+      toast('Đã lưu','ok'); closeModal(); renderCosts();
+    }
     catch(err){ toast('Lỗi: '+err.message,'err'); }
     hideLoading();
   }, 'lg');
 
-  setTimeout(()=>{ loadProjectOpts(e.projectId); computeVnd(); loadAssetOpts(e.capitalizedToAssetId); }, 50);
+  setTimeout(()=>{
+    loadProjectOpts(e.projectId);
+    computeVnd();
+    loadAssetOpts(e.capitalizedToAssetId);
+    // Trigger auto-detect ngày ra dock nếu đang ở mode Capitalize
+    if (e.accountType === 'Capitalize') {
+      setTimeout(_autoDetectDockReturnDate, 300);
+    }
+  }, 50);
+}
+
+// ─── Tự tạo Investment riêng khi vốn hoá chi phí (Dock, sửa chữa lớn...) ───
+// KH theo CHU KỲ DOCK MỚI (riêng với chu kỳ KH của tàu) — bắt đầu từ ngày ra dock.
+// Ngoài ra: tạo thêm 1 Capex con để ghi tăng nguyên giá tàu (track riêng với Capex gốc).
+async function _syncCapitalizeInvestment(costPayload) {
+  const c = costPayload;
+  const AUTO_TAG = 'cost-capitalize';
+  const linkId = 'ce:' + c.id;
+
+  // Lấy thông tin tàu cho description
+  const vessel = (S.vessels || []).find(v => v.id === c.vesselId);
+  const vesselName = vessel ? vessel.name : '(tàu không rõ)';
+
+  // Tên khoản đầu tư: dựa trên category + năm + tàu
+  const cat = (S.costCats || []).find(x => x.id === c.categoryId);
+  const catName = cat ? cat.name : 'Vốn hoá';
+  const startDate = c.capDeprStartDate || c.entryDate || (new Date().getFullYear() + '-01-01');
+  const yr = String(startDate).slice(0, 4);
+  const investName = `Vốn hoá ${catName} ${yr} — ${vesselName}`;
+
+  // Số năm KH = chu kỳ Dock mới (user nhập), KHÔNG dùng thời gian còn lại của tàu
+  const dockYears = parseFloat(c.capDeprYears) || 5;
+
+  // ─── 1. Tạo / cập nhật Investment riêng (để tự sinh KH) ───
+  const allInvest = await api('getInvestments', {}).catch(()=>[]);
+  const existingInvest = (allInvest||[]).find(inv =>
+    inv.capexLinkId === linkId && inv._autoSource === AUTO_TAG
+  );
+  const investPayload = {
+    id: existingInvest?.id || newId(),
+    name: investName,
+    scope: 'vessel',
+    vesselId: c.vesselId,
+    capexLinkId: linkId,
+    investDate: startDate,                 // Ngày ra dock = ngày bắt đầu KH (kỳ mới, riêng tàu)
+    amount: c.amountVnd,
+    currency: 'VND',
+    fxRate: 1,
+    amountVnd: c.amountVnd,
+    method: 'straight',
+    years: dockYears,                      // Chu kỳ Dock (user nhập, không phải remaining của tàu)
+    decliningRate: 0,
+    salvageValue: 0,
+    description: `Tự đồng bộ từ bút toán vốn hoá. KH theo chu kỳ Dock mới (${dockYears} năm) tính từ ${startDate}.${c.description ? ' Mô tả gốc: ' + c.description : ''}`,
+    _autoSource: AUTO_TAG,
+    createdAt: existingInvest?.createdAt || new Date().toISOString(),
+  };
+  await api('saveInvestment', investPayload);
+
+  // ─── 2. Tạo / cập nhật Capex con để ghi tăng nguyên giá tàu (track riêng) ───
+  const allCapex = await api('getCapex', {}).catch(()=>[]);
+  const existingCapex = (allCapex||[]).find(cx =>
+    cx._linkedCostEntryId === c.id && cx._autoSource === AUTO_TAG
+  );
+  const capexPayload = {
+    id: existingCapex?.id || newId(),
+    vesselId: c.vesselId,
+    year: parseInt(yr),
+    description: `${catName} (vốn hoá) — ${yr}`,
+    purchaseCostVND: c.amountVnd,
+    amountVnd: c.amountVnd,
+    currency: 'VND',
+    fxRate: 1,
+    amount: c.amountVnd,
+    investDate: startDate,
+    notes: `Ghi tăng nguyên giá ${vesselName} từ chi phí vốn hoá. KH theo chu kỳ Dock ${dockYears} năm từ ${startDate}.`,
+    _autoSource: AUTO_TAG,
+    _linkedCostEntryId: c.id,
+    _linkedInvestmentId: investPayload.id,
+    createdAt: existingCapex?.createdAt || new Date().toISOString(),
+  };
+  await api('saveCapex', capexPayload);
 }
 
 // Toggle hiển thị dropdown chọn tài sản khi user chọn nguồn chi = Capitalize
 function onAcctTypeChange() {
   const acc = gv('ceacc');
-  const field = document.getElementById('ce_asset_field');
-  if (field) field.style.display = (acc === 'Capitalize') ? '' : 'none';
+  const isCap = (acc === 'Capitalize');
+  const fields = ['ce_asset_field', 'ce_capdate_field', 'ce_capyears_field'];
+  fields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isCap ? '' : 'none';
+  });
+  if (isCap) {
+    // Auto-detect ngày bắt đầu KH từ project docking nếu có
+    _autoDetectDockReturnDate();
+  }
+}
+
+// Auto-fill "Ngày bắt đầu KH" từ Project Docking đã chọn (nếu có)
+async function _autoDetectDockReturnDate() {
+  const projectId = gv('cep');
+  const capDateEl = document.getElementById('ce_capdate');
+  const hintEl = document.getElementById('ce_capdate_hint');
+  if (!projectId || !capDateEl) return;
+  // Nếu user đã nhập tay rồi thì không ghi đè
+  if (capDateEl.value) return;
+  try {
+    const projects = await api('getProjects', {});
+    const proj = (projects||[]).find(p => p.id === projectId);
+    if (!proj) return;
+    if (proj.projectKind === 'docking' && proj.offhireAt) {
+      const dateOnly = String(proj.offhireAt).slice(0, 10);
+      capDateEl.value = dateOnly;
+      if (hintEl) {
+        hintEl.innerHTML = `✓ <strong>Auto-fill</strong> từ ngày Offhire của dự án docking "${proj.name}". Sửa nếu cần.`;
+        hintEl.style.color = 'var(--green)';
+      }
+    } else if (hintEl) {
+      hintEl.innerHTML = '⚠ Dự án này không phải Docking project. Nhập ngày tàu trở lại hoạt động.';
+      hintEl.style.color = 'var(--amber)';
+    }
+  } catch (e) { /* silent */ }
 }
 
 // Toggle khối phân bổ F khi đổi Loại chi phí
@@ -4191,8 +4328,28 @@ function computeVnd() {
 }
 
 async function deleteCostEntry(id) {
-  if (!confirm('Xoá bút toán này?')) return;
-  try { await api('deleteCostEntry',{id}); toast('Đã xoá','ok'); renderCosts(); } catch(e){ toast('Lỗi','err'); }
+  // Trước khi xoá: kiểm tra có Investment + Capex auto-sync liên kết không
+  const [allInvest, allCapex] = await Promise.all([
+    api('getInvestments', {}).catch(()=>[]),
+    api('getCapex', {}).catch(()=>[]),
+  ]);
+  const linkedInvest = (allInvest||[]).find(inv =>
+    inv.capexLinkId === ('ce:'+id) && inv._autoSource === 'cost-capitalize'
+  );
+  const linkedCapex = (allCapex||[]).find(cx =>
+    cx._linkedCostEntryId === id && cx._autoSource === 'cost-capitalize'
+  );
+  const cascadeCount = (linkedInvest?1:0) + (linkedCapex?1:0);
+  const warnExtra = cascadeCount > 0
+    ? `\n\n⚠ Bút toán này đã vốn hoá. Sẽ xoá cùng lúc:${linkedInvest?'\n  • Khoản đầu tư liên kết':''}${linkedCapex?'\n  • Capex tăng giá tàu':''}`
+    : '';
+  if (!confirm('Xoá bút toán này?' + warnExtra)) return;
+  try {
+    if (linkedInvest) await api('deleteInvestment', { id: linkedInvest.id });
+    if (linkedCapex) await api('deleteCapex', { id: linkedCapex.id });
+    await api('deleteCostEntry',{id});
+    toast('Đã xoá','ok'); renderCosts();
+  } catch(e){ toast('Lỗi','err'); }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -4692,20 +4849,26 @@ async function renderCapex() {
             </tr></thead>
             <tbody>
               ${rows.length ? rows.slice().sort((a,b) => parseInt(b.year||0) - parseInt(a.year||0)).map(r=>{
-                const isAuto = r._autoSource === 'vessel-purchase';
-                return `<tr${isAuto?' style="background:#FFFBF0"':''}>
+                const isAutoVessel = r._autoSource === 'vessel-purchase';
+                const isAutoCap    = r._autoSource === 'cost-capitalize';
+                const isAuto = isAutoVessel || isAutoCap;
+                const autoBadge = isAutoVessel ? '<span class="badge badge-amber" style="font-size:10px;margin-left:6px">🔒 Tự sinh từ form Tàu</span>'
+                                : isAutoCap    ? '<span class="badge badge-blue" style="font-size:10px;margin-left:6px">🔒 Tự sinh từ vốn hoá CP</span>'
+                                : '';
+                const rowBg = isAutoVessel ? 'background:#FFFBF0' : isAutoCap ? 'background:#F0F4FF' : '';
+                return `<tr${rowBg?` style="${rowBg}"`:''}>
                   <td class="mono">${r.year}</td>
                   <td><span class="badge badge-navy">${vName(r.vesselId)}</span></td>
                   <td>
                     ${r.description||'—'}
-                    ${isAuto?'<span class="badge badge-amber" style="font-size:10px;margin-left:6px">🔒 Tự sinh từ form Tàu</span>':''}
+                    ${autoBadge}
                     <br><span class="text-muted" style="font-size:11px">${r.notes||''}</span>
                   </td>
                   <td class="num">${fmtVnd(r.amountVnd)}</td>
                   <td>${r.currency&&r.currency!=='VND'?`${fmt(r.amount)} ${r.currency}`:'—'}</td>
                   <td class="row-actions">
                     ${isAuto
-                      ? `<span class="text-muted" style="font-size:11px" title="Sửa qua Cài đặt → Tàu">🔒 chỉ đọc</span>`
+                      ? `<span class="text-muted" style="font-size:11px" title="${isAutoVessel?'Sửa qua Cài đặt → Tàu':'Sửa qua bút toán chi phí gốc'}">🔒 chỉ đọc</span>`
                       : `<button class="btn btn-ghost btn-xs" onclick="openCapexForm(${JSON.stringify(r).replace(/"/g,'&quot;')})">✏️</button>
                          <button class="btn btn-ghost btn-xs" onclick="deleteCapex('${r.id}')">🗑</button>`
                     }
@@ -10291,7 +10454,7 @@ function calcTotalDeprForYear(year, sources) {
 
 let _S_INV_YEAR = new Date().getFullYear();
 let _S_INV_SCOPE = 'all';   // 'all' | 'vessel' | 'om' | 'corporate'
-let _S_INV_LIFETIME = false; // true = toàn thời gian (bỏ qua filter năm)
+let _S_INV_RANGE = 'inYear'; // 'inYear' (chỉ phát sinh năm) | 'toEndOfYear' (đến cuối năm) | 'lifetime' (toàn TG)
 let _S_CONS_TAB = 'year';        // 'year' | 'compare' | 'cumulative'
 let _S_CONS_FROM = new Date().getFullYear() - 2;
 let _S_CONS_TO = new Date().getFullYear();
@@ -10330,15 +10493,22 @@ async function renderInvestments() {
   });
 
   // KPI tổng
-  // KPI: chỉ tính khoản đã đầu tư tại hoặc trước năm xem (hoặc toàn thời gian nếu lifetime)
+  // KPI: filter theo Đối tượng + Phạm vi (3 mode)
   const enrichedInYear = enriched.filter(x => {
     // Filter theo scope (đối tượng đầu tư)
     if (_S_INV_SCOPE !== 'all' && x.scope !== _S_INV_SCOPE) return false;
-    // Filter theo năm (nếu không phải lifetime mode)
-    if (_S_INV_LIFETIME) return true;
-    if (!x.investDate) return true;
+    // Filter theo phạm vi
+    if (_S_INV_RANGE === 'lifetime') return true;
+    if (!x.investDate) return true;  // Không có ngày → giữ
     const invYr = parseInt(String(x.investDate).slice(0,4));
-    return !isNaN(invYr) ? invYr <= year : true;
+    if (isNaN(invYr)) return true;
+    if (_S_INV_RANGE === 'inYear') {
+      // Chỉ khoản phát sinh trong năm
+      return invYr === year;
+    } else {
+      // toEndOfYear: đã đầu tư tại hoặc trước năm xem (BCTC tích lũy)
+      return invYr <= year;
+    }
   });
   const totalCapex = enrichedInYear.reduce((s, x) => s + (parseFloat(x.amountVnd)||0), 0);
   const totalDepr  = enrichedInYear.reduce((s, x) => s + x.totalDepr, 0);
@@ -10378,19 +10548,19 @@ async function renderInvestments() {
 
     <div class="kpi-grid cols4 mb16">
       <div class="kpi-card accent-blue">
-        <div class="kpi-label">Tổng đầu tư tích lũy</div>
+        <div class="kpi-label">${_S_INV_RANGE==='inYear'?'Đầu tư trong năm '+year:_S_INV_RANGE==='toEndOfYear'?'Tổng đầu tư đến hết '+year:'Tổng đầu tư (toàn TG)'}</div>
         <div class="kpi-value">${fmtB(totalCapex)}</div>
         <div class="kpi-sub">${enrichedInYear.length} khoản đầu tư</div>
       </div>
       <div class="kpi-card accent-teal">
-        <div class="kpi-label">Đầu tư trong năm ${year}</div>
+        <div class="kpi-label">Đầu tư phát sinh trong năm ${year}</div>
         <div class="kpi-value">${fmtB(investedThisYear)}</div>
-        <div class="kpi-sub">${_S_INV_LIFETIME?'(toàn thời gian không có chỉ số riêng năm)':'Capex phát sinh trong năm'}</div>
+        <div class="kpi-sub">Capex mới mua trong năm</div>
       </div>
       <div class="kpi-card accent-amber">
-        <div class="kpi-label">Khấu hao ${_S_INV_LIFETIME?'toàn thời gian':'năm '+year}</div>
-        <div class="kpi-value">${fmtB(_S_INV_LIFETIME?totalDepr:deprThisYearTotal)}</div>
-        <div class="kpi-sub">${_S_INV_LIFETIME?'Tổng đã khấu hao đến nay':'Vào BCTC, không vào P&L'}</div>
+        <div class="kpi-label">Khấu hao ${_S_INV_RANGE==='lifetime'?'toàn thời gian':'năm '+year}</div>
+        <div class="kpi-value">${fmtB(_S_INV_RANGE==='lifetime'?totalDepr:deprThisYearTotal)}</div>
+        <div class="kpi-sub">${_S_INV_RANGE==='lifetime'?'Tổng đã khấu hao đến nay':'Vào BCTC, không vào P&L'}</div>
       </div>
       <div class="kpi-card accent-green">
         <div class="kpi-label">Giá trị còn lại (NBV)</div>
@@ -10412,16 +10582,17 @@ async function renderInvestments() {
             <option value="corporate"${_S_INV_SCOPE==='corporate'?' selected':''}>🏢 Quản lý chung</option>
           </select>
         </div>
-        <!-- Năm / Toàn thời gian -->
+        <!-- Phạm vi: 3 lựa chọn -->
         <div class="flex items-center" style="gap:8px">
           <label style="font-size:12px;color:var(--text3)">Phạm vi:</label>
-          <select onchange="_S_INV_LIFETIME=(this.value==='lifetime');renderInvestments()" style="min-width:140px">
-            <option value="year"${!_S_INV_LIFETIME?' selected':''}>📅 Theo năm</option>
-            <option value="lifetime"${_S_INV_LIFETIME?' selected':''}>♾️ Toàn thời gian</option>
+          <select onchange="_S_INV_RANGE=this.value;renderInvestments()" style="min-width:240px">
+            <option value="inYear"${_S_INV_RANGE==='inYear'?' selected':''}>📊 Đầu tư phát sinh trong năm</option>
+            <option value="toEndOfYear"${_S_INV_RANGE==='toEndOfYear'?' selected':''}>📅 Đến hết năm (BCTC tích luỹ)</option>
+            <option value="lifetime"${_S_INV_RANGE==='lifetime'?' selected':''}>♾️ Toàn thời gian</option>
           </select>
         </div>
         <!-- Năm quyết toán (ẩn khi Lifetime) -->
-        <div class="flex items-center" style="gap:8px;${_S_INV_LIFETIME?'display:none':''}">
+        <div class="flex items-center" style="gap:8px;${_S_INV_RANGE==='lifetime'?'display:none':''}">
           <label style="font-size:12px;color:var(--text3)">Năm:</label>
           <select onchange="_S_INV_YEAR=parseInt(this.value);renderInvestments()" style="min-width:90px">${yearOpts.join('')}</select>
         </div>
@@ -10497,15 +10668,18 @@ async function renderInvestments() {
                                 : _S_INV_SCOPE === 'om' ? 'O&M'
                                 : _S_INV_SCOPE === 'corporate' ? 'Quản lý chung'
                                 : 'tất cả';
-                const yrLabel = _S_INV_LIFETIME ? 'toàn thời gian' : `năm ${year}`;
+                const yrLabel = _S_INV_RANGE === 'lifetime' ? 'toàn thời gian'
+                              : _S_INV_RANGE === 'inYear' ? `phát sinh trong năm ${year}`
+                              : `đến hết năm ${year}`;
                 return `<tr><td colspan="10"><div class="empty-state">Không có khoản đầu tư nào (lọc: ${scopeLabel}, ${yrLabel}).</div></td></tr>`;
               }
               return filtered.map(x => {
                 const methodLabel = x.method === 'declining' ? 'Giảm dần' : x.method === 'usage' ? 'Theo SL' : 'Đường thẳng';
                 const isAuto = !!x._autoSource;
-                const autoLabel = x._autoSource === 'vessel-purchase' ? '🔒 Tự sinh từ Tàu'
-                                : x._autoSource === 'gacapex-source'  ? '🔒 Tự sinh từ Capex QLC'
-                                : x._autoSource === 'omcapex-source'  ? '🔒 Tự sinh từ Capex O&M'
+                const autoLabel = x._autoSource === 'vessel-purchase'  ? '🔒 Tự sinh từ Tàu'
+                                : x._autoSource === 'gacapex-source'   ? '🔒 Tự sinh từ Capex QLC'
+                                : x._autoSource === 'omcapex-source'   ? '🔒 Tự sinh từ Capex O&M'
+                                : x._autoSource === 'cost-capitalize'  ? '🔒 Vốn hoá từ chi phí'
                                 : '🔒 Tự sinh';
                 return `<tr${isAuto?' style="background:#FFFBF0"':''}>
                   <td style="font-weight:500">
