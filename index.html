@@ -5097,33 +5097,60 @@ async function renderGaCapex() {
     <div class="card mb16">
       <div class="card-header flex items-center justify-between">
         <h3>🏢 Danh sách tài sản Quản lý chung</h3>
-        <button class="btn btn-primary" onclick="openGaCapexForm()">+ Thêm Capex QLC</button>
+        <button class="btn btn-primary" onclick="openGaCapexForm()">+ Thêm TSCĐ QLC</button>
       </div>
       <div class="card-body no-pad">
         <div class="tbl-wrap">
           <table>
             <thead><tr>
-              <th>Năm</th><th>Mô tả tài sản</th>
+              <th style="width:130px">Loại TS</th>
+              <th>Tên / Mô tả</th>
+              <th>Mã / Vị trí / Phụ trách</th>
+              <th>Trạng thái</th>
+              <th class="mono" style="width:75px">Năm</th>
               <th class="num">Giá mua (VNĐ)</th>
               <th>Ngoại tệ</th>
               <th></th>
             </tr></thead>
             <tbody>
-              ${rows.length ? rows.slice().sort((a,b) => parseInt(b.year||0) - parseInt(a.year||0)).map(r=>`
-                <tr${r.recordAsInvestment?' style="background:#F0F4FF"':''}>
-                  <td class="mono">${r.year}</td>
+              ${rows.length ? rows.slice().sort((a,b) => {
+                // Sort theo loại TS, sau đó năm DESC
+                const ta = a.assetType || 'other';
+                const tb = b.assetType || 'other';
+                if (ta !== tb) return ta.localeCompare(tb);
+                return parseInt(b.year||0) - parseInt(a.year||0);
+              }).map(r => {
+                const typeLabels = {
+                  real_estate:'🏢 Bất động sản', vehicle:'🚗 Xe', office:'🖨️ Máy VP',
+                  furniture:'🪑 Nội thất', it:'💻 IT', other:'📦 Khác',
+                };
+                const statusBadges = {
+                  active:     '<span class="badge badge-green" style="font-size:10px">✅ Đang dùng</span>',
+                  liquidating:'<span class="badge badge-amber" style="font-size:10px">🟡 Thanh lý</span>',
+                  sold:       '<span class="badge badge-gray" style="font-size:10px">⚪ Đã bán</span>',
+                };
+                const typeLabel = typeLabels[r.assetType||'other'] || '📦 Khác';
+                const statusBadge = statusBadges[r.status||'active'] || statusBadges.active;
+                const meta = [r.assetCode, r.location, r.owner].filter(Boolean).join(' · ') || '—';
+                const isSold = r.status === 'sold';
+                return `<tr${r.recordAsInvestment?' style="background:#F0F4FF"':isSold?' style="background:#F8F8F8;opacity:.65"':''}>
+                  <td><span class="badge badge-gray" style="font-size:11px">${typeLabel}</span></td>
                   <td>
-                    ${r.description||'—'}
+                    <strong>${r.description||'—'}</strong>
                     ${r.recordAsInvestment?'<span class="badge badge-blue" style="font-size:10px;margin-left:6px">📊 Có KH</span>':''}
-                    <br><span class="text-muted" style="font-size:11px">${r.notes||''}</span>
+                    ${r.notes?`<br><span class="text-muted" style="font-size:11px">${r.notes}</span>`:''}
                   </td>
+                  <td style="font-size:12px;color:var(--text2)">${meta}</td>
+                  <td>${statusBadge}</td>
+                  <td class="mono">${r.year}</td>
                   <td class="num">${fmtVnd(r.amountVnd)}</td>
                   <td>${r.currency&&r.currency!=='VND'?`${fmt(r.amount)} ${r.currency}`:'—'}</td>
                   <td class="row-actions">
                     <button class="btn btn-ghost btn-xs" onclick="openGaCapexForm(${JSON.stringify(r).replace(/"/g,'&quot;')})">✏️</button>
                     <button class="btn btn-ghost btn-xs" onclick="deleteGaCapex('${r.id}')">🗑</button>
                   </td>
-                </tr>`).join('') : `<tr><td colspan="5"><div class="empty-state">Chưa có Capex QLC nào.</div></td></tr>`}
+                </tr>`;
+              }).join('') : `<tr><td colspan="8"><div class="empty-state">Chưa có TSCĐ Quản lý chung nào.<br><span style="font-size:12px;color:var(--text3)">Bấm "+ Thêm TSCĐ QLC" để bắt đầu.</span></div></td></tr>`}
             </tbody>
           </table>
         </div>
@@ -5153,20 +5180,69 @@ async function renderGaCapex() {
 function openGaCapexForm(r={}) {
   const currs=['VND','USD','SGD','EUR','GBP'].map(c=>`<option value="${c}"${c===(r.currency||'VND')?'selected':''}>${c}</option>`).join('');
   const yr = r.year||S.year;
+
+  // Loại TS
+  const assetTypes = [
+    {v:'real_estate', l:'🏢 Bất động sản (BĐS)'},
+    {v:'vehicle',     l:'🚗 Xe & Phương tiện'},
+    {v:'office',      l:'🖨️ Máy văn phòng'},
+    {v:'furniture',   l:'🪑 Thiết bị / Nội thất'},
+    {v:'it',          l:'💻 Thiết bị IT / Hạ tầng'},
+    {v:'other',       l:'📦 Khác'},
+  ];
+  const typeOpts = assetTypes.map(t=>`<option value="${t.v}"${t.v===(r.assetType||'office')?' selected':''}>${t.l}</option>`).join('');
+
+  // Trạng thái
+  const statusOpts = [
+    {v:'active',     l:'✅ Đang sử dụng'},
+    {v:'liquidating',l:'🟡 Đang thanh lý'},
+    {v:'sold',       l:'⚪ Đã bán / Thanh lý xong'},
+  ].map(s=>`<option value="${s.v}"${s.v===(r.status||'active')?' selected':''}>${s.l}</option>`).join('');
+
   const html=`
     <div style="background:#FFF8E1;border-left:4px solid var(--amber);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--text2)">
       <strong>📌 Lưu ý:</strong> Capex Quản lý chung chỉ <strong>theo dõi đầu tư đích danh</strong>. KHÔNG khấu hao, KHÔNG vào P/L &amp; BCTC.<br>
       Tick checkbox bên dưới nếu muốn ghi nhận khấu hao vào BCTC (sẽ tự sinh khoản trong "Đầu tư &amp; Khấu hao").
     </div>
     <div class="form-grid cols2">
-      <div class="field required"><label>Năm</label><input type="number" id="gacx_yr" value="${yr}" min="2000" max="2099"/></div>
-      <div class="field required" style="grid-column:span 2"><label>Mô tả tài sản</label>
-        <input id="gacx_desc" value="${r.description||''}" placeholder="VD: Bộ máy in văn phòng, Đồ dùng nội thất, Thiết bị họp..."/>
+      <!-- Hàng 1: Loại TS + Trạng thái -->
+      <div class="field required"><label>Loại tài sản</label>
+        <select id="gacx_type">${typeOpts}</select>
       </div>
+      <div class="field required"><label>Trạng thái</label>
+        <select id="gacx_status">${statusOpts}</select>
+      </div>
+
+      <!-- Hàng 2: Mô tả tài sản (tên) -->
+      <div class="field required" style="grid-column:span 2"><label>Tên / Mô tả tài sản</label>
+        <input id="gacx_desc" value="${r.description||''}" placeholder="VD: Toyota Camry phục vụ giám đốc, Văn phòng tầng 3..."/>
+      </div>
+
+      <!-- Hàng 3: Mã TS + Vị trí -->
+      <div class="field"><label>Mã / Biển số / Số serial</label>
+        <input id="gacx_code" value="${r.assetCode||''}" placeholder="VD: 51A-12345, S/N-XYZ123, Toà nhà A..."/>
+      </div>
+      <div class="field"><label>Vị trí / Đặt tại</label>
+        <input id="gacx_loc" value="${r.location||''}" placeholder="VD: VP HCM, Kho Hải Phòng, Tầng 3..."/>
+      </div>
+
+      <!-- Hàng 4: Người quản lý + Năm -->
+      <div class="field"><label>Người quản lý / Phụ trách</label>
+        <input id="gacx_owner" value="${r.owner||''}" placeholder="Tên người chịu trách nhiệm"/>
+      </div>
+      <div class="field required"><label>Năm hạch toán</label>
+        <input type="number" id="gacx_yr" value="${yr}" min="2000" max="2099"/>
+      </div>
+
+      <!-- Hàng 5: Giá mua + Tiền tệ -->
       <div class="field required"><label>Giá mua</label><input type="number" id="gacx_amt" value="${r.amount||''}" min="0"/></div>
       <div class="field"><label>Đơn vị tiền tệ</label><select id="gacx_cur">${currs}</select></div>
+
+      <!-- Hàng 6: Tỷ giá + Ngày mua -->
       <div class="field"><label>Tỷ giá</label><input type="number" id="gacx_fx" value="${r.fxRate||1}"/></div>
       <div class="field"><label>Ngày mua</label><input type="date" id="gacx_idate" value="${r.investDate||(yr+'-01-01')}"/></div>
+
+      <!-- Ghi chú -->
       <div class="field" style="grid-column:span 2"><label>Ghi chú</label><input id="gacx_notes" value="${r.notes||''}"/></div>
 
       <!-- ── ĐỒNG BỘ ĐẦU TƯ & KHẤU HAO ── -->
@@ -5195,18 +5271,25 @@ function openGaCapexForm(r={}) {
         </div>
       </div>
     </div>`;
-  openModal(r.id?'Cập nhật Capex QLC':'Thêm Capex Quản lý chung',html,async()=>{
+  openModal(r.id?'Cập nhật TSCĐ Quản lý chung':'Thêm TSCĐ Quản lý chung',html,async()=>{
     const amt=parseFloat(gv('gacx_amt'))||0;const fx=parseFloat(gv('gacx_fx'))||1;
     const recordAsInvestment = !!document.getElementById('gacx_invest')?.checked;
     const payload={
       id:r.id||newId(),
       year:gv('gacx_yr'),
+      // Field mới
+      assetType: gv('gacx_type') || 'other',
+      status:    gv('gacx_status') || 'active',
+      assetCode: gv('gacx_code') || '',
+      location:  gv('gacx_loc') || '',
+      owner:     gv('gacx_owner') || '',
+      // Field cũ
       description:gv('gacx_desc'),
       amount:amt, currency:gv('gacx_cur'), fxRate:fx,
       amountVnd:Math.round(amt*fx),
       notes:gv('gacx_notes'),
       investDate: gv('gacx_idate') || (gv('gacx_yr')+'-01-01'),
-      // ── Đồng bộ Đầu tư & Khấu hao ──
+      // Đồng bộ Đầu tư & Khấu hao
       recordAsInvestment,
       investMethod: recordAsInvestment ? (gv('gacx_invest_method')||'straight') : '',
       investYears: recordAsInvestment ? (parseInt(gv('gacx_invest_years'))||5) : 0,
