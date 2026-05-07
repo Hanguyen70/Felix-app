@@ -952,7 +952,10 @@ function _lsLoadAll() {
     if (!raw) return null;
     const blob = JSON.parse(raw);
     // ─── AUTO MIGRATION: cập nhật danh mục cũ khi schema thay đổi ───
-    if (blob && blob.DEMO) _migrateCostCatsSchema(blob.DEMO);
+    if (blob && blob.DEMO) {
+      _migrateCostCatsSchema(blob.DEMO);
+      _migrateInvestmentsSchema(blob.DEMO);
+    }
     return blob;
   } catch(e) { console.warn('[persist] load failed:', e); return null; }
 }
@@ -1107,6 +1110,30 @@ function _migrateCostCatsSchema(demo) {
   // Đánh dấu đã migrate
   demo._schemaVersion = '2026.05.07-f';
   console.log('[migration] Hoàn tất cập nhật danh mục.');
+}
+
+// Migration: cập nhật Investments có schema sai (auto-sync cũ dùng cost/usefulLife thay vì amount/years)
+function _migrateInvestmentsSchema(demo) {
+  if (!demo || !Array.isArray(demo.investments)) return;
+  const invs = demo.investments;
+  let touched = 0;
+  invs.forEach(inv => {
+    let changed = false;
+    // Map cost → amount (nếu có cost mà chưa có amount)
+    if (inv.cost !== undefined && (inv.amount === undefined || inv.amount === null || inv.amount === 0)) {
+      inv.amount = inv.cost;
+      changed = true;
+    }
+    // Map usefulLife → years (nếu có usefulLife mà chưa có years hợp lệ)
+    if (inv.usefulLife !== undefined && (!inv.years || inv.years === 0 || inv.years === undefined)) {
+      inv.years = inv.usefulLife;
+      changed = true;
+    }
+    if (changed) touched++;
+  });
+  if (touched > 0) {
+    console.log(`[migration] Cập nhật ${touched} khoản Đầu tư về schema mới (amount/years).`);
+  }
 }
 
 // Khôi phục dữ liệu cho SM/GA/OM ngay sau khi chúng được khai báo
@@ -1909,10 +1936,10 @@ function _demoDataCore(action, p, DEMO) {
     case 'getCostCats':    return [...DEMO.costCats];
     case 'getRevCats':     return [...DEMO.revCats];
     case 'getProjects':    {
-      // Filter theo vesselId và year. Đơn giản: dự án "thuộc năm Y" nếu:
-      //   - onhireAt năm = Y (dự án bắt đầu trong năm), HOẶC
-      //   - dự án kéo dài qua năm Y (start ≤ Y ≤ end)
-      // Mục tiêu: cố gắng hiển thị tất cả dự án có liên quan, không loại bỏ nhầm.
+      // Filter theo vesselId và year. Logic nhất quán với báo cáo năm:
+      //   - Nếu có cả onhireAt và offhireAt hợp lệ → check giao thoa năm Y
+      //   - Nếu chỉ có onhireAt → dự án thuộc năm bắt đầu (Y === startYr)
+      //   - Không có onhireAt → loại
       const getDateField = (r, ...fields) => {
         for (const f of fields) {
           if (r[f]) return String(r[f]);
@@ -1930,16 +1957,13 @@ function _demoDataCore(action, p, DEMO) {
         const Y = parseInt(p.year);
         const startYr = getYearOf(r, 'onhireAt', 'startDate');
         const endYr   = getYearOf(r, 'offhireAt', 'endDate');
-        // Nếu start và end đều có và hợp lệ (start ≤ end) → check khoảng
-        if (startYr && endYr && startYr <= endYr) {
+        if (!startYr) return false;  // Không có ngày bắt đầu → loại
+        // Nếu có cả start và end (hợp lệ) → check giao thoa
+        if (endYr && startYr <= endYr) {
           return Y >= startYr && Y <= endYr;
         }
-        // Còn lại: dự án thuộc năm khởi đầu (đơn giản, an toàn)
-        if (startYr) return Y === startYr || (r.status === 'active' && Y > startYr);
-        if (endYr)   return Y === endYr;
-        // Fallback: contractDate hoặc createdAt
-        const fbYr = getYearOf(r, 'contractDate', 'createdAt');
-        return fbYr ? fbYr === Y : true;
+        // Chỉ có start: dự án thuộc năm bắt đầu (đơn giản, nhất quán với báo cáo)
+        return Y === startYr;
       });
       // Sort: onhireAt DESC (mới nhất trên cùng), fallback startDate, contractDate, createdAt
       filtered.sort((a, b) => {
@@ -4635,16 +4659,18 @@ async function _syncOmCapexInvestment(capexPayload) {
       name: 'Đầu tư O&M — ' + (c.description || ''),
       scope: 'om',
       vesselId: '',
+      contractId: c.contractId || '',
       capexLinkId: linkId,
       investDate: c.investDate || (c.year + '-01-01'),
-      cost: c.amountVnd,
+      amount: c.amountVnd,
       currency: 'VND',
       fxRate: 1,
       amountVnd: c.amountVnd,
       method: c.investMethod || 'straight',
-      usefulLife: c.investYears || 5,
+      years: c.investYears || 5,
+      decliningRate: 0,
       salvageValue: 0,
-      notes: 'Tự đồng bộ từ Capex O&M. Sửa qua trang Capex O&M để cập nhật.',
+      description: 'Tự đồng bộ từ Capex O&M',
       _autoSource: AUTO_TAG,
       createdAt: existingInvest?.createdAt || new Date().toISOString(),
     };
@@ -4891,14 +4917,15 @@ async function _syncGaCapexInvestment(capexPayload) {
       vesselId: '',
       capexLinkId: linkId,
       investDate: c.investDate || (c.year + '-01-01'),
-      cost: c.amountVnd,
+      amount: c.amountVnd,
       currency: 'VND',
       fxRate: 1,
       amountVnd: c.amountVnd,
       method: c.investMethod || 'straight',
-      usefulLife: c.investYears || 5,
+      years: c.investYears || 5,
+      decliningRate: 0,
       salvageValue: 0,
-      notes: 'Tự đồng bộ từ Capex Quản lý chung. Sửa qua trang Capex QLC để cập nhật.',
+      description: 'Tự đồng bộ từ Capex Quản lý chung',
       _autoSource: AUTO_TAG,
       createdAt: existingInvest?.createdAt || new Date().toISOString(),
     };
@@ -5555,14 +5582,15 @@ async function _syncVesselCapexAndInvest(vesselPayload) {
       vesselId: v.id,
       capexLinkId: 'cx:' + capexPayload.id,
       investDate: v.purchaseDate || (yr + '-01-01'),
-      cost: v.purchaseCostVND,
+      amount: v.purchaseCostVND,
       currency: 'VND',
       fxRate: 1,
       amountVnd: v.purchaseCostVND,
       method: v.investMethod || 'straight',
-      usefulLife: v.investYears || 10,
+      years: v.investYears || 10,
+      decliningRate: 0,
       salvageValue: 0,
-      notes: 'Tự đồng bộ từ form Tàu (đánh dấu "Ghi vào Đầu tư & Khấu hao"). Sửa qua form Tàu để cập nhật.',
+      description: 'Tự đồng bộ từ form Tàu',
       _autoSource: AUTO_TAG,
       createdAt: existingInvest?.createdAt || new Date().toISOString(),
     };
