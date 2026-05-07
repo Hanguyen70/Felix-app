@@ -5811,7 +5811,7 @@ function _renderCostCatsContent() {
 function openCostCatForm(c={}) {
   const grpDefs = [
     {k:'A',l:'Hàng hải'},      {k:'B',l:'Kỹ thuật hàng hải'},
-    {k:'C',l:'Nhiên liệu'},    {k:'D',l:'Phát sinh dự án'},
+    {k:'D',l:'Phát sinh dự án'},
     {k:'E',l:'Đầu tư'},        {k:'F',l:'Phân bổ'},
     {k:'T',l:'Trích quỹ (T) — bút toán tự gán accountType=T'},
     {k:'P',l:'Pass-through (P) — chi hộ, không vào P/L'},
@@ -11113,6 +11113,8 @@ function openOmCatForm(c={}) {
     {k:'A',l:'Chuyên gia'}, {k:'B',l:'Bảo hiểm'},
     {k:'C',l:'Logistics'}, {k:'D',l:'CPQL (Nhân sự & Quản lý)'},
     {k:'E',l:'PTSC QN (Subcontract)'}, {k:'F',l:'Không thường xuyên / Khác'},
+    {k:'P',l:'Thuê ngoài / Pass-through (không vào P/L)'},
+    {k:'L',l:'Loại khỏi báo cáo (Excluded)'},
   ];
   const grpMap = Object.fromEntries(omGrps.map(g=>[g.k,g.l]));
   const gOpts = omGrps.map(g=>`<option value="${g.k}"${g.k===c.group?'selected':''}>${g.k}. ${g.l}</option>`).join('');
