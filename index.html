@@ -1156,6 +1156,177 @@ const _WRITE_ACTIONS = new RegExp('^(save|delete|update|add|remove)', 'i');
 function _isWriteAction(action) { return _WRITE_ACTIONS.test(action); }
 
 // ═══════════════════════════════════════════════════════
+// UNDO SYSTEM — Stack hoàn tác cho mọi thao tác save/delete
+// ═══════════════════════════════════════════════════════
+// Mỗi item trong stack: { label, undoAction, undoPayload, ts }
+//   - label: text hiển thị (vd: "Xoá chi phí 'Sửa máy chính'")
+//   - undoAction: api action để áp dụng inverse (vd: 'saveCostEntry' để khôi phục)
+//   - undoPayload: payload của inverse action
+//   - ts: timestamp
+// Stack giới hạn 10, lưu trong RAM (không persist sang reload)
+const _UNDO_STACK = [];
+const _UNDO_MAX = 10;
+
+// Đẩy 1 action vào stack + cập nhật UI
+function _undoPush(item) {
+  _UNDO_STACK.push({ ...item, ts: Date.now() });
+  if (_UNDO_STACK.length > _UNDO_MAX) _UNDO_STACK.shift();
+  _undoUpdateBtn();
+}
+
+// Lấy snapshot dữ liệu hiện tại trước khi save/delete
+// Để chuẩn bị action inverse (khôi phục dữ liệu cũ)
+async function _undoSnapshot(action, payload) {
+  // Map mỗi write action → cách lấy dữ liệu cũ và build inverse action
+  // Logic: với SAVE → cần lấy bản ghi hiện có (nếu update) hoặc rỗng (nếu insert)
+  //        với DELETE → cần lấy bản ghi sắp xoá để có thể save lại
+  const inverse = await _undoBuildInverse(action, payload);
+  if (!inverse) return null;
+  return inverse;
+}
+
+// Build inverse action cho 1 action gốc
+// Trả về: { label, undoAction, undoPayload } hoặc null nếu không support
+async function _undoBuildInverse(action, payload) {
+  if (!payload) return null;
+
+  // ── Pattern: deleteX → saveX với data cũ ──
+  if (action.startsWith('delete')) {
+    const entityType = action.substring(6); // delete + EntityType
+    const getAction = 'get' + entityType + 's';  // vd: getCostEntries (số nhiều)
+    const getActionAlt = 'get' + entityType;     // vd: getCostEntry (số ít, fallback)
+    const saveAction = 'save' + entityType;
+    let oldRec = null;
+    try {
+      let list = await api(getAction, {}).catch(()=>null);
+      if (!Array.isArray(list)) {
+        list = await api(getActionAlt, {}).catch(()=>null);
+      }
+      if (Array.isArray(list)) {
+        oldRec = list.find(r => r.id === payload.id);
+      }
+    } catch(e) {}
+    if (!oldRec) return null;
+    return {
+      label: `Xoá ${_undoEntityLabel(entityType)}` + (oldRec.name||oldRec.description||oldRec.title ? ` "${oldRec.name||oldRec.description||oldRec.title}"`:''),
+      undoAction: saveAction,
+      undoPayload: oldRec,
+    };
+  }
+
+  // ── Pattern: saveX → 2 trường hợp ──
+  // 1. Insert (id mới chưa có) → undo = deleteX
+  // 2. Update (id đã có) → undo = saveX với bản cũ
+  if (action.startsWith('save')) {
+    const entityType = action.substring(4);
+    const getAction = 'get' + entityType + 's';
+    const getActionAlt = 'get' + entityType;
+    const deleteAction = 'delete' + entityType;
+    let existingRec = null;
+    try {
+      let list = await api(getAction, {}).catch(()=>null);
+      if (!Array.isArray(list)) list = await api(getActionAlt, {}).catch(()=>null);
+      if (Array.isArray(list)) {
+        existingRec = list.find(r => r.id === payload.id);
+      }
+    } catch(e) {}
+
+    if (!existingRec) {
+      // Insert mới → undo = delete
+      return {
+        label: `Thêm ${_undoEntityLabel(entityType)}` + (payload.name||payload.description ? ` "${payload.name||payload.description}"`:''),
+        undoAction: deleteAction,
+        undoPayload: { id: payload.id },
+      };
+    } else {
+      // Update → undo = save bản cũ (deep copy để snapshot)
+      return {
+        label: `Sửa ${_undoEntityLabel(entityType)}` + (existingRec.name||existingRec.description ? ` "${existingRec.name||existingRec.description}"`:''),
+        undoAction: 'save' + entityType,
+        undoPayload: JSON.parse(JSON.stringify(existingRec)),
+      };
+    }
+  }
+
+  return null;
+}
+
+// Map entity type → tên thân thiện tiếng Việt
+const _UNDO_ENTITY_LABELS = {
+  Vessel: 'tàu', Project: 'dự án', CostEntry: 'chi phí', RevEntry: 'doanh thu',
+  CostCat: 'danh mục chi phí', RevCat: 'danh mục DT',
+  Capex: 'Capex', OmCapex: 'Capex O&M', GaCapex: 'Capex QLC',
+  Investment: 'khoản đầu tư', FixedAsset: 'TSCĐ',
+  OmContract: 'HĐ O&M', OmCostEntry: 'chi phí O&M', OmRevEntry: 'DT O&M',
+  OmCostCat: 'mục O&M', OmPlan: 'KH O&M',
+  SmContract: 'HĐ Ship Mgmt', SmRevEntry: 'DT Ship Mgmt', SmCostEntry: 'CP Ship Mgmt',
+  SmPassthrough: 'pass-through SM',
+  GaEntry: 'CP G&A', GaRevEntry: 'DT G&A', GaCat: 'mục G&A', GaTaxAdj: 'điều chỉnh thuế',
+  FuelStockEntry: 'bút toán nhiên liệu', FuelTransfer: 'chuyển nhiên liệu',
+  InventoryEntry: 'kho vật tư',
+  AnnualPlan: 'KH năm', PlanRevEntry: 'KH doanh thu',
+};
+function _undoEntityLabel(entityType) {
+  return _UNDO_ENTITY_LABELS[entityType] || entityType.toLowerCase();
+}
+
+// Thực hiện undo — pop top stack và áp dụng inverse
+async function performUndo() {
+  if (_UNDO_STACK.length === 0) {
+    toast('Không có thao tác nào để hoàn tác','warn');
+    return;
+  }
+  const item = _UNDO_STACK.pop();
+  _undoUpdateBtn();
+  showLoading();
+  try {
+    // Đánh dấu đây là undo để api() không lại push vào stack (tránh vòng lặp)
+    await api(item.undoAction, item.undoPayload, { _isUndo: true });
+    toast(`✓ Đã hoàn tác: ${item.label}`,'ok');
+    // Refresh trang hiện tại để thấy thay đổi
+    if (typeof S !== 'undefined' && S.page && typeof ALL_PAGES !== 'undefined') {
+      const renderer = ALL_PAGES[S.page];
+      if (typeof renderer === 'function') {
+        try { await renderer(); } catch(e) {}
+      }
+    }
+  } catch(e) {
+    toast('Lỗi hoàn tác: '+e.message,'err');
+  }
+  hideLoading();
+}
+
+// Cập nhật UI nút floating Hoàn tác
+function _undoUpdateBtn() {
+  let btn = document.getElementById('felix-undo-btn');
+  if (_UNDO_STACK.length === 0) {
+    if (btn) btn.style.display = 'none';
+    return;
+  }
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.id = 'felix-undo-btn';
+    btn.onclick = performUndo;
+    btn.style.cssText = `
+      position:fixed; bottom:20px; left:20px; z-index:9998;
+      background:#1e293b; color:#fff;
+      border:none; border-radius:24px;
+      padding:10px 18px; font-size:13px; font-weight:600;
+      box-shadow:0 4px 12px rgba(0,0,0,.25);
+      cursor:pointer; display:flex; align-items:center; gap:8px;
+      transition: transform .15s, background .15s;
+    `;
+    btn.onmouseenter = () => { btn.style.background = '#0f172a'; btn.style.transform = 'translateY(-2px)'; };
+    btn.onmouseleave = () => { btn.style.background = '#1e293b'; btn.style.transform = 'translateY(0)'; };
+    document.body.appendChild(btn);
+  }
+  const last = _UNDO_STACK[_UNDO_STACK.length - 1];
+  const labelTrim = last.label.length > 40 ? last.label.slice(0, 38) + '…' : last.label;
+  btn.innerHTML = `↶ Hoàn tác: <span style="opacity:.85;font-weight:400">${labelTrim}</span> <span style="opacity:.5;font-size:10px;margin-left:4px">(${_UNDO_STACK.length})</span>`;
+  btn.style.display = 'flex';
+}
+
+// ═══════════════════════════════════════════════════════
 // AES-256-GCM ENCRYPTION LAYER
 // Mã hoá blob trước khi sync lên cloud
 // ═══════════════════════════════════════════════════════
@@ -1742,34 +1913,51 @@ const S = {
 // ═══════════════════════════════════════════════════════
 // API LAYER
 // ═══════════════════════════════════════════════════════
-async function api(action, payload = {}) {
+async function api(action, payload = {}, opts = {}) {
+  // ─── UNDO CAPTURE: trước khi thực hiện write action, lấy snapshot inverse ───
+  // Bỏ qua nếu là chính action undo (tránh vòng lặp)
+  let undoSnapshot = null;
+  if (!opts._isUndo && _isWriteAction(action) && payload && payload.id) {
+    try {
+      undoSnapshot = await _undoBuildInverse(action, payload);
+    } catch(e) { /* silent */ }
+  }
+
+  let result;
   if (!API_URL) {
-    return demoData(action, payload);
-  }
-  try {
-    const url = new URL(API_URL);
-    url.searchParams.set('action', action);
-    let resp;
-    if (['getVessels','getCostCats','getRevCats','getProjects','getCostEntries',
-         'getRevEntries','getCapex','getFxRates','getAnnualPlan',
-         'getProjectReport','getAnnualReport','getUtilisationReport',
-         'getCapexReport','getDashboard','getPlanVsActual'].includes(action)) {
-      Object.entries(payload).forEach(([k,v]) => url.searchParams.set(k, v));
-      resp = await fetch(url);
-    } else {
-      resp = await fetch(API_URL + '?action=' + action, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-        headers: { 'Content-Type': 'application/json' }
-      });
+    result = demoData(action, payload);
+  } else {
+    try {
+      const url = new URL(API_URL);
+      url.searchParams.set('action', action);
+      let resp;
+      if (['getVessels','getCostCats','getRevCats','getProjects','getCostEntries',
+           'getRevEntries','getCapex','getFxRates','getAnnualPlan',
+           'getProjectReport','getAnnualReport','getUtilisationReport',
+           'getCapexReport','getDashboard','getPlanVsActual'].includes(action)) {
+        Object.entries(payload).forEach(([k,v]) => url.searchParams.set(k, v));
+        resp = await fetch(url);
+      } else {
+        resp = await fetch(API_URL + '?action=' + action, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      const json = await resp.json();
+      if (!json.ok) throw new Error(json.error || 'API error');
+      result = json.data;
+    } catch(e) {
+      console.warn(`[api] ${action} failed (${e.message}), falling back to demo data`);
+      result = demoData(action, payload);
     }
-    const json = await resp.json();
-    if (!json.ok) throw new Error(json.error || 'API error');
-    return json.data;
-  } catch(e) {
-    console.warn(`[api] ${action} failed (${e.message}), falling back to demo data`);
-    return demoData(action, payload);
   }
+
+  // ─── UNDO PUSH: sau khi write thành công, đẩy vào stack ───
+  if (undoSnapshot) {
+    _undoPush(undoSnapshot);
+  }
+  return result;
 }
 
 async function apiLoad(action, payload = {}) {
@@ -4118,44 +4306,130 @@ function openRevForm(e={}) {
   const isEdit = !!e.id;
   const isPlanDef = e.isPlan===true||e.isPlan==='true';
   const vOpts = S.vessels.map(v=>`<option value="${v.id}"${v.id===(e.vesselId||S.vesselId)?'selected':''}>${v.name}</option>`).join('');
-  const catOpts = S.revCats.map(c=>`<option value="${c.id}"${c.id===e.categoryId?'selected':''}>${c.name}</option>`).join('');
+  const catOpts = S.revCats.filter(c=>c.active!==false).map(c=>`<option value="${c.id}"${c.id===e.categoryId?'selected':''}>${c.name}</option>`).join('');
   const currencies = ['VND','USD','SGD','EUR','GBP'];
   const currOpts = currencies.map(c=>`<option value="${c}"${c===(e.currency||'VND')?'selected':''}>${c}</option>`).join('');
-  // Năm hiện tại / năm của bản ghi
   const curYear = (e.entryDate?e.entryDate.slice(0,4):(e.year||S.year||new Date().getFullYear()));
   const yearOpts = [];
   for (let y=new Date().getFullYear()-2; y<=new Date().getFullYear()+5; y++){
     yearOpts.push(`<option value="${y}"${String(y)===String(curYear)?'selected':''}>${y}</option>`);
   }
 
+  // ── EDIT MODE: form đơn (1 dòng) như cũ ──
+  if (isEdit) {
+    const html = `
+      <div class="form-grid cols2">
+        <div class="field required"><label>Tàu</label><select id="rev_v" onchange="loadRevProjectOpts()">${vOpts}</select></div>
+        <div class="field"><label>Dự án</label><select id="rev_p"><option value="">— Không gắn dự án —</option></select></div>
+        <div class="field required"><label>Đầu mục doanh thu</label><select id="rev_cat">${catOpts}</select></div>
+        <div class="field"><label>Loại</label>
+          <select id="rev_plan" onchange="revTogglePlan()">
+            <option value="false"${!isPlanDef?'selected':''}>Thực thu</option>
+            <option value="true"${isPlanDef?'selected':''}>Kế hoạch (theo năm)</option>
+          </select>
+        </div>
+        <div class="field required" id="rev_date_wrap"><label>Ngày</label><input type="date" id="rev_date" value="${e.entryDate||today()}"/></div>
+        <div class="field" id="rev_blank_wrap"></div>
+        <div class="field required" id="rev_year_wrap" style="display:none;grid-column:span 2"><label>Năm kế hoạch</label><select id="rev_year">${yearOpts.join('')}</select></div>
+        <div class="field required"><label>Số tiền</label><input type="number" id="rev_amt" value="${e.amount||''}" min="0"/></div>
+        <div class="field"><label>Đơn vị tiền tệ</label><select id="rev_cur">${currOpts}</select></div>
+        <div class="field"><label>Tỷ giá</label><input type="number" id="rev_fx" value="${e.fxRate||1}" step="1"/></div>
+        <div class="field"><label>Số tiền VNĐ</label><input type="number" id="rev_vnd" value="${e.amountVnd||''}" readonly style="background:var(--gray1)"/></div>
+        <div class="field"><label>Số hợp đồng / HĐ</label><input id="rev_inv" value="${e.invoiceNo||''}"/></div>
+        <div class="field" style="grid-column:span 2"><label>Mô tả</label><input id="rev_desc" value="${e.description||''}"/></div>
+      </div>`;
+    openModal('Cập nhật doanh thu', html, async()=>{
+      const amt=parseFloat(gv('rev_amt'))||0;
+      const fx=parseFloat(gv('rev_fx'))||1;
+      const isPlan = gv('rev_plan')==='true';
+      let entryDate, yearVal;
+      if (isPlan) {
+        yearVal = parseInt(gv('rev_year')) || new Date().getFullYear();
+        entryDate = `${yearVal}-01-01`;
+      } else {
+        entryDate = gv('rev_date');
+        yearVal = entryDate ? parseInt(entryDate.slice(0,4)) : new Date().getFullYear();
+      }
+      const payload={
+        id:e.id, vesselId:gv('rev_v'), projectId:gv('rev_p')||'',
+        categoryId:gv('rev_cat'), entryDate, year:yearVal,
+        amount:amt, currency:gv('rev_cur'), fxRate:fx, amountVnd:Math.round(amt*fx),
+        description:gv('rev_desc'), invoiceNo:gv('rev_inv'),
+        isPlan,
+        createdAt:e.createdAt||new Date().toISOString(),
+      };
+      if(!payload.vesselId||!payload.amount){toast('Điền đủ thông tin','warn');return;}
+      showLoading();
+      try{await api('saveRevEntry',payload);toast('Đã lưu','ok');closeModal();renderRevenue();}
+      catch(err){toast('Lỗi: '+err.message,'err');}
+      hideLoading();
+    });
+    setTimeout(()=>{
+      loadRevProjectOpts(e.projectId);
+      const compVnd=()=>{const a=parseFloat(document.getElementById('rev_amt')?.value)||0;const fx=parseFloat(document.getElementById('rev_fx')?.value)||1;if(document.getElementById('rev_vnd'))document.getElementById('rev_vnd').value=Math.round(a*fx);};
+      document.getElementById('rev_amt')?.addEventListener('input',compVnd);
+      document.getElementById('rev_fx')?.addEventListener('input',compVnd);
+      revTogglePlan();
+    },50);
+    return;
+  }
+
+  // ── INSERT MODE: form multi-line (1 invoice → nhiều dòng) ──
+  // Header chung (Tàu, Dự án, Loại, Ngày, Tiền tệ, Tỷ giá, Số HĐ) + bảng dòng đầu mục × số tiền.
   const html = `
+    <div style="background:#F0F4FF;border-left:4px solid var(--blue);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--text2)">
+      💡 <strong>Nhập 1 lần nhiều đầu mục:</strong> Header chung dùng cho tất cả các dòng. Mỗi dòng = 1 bút toán doanh thu riêng (cùng invoice).
+    </div>
+    <!-- Header chung -->
     <div class="form-grid cols2">
       <div class="field required"><label>Tàu</label><select id="rev_v" onchange="loadRevProjectOpts()">${vOpts}</select></div>
       <div class="field"><label>Dự án</label><select id="rev_p"><option value="">— Không gắn dự án —</option></select></div>
-      <div class="field required"><label>Đầu mục doanh thu</label><select id="rev_cat">${catOpts}</select></div>
       <div class="field"><label>Loại</label>
         <select id="rev_plan" onchange="revTogglePlan()">
           <option value="false"${!isPlanDef?'selected':''}>Thực thu</option>
           <option value="true"${isPlanDef?'selected':''}>Kế hoạch (theo năm)</option>
         </select>
       </div>
-      <!-- Khối Thực thu: Ngày -->
-      <div class="field required" id="rev_date_wrap"><label>Ngày</label><input type="date" id="rev_date" value="${e.entryDate||today()}"/></div>
-      <div class="field" id="rev_blank_wrap"></div>
-      <!-- Khối Kế hoạch: Năm -->
-      <div class="field required" id="rev_year_wrap" style="display:none;grid-column:span 2"><label>Năm kế hoạch</label><select id="rev_year">${yearOpts.join('')}</select></div>
-      <div class="field required"><label>Số tiền</label><input type="number" id="rev_amt" value="${e.amount||''}" min="0"/></div>
-      <div class="field"><label>Đơn vị tiền tệ</label><select id="rev_cur">${currOpts}</select></div>
-      <div class="field"><label>Tỷ giá</label><input type="number" id="rev_fx" value="${e.fxRate||1}" step="1"/></div>
-      <div class="field"><label>Số tiền VNĐ</label><input type="number" id="rev_vnd" value="${e.amountVnd||''}" readonly style="background:var(--gray1)"/></div>
-      <div class="field"><label>Số hợp đồng / HĐ</label><input id="rev_inv" value="${e.invoiceNo||''}"/></div>
-      <div class="field" style="grid-column:span 2"><label>Mô tả</label><input id="rev_desc" value="${e.description||''}"/></div>
+      <div class="field required" id="rev_date_wrap"><label>Ngày</label><input type="date" id="rev_date" value="${today()}"/></div>
+      <div class="field required" id="rev_year_wrap" style="display:none"><label>Năm kế hoạch</label><select id="rev_year">${yearOpts.join('')}</select></div>
+      <div class="field"><label>Đơn vị tiền tệ</label><select id="rev_cur" onchange="_revRecalcAllVnd()">${currOpts}</select></div>
+      <div class="field"><label>Tỷ giá</label><input type="number" id="rev_fx" value="1" step="1" oninput="_revRecalcAllVnd()"/></div>
+      <div class="field" style="grid-column:span 2"><label>Số hợp đồng / Số HĐ</label><input id="rev_inv" placeholder="Không bắt buộc — nếu nhập, các dòng sẽ chia sẻ chung mã invoice"/></div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>📋 Chi tiết các đầu mục doanh thu</span>
+      <button class="btn btn-ghost btn-xs" onclick="_revAddLine()">+ Thêm dòng</button>
+    </div>
+    <div class="tbl-wrap" style="margin-bottom:8px">
+      <table style="font-size:13px">
+        <thead><tr>
+          <th style="width:40%">Đầu mục doanh thu *</th>
+          <th class="num" style="width:20%">Số tiền *</th>
+          <th class="num" style="width:20%">Quy VNĐ</th>
+          <th>Mô tả</th>
+          <th style="width:40px"></th>
+        </tr></thead>
+        <tbody id="rev_lines"></tbody>
+        <tfoot>
+          <tr style="background:var(--gray1);font-weight:700">
+            <td style="text-align:right">Tổng:</td>
+            <td class="num" id="rev_total_orig">0</td>
+            <td class="num" id="rev_total_vnd">0 ₫</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
     </div>`;
 
-  openModal(isEdit?'Cập nhật doanh thu':'Nhập doanh thu', html, async()=>{
-    const amt=parseFloat(gv('rev_amt'))||0;
-    const fx=parseFloat(gv('rev_fx'))||1;
+  openModal('Nhập doanh thu — Chi tiết theo đầu mục', html, async()=>{
     const isPlan = gv('rev_plan')==='true';
+    const vesselId = gv('rev_v');
+    const projectId = gv('rev_p') || '';
+    const cur = gv('rev_cur') || 'VND';
+    const fx  = parseFloat(gv('rev_fx')) || 1;
+    const invoiceNo = gv('rev_inv') || '';
     let entryDate, yearVal;
     if (isPlan) {
       yearVal = parseInt(gv('rev_year')) || new Date().getFullYear();
@@ -4164,28 +4438,89 @@ function openRevForm(e={}) {
       entryDate = gv('rev_date');
       yearVal = entryDate ? parseInt(entryDate.slice(0,4)) : new Date().getFullYear();
     }
-    const payload={
-      id:e.id||newId(), vesselId:gv('rev_v'), projectId:gv('rev_p')||'',
-      categoryId:gv('rev_cat'), entryDate, year:yearVal,
-      amount:amt, currency:gv('rev_cur'), fxRate:fx, amountVnd:Math.round(amt*fx),
-      description:gv('rev_desc'), invoiceNo:gv('rev_inv'),
-      isPlan,
-      createdAt:e.createdAt||new Date().toISOString(),
-    };
-    if(!payload.vesselId||!payload.amount){toast('Điền đủ thông tin','warn');return;}
+
+    if (!vesselId) { toast('Chọn tàu','warn'); return; }
+
+    // Lấy tất cả lines
+    const lineRows = document.querySelectorAll('#rev_lines tr[data-line]');
+    const lines = [];
+    for (const row of lineRows) {
+      const catId = row.querySelector('.rev_l_cat')?.value || '';
+      const amt = parseFloat(row.querySelector('.rev_l_amt')?.value) || 0;
+      const desc = row.querySelector('.rev_l_desc')?.value || '';
+      if (!catId || amt <= 0) continue;  // Bỏ dòng trống
+      lines.push({ categoryId: catId, amount: amt, description: desc });
+    }
+    if (lines.length === 0) { toast('Nhập ít nhất 1 dòng đầu mục có số tiền','warn'); return; }
+
     showLoading();
-    try{await api('saveRevEntry',payload);toast('Đã lưu','ok');closeModal();renderRevenue();}
-    catch(err){toast('Lỗi: '+err.message,'err');}
+    try {
+      // Lưu lần lượt từng dòng — mỗi dòng = 1 RevEntry
+      for (const ln of lines) {
+        const payload = {
+          id: newId(), vesselId, projectId,
+          categoryId: ln.categoryId, entryDate, year: yearVal,
+          amount: ln.amount, currency: cur, fxRate: fx, amountVnd: Math.round(ln.amount * fx),
+          description: ln.description, invoiceNo,
+          isPlan,
+          createdAt: new Date().toISOString(),
+        };
+        await api('saveRevEntry', payload);
+      }
+      toast(`Đã lưu ${lines.length} dòng doanh thu ✓`, 'ok');
+      closeModal(); renderRevenue();
+    } catch (err) {
+      toast('Lỗi: '+err.message, 'err');
+    }
     hideLoading();
-  });
+  }, 'lg');
 
   setTimeout(()=>{
-    loadRevProjectOpts(e.projectId);
-    const compVnd=()=>{const a=parseFloat(document.getElementById('rev_amt')?.value)||0;const fx=parseFloat(document.getElementById('rev_fx')?.value)||1;if(document.getElementById('rev_vnd'))document.getElementById('rev_vnd').value=Math.round(a*fx);};
-    document.getElementById('rev_amt')?.addEventListener('input',compVnd);
-    document.getElementById('rev_fx')?.addEventListener('input',compVnd);
-    revTogglePlan(); // Áp dụng trạng thái hiển thị ban đầu
-  },50);
+    loadRevProjectOpts();
+    revTogglePlan();
+    // Khởi tạo 1 dòng trống
+    _revAddLine();
+  }, 50);
+}
+
+// Helper: thêm 1 dòng vào bảng nhập DT multi-line
+function _revAddLine() {
+  const tbody = document.getElementById('rev_lines');
+  if (!tbody) return;
+  const idx = tbody.children.length;
+  const cats = (S.revCats||[]).filter(c => c.active !== false);
+  const catOpts = '<option value="">— Chọn —</option>' + cats.map(c =>
+    `<option value="${c.id}">${c.name}</option>`
+  ).join('');
+  const tr = document.createElement('tr');
+  tr.setAttribute('data-line', idx);
+  tr.innerHTML = `
+    <td><select class="rev_l_cat" style="width:100%">${catOpts}</select></td>
+    <td><input type="number" class="rev_l_amt" min="0" step="1" placeholder="0" style="width:100%;text-align:right" oninput="_revRecalcAllVnd()"/></td>
+    <td class="num rev_l_vnd" style="font-family:var(--mono);font-size:12px;color:var(--text3)">—</td>
+    <td><input type="text" class="rev_l_desc" placeholder="Tùy chọn" style="width:100%"/></td>
+    <td><button class="btn btn-ghost btn-xs" onclick="this.closest('tr').remove();_revRecalcAllVnd()">🗑</button></td>
+  `;
+  tbody.appendChild(tr);
+  _revRecalcAllVnd();
+}
+
+// Helper: tính lại tổng và VNĐ từng dòng
+function _revRecalcAllVnd() {
+  const fx = parseFloat(gv('rev_fx')) || 1;
+  let totalOrig = 0, totalVnd = 0;
+  document.querySelectorAll('#rev_lines tr[data-line]').forEach(row => {
+    const amt = parseFloat(row.querySelector('.rev_l_amt')?.value) || 0;
+    const vnd = Math.round(amt * fx);
+    const vndCell = row.querySelector('.rev_l_vnd');
+    if (vndCell) vndCell.textContent = amt > 0 ? fmtVnd(vnd) : '—';
+    totalOrig += amt;
+    totalVnd += vnd;
+  });
+  const o = document.getElementById('rev_total_orig');
+  const v = document.getElementById('rev_total_vnd');
+  if (o) o.textContent = fmt(totalOrig);
+  if (v) v.textContent = fmtVnd(totalVnd);
 }
 
 // Hiện/ẩn trường theo loại (Kế hoạch = chỉ năm; Thực thu = ngày)
@@ -8249,46 +8584,118 @@ async function renderOmRevenue() {
 }
 
 function openOmRevForm(r={}) {
+  const isEdit = !!r.id;
   const contracts = OM_DEMO.contracts;
   const cOpts = contracts.map(c=>`<option value="${c.id}"${c.id===r.contractId?'selected':''}>${c.name}</option>`).join('');
-  const catOpts = OM_DEMO.omRevCats.map(c=>`<option value="${c.id}"${c.id===r.categoryId?'selected':''}>${c.name}</option>`).join('');
+  const catOpts = OM_DEMO.omRevCats.filter(c=>c.active!==false).map(c=>`<option value="${c.id}"${c.id===r.categoryId?'selected':''}>${c.name}</option>`).join('');
   const currencies=['VND','USD'].map(c=>`<option value="${c}"${c===(r.currency||'VND')?'selected':''}>${c}</option>`).join('');
   const isPlanDef = r.isPlan===true||r.isPlan==='true';
-  // Năm hiện tại / năm của bản ghi
   const curYear = (r.entryDate?r.entryDate.slice(0,4):(r.year||S.year||new Date().getFullYear()));
   const yearOpts = [];
   for (let y=new Date().getFullYear()-2; y<=new Date().getFullYear()+5; y++){
     yearOpts.push(`<option value="${y}"${String(y)===String(curYear)?'selected':''}>${y}</option>`);
   }
 
-  const html=`
+  // ── EDIT MODE: form đơn (1 dòng) ──
+  if (isEdit) {
+    const html=`
+      <div class="form-grid cols2">
+        <div class="field required" style="grid-column:span 2"><label>Hợp đồng O&M</label><select id="orv_ctr">${cOpts}</select></div>
+        <div class="field required"><label>Đầu mục doanh thu</label><select id="orv_cat">${catOpts}</select></div>
+        <div class="field"><label>Loại</label>
+          <select id="orv_plan" onchange="omRevTogglePlan()">
+            <option value="false"${!isPlanDef?'selected':''}>Thực thu</option>
+            <option value="true"${isPlanDef?'selected':''}>Kế hoạch (theo năm)</option>
+          </select>
+        </div>
+        <div class="field required" id="orv_date_wrap"><label>Ngày</label><input type="date" id="orv_date" value="${r.entryDate||today()}"/></div>
+        <div class="field" id="orv_month_wrap"><label>Tháng hạch toán</label><input type="month" id="orv_month" value="${r.month||today().slice(0,7)}"/></div>
+        <div class="field required" id="orv_year_wrap" style="display:none;grid-column:span 2"><label>Năm kế hoạch</label><select id="orv_year">${yearOpts.join('')}</select></div>
+        <div class="field required"><label>Số tiền</label><input type="number" id="orv_amt" value="${r.amount||''}" min="0" oninput="omRevCompVnd()"/></div>
+        <div class="field"><label>Đồng tiền</label><select id="orv_cur" onchange="omRevCompVnd()">${currencies}</select></div>
+        <div class="field"><label>Tỷ giá</label><input type="number" id="orv_fx" value="${r.fxRate||1}" oninput="omRevCompVnd()"/></div>
+        <div class="field"><label>Số tiền VNĐ</label><input type="number" id="orv_vnd" value="${r.amountVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--teal)"/></div>
+        <div class="field" style="grid-column:span 2"><label>Mô tả</label><input id="orv_desc" value="${r.description||''}"/></div>
+      </div>`;
+    openModal('Cập nhật doanh thu O&M', html, async()=>{
+      const amt=parseFloat(gv('orv_amt'))||0, fx=parseFloat(gv('orv_fx'))||1;
+      const isPlan = gv('orv_plan')==='true';
+      let entryDate, month, yearVal;
+      if (isPlan) {
+        yearVal = parseInt(gv('orv_year')) || new Date().getFullYear();
+        entryDate = `${yearVal}-01-01`;
+        month = '';
+      } else {
+        entryDate = gv('orv_date');
+        month = gv('orv_month');
+        yearVal = entryDate ? parseInt(entryDate.slice(0,4)) : new Date().getFullYear();
+      }
+      const payload={id:r.id, contractId:gv('orv_ctr'), categoryId:gv('orv_cat'),
+        entryDate, month, year:yearVal,
+        amount:amt, currency:gv('orv_cur'), fxRate:fx, amountVnd:Math.round(amt*fx),
+        description:gv('orv_desc'), isPlan,
+        createdAt:r.createdAt||new Date().toISOString()};
+      if (!payload.contractId||!payload.amount){toast('Điền đủ thông tin (*)','warn');return;}
+      showLoading();try{await api('saveOmRevEntry',payload);toast('Đã lưu','ok');closeModal();renderOmRevenue();}catch(e){toast('Lỗi','err');}hideLoading();
+    });
+    setTimeout(()=>omRevTogglePlan(), 30);
+    return;
+  }
+
+  // ── INSERT MODE: form multi-line ──
+  const html = `
+    <div style="background:#F0F4FF;border-left:4px solid var(--blue);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--text2)">
+      💡 <strong>Nhập 1 lần nhiều đầu mục:</strong> Header chung dùng cho tất cả các dòng. Mỗi dòng = 1 bút toán doanh thu O&M riêng.
+    </div>
+    <!-- Header chung -->
     <div class="form-grid cols2">
       <div class="field required" style="grid-column:span 2"><label>Hợp đồng O&M</label><select id="orv_ctr">${cOpts}</select></div>
-      <div class="field required"><label>Đầu mục doanh thu</label><select id="orv_cat">${catOpts}</select></div>
       <div class="field"><label>Loại</label>
         <select id="orv_plan" onchange="omRevTogglePlan()">
           <option value="false"${!isPlanDef?'selected':''}>Thực thu</option>
           <option value="true"${isPlanDef?'selected':''}>Kế hoạch (theo năm)</option>
         </select>
       </div>
-      <!-- Khối Thực thu: Ngày + Tháng hạch toán -->
-      <div class="field required" id="orv_date_wrap"><label>Ngày</label><input type="date" id="orv_date" value="${r.entryDate||today()}"/></div>
-      <div class="field" id="orv_month_wrap"><label>Tháng hạch toán</label><input type="month" id="orv_month" value="${r.month||today().slice(0,7)}"/></div>
-      <!-- Khối Kế hoạch: chỉ có Năm -->
+      <div class="field required" id="orv_date_wrap"><label>Ngày</label><input type="date" id="orv_date" value="${today()}"/></div>
+      <div class="field" id="orv_month_wrap"><label>Tháng hạch toán</label><input type="month" id="orv_month" value="${today().slice(0,7)}"/></div>
       <div class="field required" id="orv_year_wrap" style="display:none;grid-column:span 2"><label>Năm kế hoạch</label><select id="orv_year">${yearOpts.join('')}</select></div>
-      <div class="field required"><label>Số tiền</label><input type="number" id="orv_amt" value="${r.amount||''}" min="0" oninput="omRevCompVnd()"/></div>
-      <div class="field"><label>Đồng tiền</label><select id="orv_cur" onchange="omRevCompVnd()">${currencies}</select></div>
-      <div class="field"><label>Tỷ giá</label><input type="number" id="orv_fx" value="${r.fxRate||1}" oninput="omRevCompVnd()"/></div>
-      <div class="field"><label>Số tiền VNĐ</label><input type="number" id="orv_vnd" value="${r.amountVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--teal)"/></div>
-      <div class="field" style="grid-column:span 2"><label>Mô tả</label><input id="orv_desc" value="${r.description||''}"/></div>
+      <div class="field"><label>Đồng tiền</label><select id="orv_cur" onchange="_omRevRecalcAllVnd()">${currencies}</select></div>
+      <div class="field"><label>Tỷ giá</label><input type="number" id="orv_fx" value="1" oninput="_omRevRecalcAllVnd()"/></div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>📋 Chi tiết các đầu mục doanh thu O&M</span>
+      <button class="btn btn-ghost btn-xs" onclick="_omRevAddLine()">+ Thêm dòng</button>
+    </div>
+    <div class="tbl-wrap" style="margin-bottom:8px">
+      <table style="font-size:13px">
+        <thead><tr>
+          <th style="width:40%">Đầu mục doanh thu *</th>
+          <th class="num" style="width:20%">Số tiền *</th>
+          <th class="num" style="width:20%">Quy VNĐ</th>
+          <th>Mô tả</th>
+          <th style="width:40px"></th>
+        </tr></thead>
+        <tbody id="orv_lines"></tbody>
+        <tfoot>
+          <tr style="background:var(--gray1);font-weight:700">
+            <td style="text-align:right">Tổng:</td>
+            <td class="num" id="orv_total_orig">0</td>
+            <td class="num" id="orv_total_vnd">0 ₫</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
     </div>`;
 
-  openModal(r.id?'Cập nhật doanh thu O&M':'Nhập doanh thu O&M', html, async()=>{
-    const amt=parseFloat(gv('orv_amt'))||0, fx=parseFloat(gv('orv_fx'))||1;
+  openModal('Nhập doanh thu O&M — Chi tiết theo đầu mục', html, async()=>{
     const isPlan = gv('orv_plan')==='true';
+    const contractId = gv('orv_ctr');
+    const cur = gv('orv_cur') || 'VND';
+    const fx  = parseFloat(gv('orv_fx')) || 1;
     let entryDate, month, yearVal;
     if (isPlan) {
-      // Kế hoạch theo năm: gán entryDate = ngày 1/1 của năm để báo cáo lọc theo năm vẫn chạy
       yearVal = parseInt(gv('orv_year')) || new Date().getFullYear();
       entryDate = `${yearVal}-01-01`;
       month = '';
@@ -8297,16 +8704,83 @@ function openOmRevForm(r={}) {
       month = gv('orv_month');
       yearVal = entryDate ? parseInt(entryDate.slice(0,4)) : new Date().getFullYear();
     }
-    const payload={id:r.id||newId(), contractId:gv('orv_ctr'), categoryId:gv('orv_cat'),
-      entryDate, month, year:yearVal,
-      amount:amt, currency:gv('orv_cur'), fxRate:fx, amountVnd:Math.round(amt*fx),
-      description:gv('orv_desc'), isPlan,
-      createdAt:r.createdAt||new Date().toISOString()};
-    if (!payload.contractId||!payload.amount){toast('Điền đủ thông tin (*)','warn');return;}
-    showLoading();try{await api('saveOmRevEntry',payload);toast('Đã lưu','ok');closeModal();renderOmRevenue();}catch(e){toast('Lỗi','err');}hideLoading();
+
+    if (!contractId) { toast('Chọn hợp đồng O&M','warn'); return; }
+
+    const lineRows = document.querySelectorAll('#orv_lines tr[data-line]');
+    const lines = [];
+    for (const row of lineRows) {
+      const catId = row.querySelector('.orv_l_cat')?.value || '';
+      const amt = parseFloat(row.querySelector('.orv_l_amt')?.value) || 0;
+      const desc = row.querySelector('.orv_l_desc')?.value || '';
+      if (!catId || amt <= 0) continue;
+      lines.push({ categoryId: catId, amount: amt, description: desc });
+    }
+    if (lines.length === 0) { toast('Nhập ít nhất 1 dòng đầu mục có số tiền','warn'); return; }
+
+    showLoading();
+    try {
+      for (const ln of lines) {
+        const payload = {
+          id: newId(), contractId, categoryId: ln.categoryId,
+          entryDate, month, year: yearVal,
+          amount: ln.amount, currency: cur, fxRate: fx, amountVnd: Math.round(ln.amount * fx),
+          description: ln.description, isPlan,
+          createdAt: new Date().toISOString(),
+        };
+        await api('saveOmRevEntry', payload);
+      }
+      toast(`Đã lưu ${lines.length} dòng doanh thu O&M ✓`, 'ok');
+      closeModal(); renderOmRevenue();
+    } catch (err) {
+      toast('Lỗi: '+err.message, 'err');
+    }
+    hideLoading();
+  }, 'lg');
+
+  setTimeout(()=>{
+    omRevTogglePlan();
+    _omRevAddLine();
+  }, 50);
+}
+
+// Helper: thêm dòng vào bảng OM Rev
+function _omRevAddLine() {
+  const tbody = document.getElementById('orv_lines');
+  if (!tbody) return;
+  const idx = tbody.children.length;
+  const cats = (OM_DEMO.omRevCats||[]).filter(c => c.active !== false);
+  const catOpts = '<option value="">— Chọn —</option>' + cats.map(c =>
+    `<option value="${c.id}">${c.name}</option>`
+  ).join('');
+  const tr = document.createElement('tr');
+  tr.setAttribute('data-line', idx);
+  tr.innerHTML = `
+    <td><select class="orv_l_cat" style="width:100%">${catOpts}</select></td>
+    <td><input type="number" class="orv_l_amt" min="0" step="1" placeholder="0" style="width:100%;text-align:right" oninput="_omRevRecalcAllVnd()"/></td>
+    <td class="num orv_l_vnd" style="font-family:var(--mono);font-size:12px;color:var(--text3)">—</td>
+    <td><input type="text" class="orv_l_desc" placeholder="Tùy chọn" style="width:100%"/></td>
+    <td><button class="btn btn-ghost btn-xs" onclick="this.closest('tr').remove();_omRevRecalcAllVnd()">🗑</button></td>
+  `;
+  tbody.appendChild(tr);
+  _omRevRecalcAllVnd();
+}
+
+function _omRevRecalcAllVnd() {
+  const fx = parseFloat(gv('orv_fx')) || 1;
+  let totalOrig = 0, totalVnd = 0;
+  document.querySelectorAll('#orv_lines tr[data-line]').forEach(row => {
+    const amt = parseFloat(row.querySelector('.orv_l_amt')?.value) || 0;
+    const vnd = Math.round(amt * fx);
+    const vndCell = row.querySelector('.orv_l_vnd');
+    if (vndCell) vndCell.textContent = amt > 0 ? fmtVnd(vnd) : '—';
+    totalOrig += amt;
+    totalVnd += vnd;
   });
-  // Áp dụng trạng thái hiển thị ban đầu
-  setTimeout(()=>omRevTogglePlan(), 30);
+  const o = document.getElementById('orv_total_orig');
+  const v = document.getElementById('orv_total_vnd');
+  if (o) o.textContent = fmt(totalOrig);
+  if (v) v.textContent = fmtVnd(totalVnd);
 }
 
 // Hiện/ẩn trường theo loại (Kế hoạch = chỉ năm; Thực thu = ngày + tháng)
@@ -12759,22 +13233,133 @@ function gaRenderTax(adjustments) {
 
 // Helper forms for Corporate rev/FA/tax
 function openGaRevEntryForm(e={}) {
-  const cats = GA_DEMO.revCategories||[];
-  const grps = [...new Map(cats.map(c=>[c.group,GA_GROUP_LABELS[c.group]||c.group])).entries()];
+  const isEdit = !!e.id;
+  const cats = (GA_DEMO.revCategories||[]).filter(c => c.active !== false);
   const catOpts = cats.map(c=>`<option value="${c.id}"${c.id===e.categoryId?'selected':''}>${c.name}</option>`).join('');
-  const html=`<div class="form-grid cols2">
-    <div class="field required" style="grid-column:span 2"><label>Đầu mục doanh thu</label><select id="grv_cat">${catOpts}</select></div>
-    <div class="field required"><label>Ngày</label><input type="date" id="grv_date" value="${e.entryDate||today()}"/></div>
-    <div class="field"><label>Tháng</label><input type="month" id="grv_month" value="${e.month||today().slice(0,7)}"/></div>
-    <div class="field required"><label>Số tiền (VNĐ)</label><input type="number" id="grv_amt" value="${e.amount||''}"/></div>
-    <div class="field" style="grid-column:span 1"><label>Mô tả</label><input id="grv_desc" value="${e.description||''}"/></div>
-  </div>`;
-  openModal(e.id?'Cập nhật DT phụ trợ':'Nhập doanh thu phụ trợ',html,async()=>{
-    const amt=parseFloat(gv('grv_amt'))||0;
-    const payload={id:e.id||newId(),categoryId:gv('grv_cat'),entryDate:gv('grv_date'),month:gv('grv_month'),amount:amt,currency:'VND',fxRate:1,amountVnd:amt,description:gv('grv_desc'),createdAt:e.createdAt||new Date().toISOString()};
-    if(!payload.categoryId||!payload.amount){toast('Điền đủ thông tin','warn');return;}
-    await api('saveGaRevEntry',payload);toast('Đã lưu','ok');closeModal();gaSwitch('rev');
+
+  // ── EDIT MODE: form đơn (1 dòng) ──
+  if (isEdit) {
+    const html=`<div class="form-grid cols2">
+      <div class="field required" style="grid-column:span 2"><label>Đầu mục doanh thu</label><select id="grv_cat">${catOpts}</select></div>
+      <div class="field required"><label>Ngày</label><input type="date" id="grv_date" value="${e.entryDate||today()}"/></div>
+      <div class="field"><label>Tháng</label><input type="month" id="grv_month" value="${e.month||today().slice(0,7)}"/></div>
+      <div class="field required"><label>Số tiền (VNĐ)</label><input type="number" id="grv_amt" value="${e.amount||''}"/></div>
+      <div class="field" style="grid-column:span 1"><label>Mô tả</label><input id="grv_desc" value="${e.description||''}"/></div>
+    </div>`;
+    openModal('Cập nhật DT phụ trợ', html, async()=>{
+      const amt=parseFloat(gv('grv_amt'))||0;
+      const payload={id:e.id, categoryId:gv('grv_cat'), entryDate:gv('grv_date'), month:gv('grv_month'),
+        amount:amt, currency:'VND', fxRate:1, amountVnd:amt,
+        description:gv('grv_desc'), createdAt:e.createdAt||new Date().toISOString()};
+      if(!payload.categoryId||!payload.amount){toast('Điền đủ thông tin','warn');return;}
+      await api('saveGaRevEntry',payload);toast('Đã lưu','ok');closeModal();gaSwitch('rev');
+    });
+    return;
+  }
+
+  // ── INSERT MODE: form multi-line ──
+  const html = `
+    <div style="background:#F0F4FF;border-left:4px solid var(--blue);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--text2)">
+      💡 <strong>Nhập 1 lần nhiều đầu mục:</strong> Mỗi dòng = 1 bút toán DT phụ trợ riêng.
+    </div>
+    <!-- Header chung -->
+    <div class="form-grid cols2">
+      <div class="field required"><label>Ngày</label><input type="date" id="grv_date" value="${today()}"/></div>
+      <div class="field"><label>Tháng hạch toán</label><input type="month" id="grv_month" value="${today().slice(0,7)}"/></div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>📋 Chi tiết các đầu mục doanh thu</span>
+      <button class="btn btn-ghost btn-xs" onclick="_gaRevAddLine()">+ Thêm dòng</button>
+    </div>
+    <div class="tbl-wrap" style="margin-bottom:8px">
+      <table style="font-size:13px">
+        <thead><tr>
+          <th style="width:40%">Đầu mục doanh thu *</th>
+          <th class="num" style="width:25%">Số tiền (VNĐ) *</th>
+          <th>Mô tả</th>
+          <th style="width:40px"></th>
+        </tr></thead>
+        <tbody id="grv_lines"></tbody>
+        <tfoot>
+          <tr style="background:var(--gray1);font-weight:700">
+            <td style="text-align:right">Tổng:</td>
+            <td class="num" id="grv_total_vnd">0 ₫</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+
+  openModal('Nhập DT phụ trợ — Chi tiết theo đầu mục', html, async()=>{
+    const entryDate = gv('grv_date');
+    const month = gv('grv_month');
+    if (!entryDate) { toast('Chọn ngày','warn'); return; }
+
+    const lineRows = document.querySelectorAll('#grv_lines tr[data-line]');
+    const lines = [];
+    for (const row of lineRows) {
+      const catId = row.querySelector('.grv_l_cat')?.value || '';
+      const amt = parseFloat(row.querySelector('.grv_l_amt')?.value) || 0;
+      const desc = row.querySelector('.grv_l_desc')?.value || '';
+      if (!catId || amt <= 0) continue;
+      lines.push({ categoryId: catId, amount: amt, description: desc });
+    }
+    if (lines.length === 0) { toast('Nhập ít nhất 1 dòng đầu mục có số tiền','warn'); return; }
+
+    showLoading();
+    try {
+      for (const ln of lines) {
+        const payload = {
+          id: newId(), categoryId: ln.categoryId, entryDate, month,
+          amount: ln.amount, currency: 'VND', fxRate: 1, amountVnd: ln.amount,
+          description: ln.description,
+          createdAt: new Date().toISOString(),
+        };
+        await api('saveGaRevEntry', payload);
+      }
+      toast(`Đã lưu ${lines.length} dòng DT phụ trợ ✓`, 'ok');
+      closeModal(); gaSwitch('rev');
+    } catch (err) {
+      toast('Lỗi: '+err.message, 'err');
+    }
+    hideLoading();
+  }, 'lg');
+
+  setTimeout(()=>{
+    _gaRevAddLine();
+  }, 50);
+}
+
+function _gaRevAddLine() {
+  const tbody = document.getElementById('grv_lines');
+  if (!tbody) return;
+  const idx = tbody.children.length;
+  const cats = (GA_DEMO.revCategories||[]).filter(c => c.active !== false);
+  const catOpts = '<option value="">— Chọn —</option>' + cats.map(c =>
+    `<option value="${c.id}">${c.name}</option>`
+  ).join('');
+  const tr = document.createElement('tr');
+  tr.setAttribute('data-line', idx);
+  tr.innerHTML = `
+    <td><select class="grv_l_cat" style="width:100%">${catOpts}</select></td>
+    <td><input type="number" class="grv_l_amt" min="0" step="1" placeholder="0" style="width:100%;text-align:right" oninput="_gaRevRecalcAllVnd()"/></td>
+    <td><input type="text" class="grv_l_desc" placeholder="Tùy chọn" style="width:100%"/></td>
+    <td><button class="btn btn-ghost btn-xs" onclick="this.closest('tr').remove();_gaRevRecalcAllVnd()">🗑</button></td>
+  `;
+  tbody.appendChild(tr);
+  _gaRevRecalcAllVnd();
+}
+
+function _gaRevRecalcAllVnd() {
+  let totalVnd = 0;
+  document.querySelectorAll('#grv_lines tr[data-line]').forEach(row => {
+    const amt = parseFloat(row.querySelector('.grv_l_amt')?.value) || 0;
+    totalVnd += amt;
   });
+  const v = document.getElementById('grv_total_vnd');
+  if (v) v.textContent = fmtVnd(totalVnd);
 }
 async function deleteGaRevEntry(id){if(!confirm('Xoá?'))return;await api('deleteGaRevEntry',{id});toast('Đã xoá','ok');gaSwitch('rev');}
 
