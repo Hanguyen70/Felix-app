@@ -10280,17 +10280,27 @@ async function renderInvestments() {
   });
 
   // KPI tổng
-  const totalCapex = enriched.reduce((s, x) => s + (parseFloat(x.amountVnd)||0), 0);
-  const totalDepr  = enriched.reduce((s, x) => s + x.totalDepr, 0);
+  // KPI: chỉ tính khoản đã đầu tư tại hoặc trước năm xem
+  const enrichedInYear = enriched.filter(x => {
+    if (!x.investDate) return true;
+    const invYr = parseInt(String(x.investDate).slice(0,4));
+    return !isNaN(invYr) ? invYr <= year : true;
+  });
+  const totalCapex = enrichedInYear.reduce((s, x) => s + (parseFloat(x.amountVnd)||0), 0);
+  const totalDepr  = enrichedInYear.reduce((s, x) => s + x.totalDepr, 0);
   const totalNbv   = totalCapex - totalDepr;
-  const deprThisYearTotal = enriched.reduce((s, x) => s + x.deprThisYear, 0);
-  const investedThisYear = enriched
+  const deprThisYearTotal = enrichedInYear.reduce((s, x) => s + x.deprThisYear, 0);
+  const investedThisYear = enrichedInYear
     .filter(x => x.investDate && x.investDate.startsWith(String(year)))
     .reduce((s, x) => s + (parseFloat(x.amountVnd)||0), 0);
 
-  // Theo đối tượng
+  // Theo đối tượng — chỉ tính các khoản đã đầu tư tại hoặc trước năm xem
   const byScope = {};
   enriched.forEach(x => {
+    if (x.investDate) {
+      const invYr = parseInt(String(x.investDate).slice(0,4));
+      if (!isNaN(invYr) && invYr > year) return;  // Bỏ khoản chưa đầu tư
+    }
     const key = x.scopeLabel;
     if (!byScope[key]) byScope[key] = { name: key, count: 0, capex: 0, depr: 0, deprYear: 0 };
     byScope[key].count++;
@@ -10320,7 +10330,7 @@ async function renderInvestments() {
       <div class="kpi-card accent-blue">
         <div class="kpi-label">Tổng đầu tư tích lũy</div>
         <div class="kpi-value">${fmtB(totalCapex)}</div>
-        <div class="kpi-sub">${enriched.length} khoản đầu tư</div>
+        <div class="kpi-sub">${enrichedInYear.length} khoản đầu tư</div>
       </div>
       <div class="kpi-card accent-teal">
         <div class="kpi-label">Đầu tư trong năm ${year}</div>
@@ -10408,8 +10418,17 @@ async function renderInvestments() {
             <th style="width:80px"></th>
           </tr></thead>
           <tbody>
-            ${enriched.length === 0 ? '<tr><td colspan="10"><div class="empty-state">Chưa có khoản đầu tư nào</div></td></tr>' :
-              enriched.map(x => {
+            ${(() => {
+              // Lọc: chỉ hiển thị Investment đã đầu tư tại hoặc trước năm xem (investDate.year <= year)
+              const filtered = enriched.filter(x => {
+                if (!x.investDate) return true;  // Không có ngày → giữ
+                const invYr = parseInt(String(x.investDate).slice(0,4));
+                return !isNaN(invYr) ? invYr <= year : true;
+              });
+              if (filtered.length === 0) {
+                return `<tr><td colspan="10"><div class="empty-state">Chưa có khoản đầu tư nào tại hoặc trước năm ${year}.</div></td></tr>`;
+              }
+              return filtered.map(x => {
                 const methodLabel = x.method === 'declining' ? 'Giảm dần' : x.method === 'usage' ? 'Theo SL' : 'Đường thẳng';
                 const isAuto = !!x._autoSource;
                 const autoLabel = x._autoSource === 'vessel-purchase' ? '🔒 Tự sinh từ Tàu'
@@ -10438,7 +10457,8 @@ async function renderInvestments() {
                     }
                   </td>
                 </tr>`;
-              }).join('')
+              }).join('');
+            })()
             }
           </tbody>
         </table></div>
