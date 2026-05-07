@@ -964,7 +964,7 @@ function _migrateCostCatsSchema(demo) {
   const cats = demo.costCats;
 
   // Dấu hiệu schema cũ
-  const hasOldFuelC   = cats.some(c => c.group === 'C' && c.categoryLabel === 'Dầu chạy máy');
+  const hasOldFuelC   = cats.some(c => c.group === 'C');  // Bất kỳ cat C nào tồn tại → migrate xoá
   const hasOldB2      = cats.some(c => c.category === 'B2' && c.categoryLabel === 'Thiết bị Khoan & Lấy mẫu');
   const hasOldB3PTN   = cats.some(c => c.category === 'B3' && c.categoryLabel === 'Vật tư tiêu hao & PTN');
   const hasB3VatTu    = cats.some(c => c.category === 'B3' && c.categoryLabel === 'Vật tư tiêu hao' && c.active !== false);
@@ -988,10 +988,11 @@ function _migrateCostCatsSchema(demo) {
 
   console.log('[migration] Phát hiện schema cũ — cập nhật danh mục chi phí sang schema mới...');
 
-  // 1. Bỏ nhóm C (Nhiên liệu) — chỉ ẩn, không xóa (đề phòng có bút toán đã dùng)
-  cats.forEach(c => {
-    if (c.group === 'C') c.active = false;
-  });
+  // 1. ─── XOÁ HẲN nhóm C (Nhiên liệu) ─── 
+  // Đã có module Kho nhiên liệu thay thế. User đã xác nhận data đã được clean thủ công.
+  for (let i = cats.length - 1; i >= 0; i--) {
+    if (cats[i].group === 'C') cats.splice(i, 1);
+  }
 
   // 2. ─── Tổ chức lại nhóm A: A4 = Sửa chữa, A5 = Ấn phẩm, A6 = Chi khác, A7 = Dock ───
   // Thứ tự xử lý quan trọng để tránh xung đột dữ liệu giữa các bước:
@@ -1104,7 +1105,7 @@ function _migrateCostCatsSchema(demo) {
   }
 
   // Đánh dấu đã migrate
-  demo._schemaVersion = '2026.05.07-e';
+  demo._schemaVersion = '2026.05.07-f';
   console.log('[migration] Hoàn tất cập nhật danh mục.');
 }
 
@@ -2358,13 +2359,18 @@ function buildDemoAnnual(D, p) {
   //   - projectKind='docking' → Docking days
   //   - commercialDays của bất kỳ project → Commercial days
   // Offhire = daysInYear - Onhire - Docking - Commercial
+  // Quy ước: dự án thuộc về năm có onhireAt (năm chính). Dự án kéo dài qua năm chỉ tính
+  // vào năm bắt đầu — nhất quán với cách báo cáo Dự án.
   let onhireDays = 0;
   let dockingDays = 0;
   let commercialDays = 0;
   vesselProjects.forEach(proj => {
-    const ps = new Date(proj.startDate || proj.onhireAt || '2000-01-01');
-    const pe = new Date(proj.endDate   || proj.offhireAt || '2099-12-31');
-    if (pe.getFullYear() < year || ps.getFullYear() > year) return;
+    const startStr = proj.onhireAt || proj.startDate || '';
+    if (!startStr) return;  // Dự án không có ngày → không tính
+    const ps = new Date(startStr);
+    if (isNaN(ps.getTime())) return;
+    if (ps.getFullYear() !== year) return;  // Chỉ tính dự án có năm bắt đầu = năm xem
+
     const projDays = (parseFloat(proj.transitDays)||0)
                    + (parseFloat(proj.mobDemobDays)||0)
                    + (parseFloat(proj.standbyDays)||0)
