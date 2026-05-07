@@ -10242,6 +10242,8 @@ function calcTotalDeprForYear(year, sources) {
 }
 
 let _S_INV_YEAR = new Date().getFullYear();
+let _S_INV_SCOPE = 'all';   // 'all' | 'vessel' | 'om' | 'corporate'
+let _S_INV_LIFETIME = false; // true = toàn thời gian (bỏ qua filter năm)
 let _S_CONS_TAB = 'year';        // 'year' | 'compare' | 'cumulative'
 let _S_CONS_FROM = new Date().getFullYear() - 2;
 let _S_CONS_TO = new Date().getFullYear();
@@ -10280,8 +10282,12 @@ async function renderInvestments() {
   });
 
   // KPI tổng
-  // KPI: chỉ tính khoản đã đầu tư tại hoặc trước năm xem
+  // KPI: chỉ tính khoản đã đầu tư tại hoặc trước năm xem (hoặc toàn thời gian nếu lifetime)
   const enrichedInYear = enriched.filter(x => {
+    // Filter theo scope (đối tượng đầu tư)
+    if (_S_INV_SCOPE !== 'all' && x.scope !== _S_INV_SCOPE) return false;
+    // Filter theo năm (nếu không phải lifetime mode)
+    if (_S_INV_LIFETIME) return true;
     if (!x.investDate) return true;
     const invYr = parseInt(String(x.investDate).slice(0,4));
     return !isNaN(invYr) ? invYr <= year : true;
@@ -10294,13 +10300,9 @@ async function renderInvestments() {
     .filter(x => x.investDate && x.investDate.startsWith(String(year)))
     .reduce((s, x) => s + (parseFloat(x.amountVnd)||0), 0);
 
-  // Theo đối tượng — chỉ tính các khoản đã đầu tư tại hoặc trước năm xem
+  // Theo đối tượng — dùng enrichedInYear đã filter (scope + năm/lifetime)
   const byScope = {};
-  enriched.forEach(x => {
-    if (x.investDate) {
-      const invYr = parseInt(String(x.investDate).slice(0,4));
-      if (!isNaN(invYr) && invYr > year) return;  // Bỏ khoản chưa đầu tư
-    }
+  enrichedInYear.forEach(x => {
     const key = x.scopeLabel;
     if (!byScope[key]) byScope[key] = { name: key, count: 0, capex: 0, depr: 0, deprYear: 0 };
     byScope[key].count++;
@@ -10335,12 +10337,12 @@ async function renderInvestments() {
       <div class="kpi-card accent-teal">
         <div class="kpi-label">Đầu tư trong năm ${year}</div>
         <div class="kpi-value">${fmtB(investedThisYear)}</div>
-        <div class="kpi-sub">Capex phát sinh trong năm</div>
+        <div class="kpi-sub">${_S_INV_LIFETIME?'(toàn thời gian không có chỉ số riêng năm)':'Capex phát sinh trong năm'}</div>
       </div>
       <div class="kpi-card accent-amber">
-        <div class="kpi-label">Khấu hao năm ${year}</div>
-        <div class="kpi-value">${fmtB(deprThisYearTotal)}</div>
-        <div class="kpi-sub">Vào BCTC, không vào P&amp;L</div>
+        <div class="kpi-label">Khấu hao ${_S_INV_LIFETIME?'toàn thời gian':'năm '+year}</div>
+        <div class="kpi-value">${fmtB(_S_INV_LIFETIME?totalDepr:deprThisYearTotal)}</div>
+        <div class="kpi-sub">${_S_INV_LIFETIME?'Tổng đã khấu hao đến nay':'Vào BCTC, không vào P&L'}</div>
       </div>
       <div class="kpi-card accent-green">
         <div class="kpi-label">Giá trị còn lại (NBV)</div>
@@ -10349,11 +10351,32 @@ async function renderInvestments() {
       </div>
     </div>
 
-    <!-- Year selector + Add button -->
+    <!-- Bộ lọc: Đối tượng + Năm + Lifetime + Add button -->
     <div class="flex items-center justify-between mb16" style="gap:12px;flex-wrap:wrap">
-      <div class="flex items-center" style="gap:10px">
-        <label style="font-size:12px;color:var(--text3)">Năm quyết toán:</label>
-        <select onchange="_S_INV_YEAR=parseInt(this.value);renderInvestments()" style="min-width:100px">${yearOpts.join('')}</select>
+      <div class="flex items-center" style="gap:14px;flex-wrap:wrap">
+        <!-- Lọc đối tượng -->
+        <div class="flex items-center" style="gap:8px">
+          <label style="font-size:12px;color:var(--text3)">Đối tượng:</label>
+          <select onchange="_S_INV_SCOPE=this.value;renderInvestments()" style="min-width:160px">
+            <option value="all"${_S_INV_SCOPE==='all'?' selected':''}>📊 Tất cả đối tượng</option>
+            <option value="vessel"${_S_INV_SCOPE==='vessel'?' selected':''}>🚢 Tàu</option>
+            <option value="om"${_S_INV_SCOPE==='om'?' selected':''}>🏥 O&M</option>
+            <option value="corporate"${_S_INV_SCOPE==='corporate'?' selected':''}>🏢 Quản lý chung</option>
+          </select>
+        </div>
+        <!-- Năm / Toàn thời gian -->
+        <div class="flex items-center" style="gap:8px">
+          <label style="font-size:12px;color:var(--text3)">Phạm vi:</label>
+          <select onchange="_S_INV_LIFETIME=(this.value==='lifetime');renderInvestments()" style="min-width:140px">
+            <option value="year"${!_S_INV_LIFETIME?' selected':''}>📅 Theo năm</option>
+            <option value="lifetime"${_S_INV_LIFETIME?' selected':''}>♾️ Toàn thời gian</option>
+          </select>
+        </div>
+        <!-- Năm quyết toán (ẩn khi Lifetime) -->
+        <div class="flex items-center" style="gap:8px;${_S_INV_LIFETIME?'display:none':''}">
+          <label style="font-size:12px;color:var(--text3)">Năm:</label>
+          <select onchange="_S_INV_YEAR=parseInt(this.value);renderInvestments()" style="min-width:90px">${yearOpts.join('')}</select>
+        </div>
       </div>
       <button class="btn btn-primary" onclick="openInvestForm()">+ Thêm khoản đầu tư</button>
     </div>
@@ -10419,14 +10442,15 @@ async function renderInvestments() {
           </tr></thead>
           <tbody>
             ${(() => {
-              // Lọc: chỉ hiển thị Investment đã đầu tư tại hoặc trước năm xem (investDate.year <= year)
-              const filtered = enriched.filter(x => {
-                if (!x.investDate) return true;  // Không có ngày → giữ
-                const invYr = parseInt(String(x.investDate).slice(0,4));
-                return !isNaN(invYr) ? invYr <= year : true;
-              });
+              // Sổ chi tiết dùng cùng filter với KPI (scope + năm/lifetime)
+              const filtered = enrichedInYear;
               if (filtered.length === 0) {
-                return `<tr><td colspan="10"><div class="empty-state">Chưa có khoản đầu tư nào tại hoặc trước năm ${year}.</div></td></tr>`;
+                const scopeLabel = _S_INV_SCOPE === 'vessel' ? 'Tàu'
+                                : _S_INV_SCOPE === 'om' ? 'O&M'
+                                : _S_INV_SCOPE === 'corporate' ? 'Quản lý chung'
+                                : 'tất cả';
+                const yrLabel = _S_INV_LIFETIME ? 'toàn thời gian' : `năm ${year}`;
+                return `<tr><td colspan="10"><div class="empty-state">Không có khoản đầu tư nào (lọc: ${scopeLabel}, ${yrLabel}).</div></td></tr>`;
               }
               return filtered.map(x => {
                 const methodLabel = x.method === 'declining' ? 'Giảm dần' : x.method === 'usage' ? 'Theo SL' : 'Đường thẳng';
