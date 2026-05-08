@@ -788,6 +788,10 @@ body.ios-view .ios-banner { display: block; }
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
       Đầu tư & Khấu hao
     </div>
+    <div class="nav-item home-only" data-page="receivables-payables" onclick="nav(this)">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+      Phải thu / Phải trả
+    </div>
     <div class="nav-item home-only" data-page="consolidated" onclick="nav(this)">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
       Báo cáo P&L Tổng hợp
@@ -2220,8 +2224,27 @@ function _demoDataCore(action, p, DEMO) {
       });
       return filtered.map(r => ({...r}));
     }
-    case 'getCostEntries': return cloneFilter(DEMO.costEntries, r => (!p.vesselId||r.vesselId===p.vesselId)&&(!p.projectId||r.projectId===p.projectId));
-    case 'getRevEntries':  return cloneFilter(DEMO.revEntries, r => (!p.vesselId||r.vesselId===p.vesselId)&&(!p.projectId||r.projectId===p.projectId));
+    case 'getCostEntries': return cloneFilter(DEMO.costEntries, r => {
+      if (p.vesselId && r.vesselId !== p.vesselId) return false;
+      if (p.projectId && r.projectId !== p.projectId) return false;
+      if (p.year) {
+        const ry = String(r.year || '');
+        const dy = String(r.entryDate||'').slice(0,4);
+        if (ry !== String(p.year) && dy !== String(p.year)) return false;
+      }
+      return true;
+    });
+    case 'getRevEntries':  return cloneFilter(DEMO.revEntries, r => {
+      if (p.vesselId && r.vesselId !== p.vesselId) return false;
+      if (p.projectId && r.projectId !== p.projectId) return false;
+      if (p.year) {
+        // Match theo: 1) field year (chuẩn mới), 2) entryDate.startsWith(year) (tương thích cũ)
+        const ry = String(r.year || '');
+        const dy = String(r.entryDate||'').slice(0,4);
+        if (ry !== String(p.year) && dy !== String(p.year)) return false;
+      }
+      return true;
+    });
     case 'getCapex':       return cloneFilter(DEMO.capex, r => (!p.vesselId||r.vesselId===p.vesselId));
     case 'getInvestments': return [...(DEMO.investments||[])];
     case 'saveInvestment': {
@@ -2347,6 +2370,45 @@ function _demoDataCore(action, p, DEMO) {
       if (!DEMO.inventoryCategories) DEMO.inventoryCategories = [];
       const i = DEMO.inventoryCategories.findIndex(c => c.id === p.id);
       if (i >= 0) DEMO.inventoryCategories.splice(i, 1);
+      return { deleted: true };
+    }
+    // ─── RECEIVABLE PAYMENTS (companion table cho RevEntry — track ngày thu) ───
+    // Schema: { id, sourceType: 'rev'|'omRev'|'gaRev'|'smRev', sourceId, dueDate, paidDate, paymentNote }
+    case 'getReceivablePayments': {
+      if (!DEMO.receivablePayments) DEMO.receivablePayments = [];
+      return [...DEMO.receivablePayments];
+    }
+    case 'saveReceivablePayment': {
+      if (!DEMO.receivablePayments) DEMO.receivablePayments = [];
+      const i = DEMO.receivablePayments.findIndex(r => r.id === p.id);
+      if (i >= 0) DEMO.receivablePayments[i] = p;
+      else DEMO.receivablePayments.push({...p, id: p.id || newId()});
+      return p;
+    }
+    case 'deleteReceivablePayment': {
+      if (!DEMO.receivablePayments) DEMO.receivablePayments = [];
+      const i = DEMO.receivablePayments.findIndex(r => r.id === p.id);
+      if (i >= 0) DEMO.receivablePayments.splice(i, 1);
+      return { deleted: true };
+    }
+    // ─── PAYABLES (Phải trả — bảng độc lập, user tự nhập) ───
+    // Schema: { id, supplier, module, vesselId, contractId, amountVnd, currency, fxRate, amount,
+    //           dueDate, paidDate, description, invoiceNo, createdAt }
+    case 'getPayables': {
+      if (!DEMO.payables) DEMO.payables = [];
+      return [...DEMO.payables];
+    }
+    case 'savePayable': {
+      if (!DEMO.payables) DEMO.payables = [];
+      const i = DEMO.payables.findIndex(r => r.id === p.id);
+      if (i >= 0) DEMO.payables[i] = p;
+      else DEMO.payables.push({...p, id: p.id || newId()});
+      return p;
+    }
+    case 'deletePayable': {
+      if (!DEMO.payables) DEMO.payables = [];
+      const i = DEMO.payables.findIndex(r => r.id === p.id);
+      if (i >= 0) DEMO.payables.splice(i, 1);
       return { deleted: true };
     }
     // ─── O&M CAPEX ─── (KHÔNG khấu hao, KHÔNG vào P/L & BCTC, chỉ theo dõi đầu tư)
@@ -2969,19 +3031,32 @@ function _calcVesselYearStats(D, vId, year) {
   const marginVnd = totalRevVnd - totalCostVnd;
   const marginPct = totalRevVnd ? marginVnd/totalRevVnd*100 : 0;
 
-  // Onhire days từ các project
+  // Onhire days từ các project — xử lý cả 2 schema (onhireAt/offhireAt và startDate/endDate)
   const isLeap = (year%4===0 && year%100!==0) || year%400===0;
   const daysInYear = isLeap ? 366 : 365;
   let onhireDays = 0;
   (D.projects||[]).filter(prj => prj.vesselId === vId).forEach(prj => {
-    if (!prj.startDate) return;
-    const ps = new Date(prj.startDate);
-    const pe = prj.endDate ? new Date(prj.endDate) : new Date();
+    const startStr = prj.onhireAt || prj.startDate || '';
+    if (!startStr) return;
+    const ps = new Date(startStr);
+    if (isNaN(ps.getTime())) return;
+    const endStr = prj.offhireAt || prj.endDate || '';
+    const pe = endStr ? new Date(endStr) : new Date();
+    if (isNaN(pe.getTime())) return;
     const yStart = new Date(year, 0, 1);
     const yEnd = new Date(year, 11, 31, 23, 59, 59);
     if (pe < yStart || ps > yEnd) return;
-    const days = (parseFloat(prj.transitDays)||0) + (parseFloat(prj.mobDemobDays)||0)
-               + (parseFloat(prj.standbyDays)||0) + (parseFloat(prj.onfieldDays)||0);
+
+    // Fallback: nếu cả 4 trường chi tiết = 0, tính từ (offhire - onhire) cap trong năm
+    let days = (parseFloat(prj.transitDays)||0) + (parseFloat(prj.mobDemobDays)||0)
+             + (parseFloat(prj.standbyDays)||0) + (parseFloat(prj.onfieldDays)||0);
+    if (days === 0 && pe > ps) {
+      const effStart = ps < yStart ? yStart : ps;
+      const effEnd = pe > yEnd ? yEnd : pe;
+      if (effEnd > effStart) {
+        days = Math.max(1, Math.round((effEnd.getTime() - effStart.getTime()) / (24*60*60*1000)));
+      }
+    }
     onhireDays += days;
   });
   onhireDays = Math.min(onhireDays, daysInYear);
@@ -3383,6 +3458,7 @@ async function init() {
 async function renderDashboard() {
   showLoading();
   let vesselData, omRevs, omCosts, omContracts, smEntries, smContracts, gaEntries, gaRevEntries, smRevEntries;
+  let arList=[], payables=[];
   try {
     [vesselData, omRevs, omCosts, omContracts, smEntries, smContracts, gaEntries, gaRevEntries, smRevEntries] =
       await Promise.allSettled([
@@ -3396,6 +3472,11 @@ async function renderDashboard() {
         api('getGaRevEntries', {year:S.year}),
         api('getSmRevEntries', {year:S.year}),
       ]).then(r=>r.map((x,i)=>x.status==='fulfilled'?x.value:[{},{totals:{totalRevVnd:0,totalMarginVnd:0},vessels:[]},'','','','','','','',[]][i]));
+    // AR/AP — load độc lập sau (không block dashboard)
+    [arList, payables] = await Promise.all([
+      _buildReceivablesList().catch(()=>[]),
+      api('getPayables', {}).catch(()=>[]),
+    ]);
   } catch(e){ toast('Lỗi','err'); }
   hideLoading();
 
@@ -3607,6 +3688,65 @@ async function renderDashboard() {
         </div>
       </div>
 
+      <!-- ─── PHẢI THU / PHẢI TRẢ ─── -->
+      ${(() => {
+        const totalRecvUnpaid = (arList||[]).filter(i => !i.paidDate).reduce((s,i)=>s+i.amountVnd, 0);
+        const overdueRecv = (arList||[]).filter(i => _arStatus(i).code === 'overdue');
+        const overdueRecvSum = overdueRecv.reduce((s,i)=>s+i.amountVnd, 0);
+        const totalPayUnpaid = (payables||[]).filter(i => !i.paidDate).reduce((s,i)=>s+(parseFloat(i.amountVnd)||0), 0);
+        const overduePay = (payables||[]).filter(i => _arStatus({paidDate:i.paidDate, dueDate:i.dueDate}).code === 'overdue');
+        const overduePaySum = overduePay.reduce((s,i)=>s+(parseFloat(i.amountVnd)||0), 0);
+        return `
+        <div class="card mb16" style="cursor:pointer" onclick="S.page='receivables-payables';nav_(document.querySelector('[data-page=receivables-payables]'))">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+            <h3>💰 Công nợ — Phải thu / Phải trả</h3>
+            <span style="font-size:11px;color:var(--text3)">Click để xem chi tiết →</span>
+          </div>
+          <div class="card-body">
+            <div class="kpi-grid cols4" style="gap:12px">
+              <div style="background:#F0FDFA;border-left:3px solid var(--teal);padding:10px 14px;border-radius:6px">
+                <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">📥 Phải thu chưa thu</div>
+                <div style="font-size:18px;font-weight:700;color:var(--teal);font-family:var(--mono)">${fmtB(totalRecvUnpaid)}</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">${arList.filter(i=>!i.paidDate).length} khoản · ${overdueRecv.length} quá hạn</div>
+              </div>
+              ${overdueRecvSum > 0 ? `
+              <div style="background:#FEF2F2;border-left:3px solid var(--red);padding:10px 14px;border-radius:6px">
+                <div style="font-size:11px;color:var(--red);text-transform:uppercase;letter-spacing:.05em">⚠ Phải thu QUÁ HẠN</div>
+                <div style="font-size:18px;font-weight:700;color:var(--red);font-family:var(--mono)">${fmtB(overdueRecvSum)}</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">Cần thu gấp</div>
+              </div>` : `
+              <div style="background:#F0F9FF;border-left:3px solid var(--blue);padding:10px 14px;border-radius:6px">
+                <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">📤 Phải trả chưa trả</div>
+                <div style="font-size:18px;font-weight:700;color:var(--amber);font-family:var(--mono)">${fmtB(totalPayUnpaid)}</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">${payables.filter(i=>!i.paidDate).length} khoản · ${overduePay.length} quá hạn</div>
+              </div>`}
+              ${overdueRecvSum > 0 ? `
+              <div style="background:#F0F9FF;border-left:3px solid var(--blue);padding:10px 14px;border-radius:6px">
+                <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">📤 Phải trả chưa trả</div>
+                <div style="font-size:18px;font-weight:700;color:var(--amber);font-family:var(--mono)">${fmtB(totalPayUnpaid)}</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">${payables.filter(i=>!i.paidDate).length} khoản</div>
+              </div>` : ''}
+              ${overduePaySum > 0 ? `
+              <div style="background:#FEF2F2;border-left:3px solid var(--red);padding:10px 14px;border-radius:6px">
+                <div style="font-size:11px;color:var(--red);text-transform:uppercase;letter-spacing:.05em">⚠ Phải trả QUÁ HẠN</div>
+                <div style="font-size:18px;font-weight:700;color:var(--red);font-family:var(--mono)">${fmtB(overduePaySum)}</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">${overduePay.length} khoản</div>
+              </div>` : `
+              <div style="background:#F0FDF4;border-left:3px solid var(--green);padding:10px 14px;border-radius:6px">
+                <div style="font-size:11px;color:var(--green);text-transform:uppercase;letter-spacing:.05em">✓ Cân bằng dòng tiền</div>
+                <div style="font-size:18px;font-weight:700;color:${(totalRecvUnpaid-totalPayUnpaid)>=0?'var(--green)':'var(--red)'};font-family:var(--mono)">${(totalRecvUnpaid-totalPayUnpaid)>=0?'+':'−'}${fmtB(Math.abs(totalRecvUnpaid-totalPayUnpaid))}</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">Net: thu − trả</div>
+              </div>`}
+              <div style="background:#FAFAFA;border-left:3px solid var(--text3);padding:10px 14px;border-radius:6px">
+                <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">Net dòng tiền</div>
+                <div style="font-size:18px;font-weight:700;color:${(totalRecvUnpaid-totalPayUnpaid)>=0?'var(--green)':'var(--red)'};font-family:var(--mono)">${(totalRecvUnpaid-totalPayUnpaid)>=0?'+':'−'}${fmtB(Math.abs(totalRecvUnpaid-totalPayUnpaid))}</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">Phải thu − Phải trả</div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      })()}
+
       <!-- Revenue chart -->
       <div class="card">
         <div class="card-header">
@@ -3722,7 +3862,17 @@ async function renderProjects() {
                   <td>${p.location||'—'}</td>
                   <td class="mono">${fmtDT(p.onhireAt)}</td>
                   <td class="mono">${fmtDT(p.offhireAt)}</td>
-                  <td class="num">${fmtDays(p.totalDays || ((parseFloat(p.transitDays)||0) + (parseFloat(p.mobDemobDays)||0) + (parseFloat(p.standbyDays)||0) + (parseFloat(p.onfieldDays)||0)))}</td>
+                  <td class="num">${(() => {
+                    let days = (parseFloat(p.transitDays)||0) + (parseFloat(p.mobDemobDays)||0)
+                             + (parseFloat(p.standbyDays)||0) + (parseFloat(p.onfieldDays)||0);
+                    if (days === 0 && p.onhireAt && p.offhireAt) {
+                      const ps = new Date(p.onhireAt), pe = new Date(p.offhireAt);
+                      if (!isNaN(ps.getTime()) && !isNaN(pe.getTime()) && pe > ps) {
+                        days = Math.max(1, Math.round((pe.getTime() - ps.getTime()) / (24*60*60*1000)));
+                      }
+                    }
+                    return fmtDays(p.totalDays || days);
+                  })()}</td>
                   <td>${statusBadge(p.status)}</td>
                   <td class="row-actions">
                     <button class="btn btn-ghost btn-xs" onclick="openProjectForm(${JSON.stringify(p).replace(/"/g,'&quot;')})">✏️</button>
@@ -8200,6 +8350,7 @@ const ALL_PAGES = {
   consolidated:       () => renderConsolidated(),
   'payroll-fund':     () => renderPayrollFund(),
   'investments':      () => renderInvestments(),
+  'receivables-payables': () => renderReceivablesPayables(),
   'inventory':        () => renderInventory(),
   'inventory-categories': () => { _S_INV_SECTION='categories'; S.page='inventory'; renderInventory(); },
   'inventory-report':     () => { _S_INV_SECTION='report';     S.page='inventory'; renderInventory(); },
@@ -8225,6 +8376,7 @@ const ALL_TITLES = {
   'ga-capex':'Capex / Tài sản Quản lý chung',
   'payroll-fund':'Quỹ lương dự án (T/Q)',
   'investments':'Đầu tư & Khấu hao',
+  'receivables-payables':'Phải thu / Phải trả',
   'inventory':'Kho vật tư — Nhập số liệu tháng',
   'inventory-categories':'Danh mục chủng loại vật tư',
   'inventory-report':'Báo cáo tiêu hao vật tư',
@@ -11617,6 +11769,851 @@ let _S_INV_RANGE = 'inYear'; // 'inYear' (chỉ phát sinh năm) | 'toEndOfYear'
 let _S_CONS_TAB = 'year';        // 'year' | 'compare' | 'cumulative'
 let _S_CONS_FROM = new Date().getFullYear() - 2;
 let _S_CONS_TO = new Date().getFullYear();
+
+// ═══════════════════════════════════════════════════════
+// PAGE: PHẢI THU / PHẢI TRẢ
+// ═══════════════════════════════════════════════════════
+// Phải thu = view filter từ tất cả RevEntry (Vessel + OM + GA + SM)
+//           + companion table receivablePayments (track ngày thu xong)
+// Phải trả = bảng độc lập payables (user tự nhập)
+
+let _S_AR_TAB = 'receivables';   // 'receivables' | 'payables'
+let _S_AR_FILTER = 'unpaid';      // 'unpaid' | 'paid' | 'all' | 'overdue'
+
+// Helper: build danh sách phải thu từ tất cả Rev sources
+async function _buildReceivablesList() {
+  const [revs, omRevs, gaRevs, smRevs, vessels, projects, omContracts, smContracts, payments] = await Promise.all([
+    api('getRevEntries', {}),
+    api('getOmRevEntries', {}).catch(()=>[]),
+    api('getGaRevEntries', {}).catch(()=>[]),
+    api('getSmRevEntries', {}).catch(()=>[]),
+    api('getVessels', {}),
+    api('getProjects', {}),
+    api('getOmContracts', {}).catch(()=>[]),
+    api('getSmContracts', {}).catch(()=>[]),
+    api('getReceivablePayments', {}),
+  ]);
+  const vMap = Object.fromEntries(vessels.map(v=>[v.id, v.name]));
+  const pMap = Object.fromEntries(projects.map(p=>[p.id, {name:p.name, client:p.client}]));
+  const omMap = Object.fromEntries((omContracts||[]).map(c=>[c.id, c]));
+  const smMap = Object.fromEntries((smContracts||[]).map(c=>[c.id, c]));
+  const payMap = {};   // {sourceType+sourceId: payment}
+  (payments||[]).forEach(p => { payMap[`${p.sourceType}|${p.sourceId}`] = p; });
+
+  const list = [];
+  // Vessel revenues
+  (revs||[]).filter(r => !r.isPlan && r.isPlan !== 'true').forEach(r => {
+    const proj = pMap[r.projectId] || {};
+    const pay = payMap[`rev|${r.id}`];
+    list.push({
+      sourceType: 'rev',
+      sourceId: r.id,
+      module: 'Vessel',
+      moduleIcon: '🚢',
+      customer: proj.client || '—',
+      objLabel: vMap[r.vesselId] || '—',
+      projectLabel: proj.name || '(Phát sinh ngoài HĐ)',
+      entryDate: r.entryDate,
+      amountVnd: parseFloat(r.amountVnd) || 0,
+      currency: r.currency,
+      amount: r.amount,
+      invoiceNo: r.invoiceNo || '',
+      description: r.description || '',
+      dueDate: pay?.dueDate || '',
+      paidDate: pay?.paidDate || '',
+      installments: Array.isArray(pay?.installments) ? pay.installments : [],
+      paymentNote: pay?.paymentNote || '',
+      paymentId: pay?.id,
+    });
+  });
+  // O&M revenues
+  (omRevs||[]).filter(r => !r.isPlan && r.isPlan !== 'true').forEach(r => {
+    const ctr = omMap[r.contractId] || {};
+    const pay = payMap[`omRev|${r.id}`];
+    list.push({
+      sourceType: 'omRev',
+      sourceId: r.id,
+      module: 'O&M',
+      moduleIcon: '🏥',
+      customer: ctr.partyB || ctr.client || '—',
+      objLabel: ctr.contractNo || ctr.contractName || '—',
+      projectLabel: ctr.contractName || '—',
+      entryDate: r.entryDate,
+      amountVnd: parseFloat(r.amountVnd) || 0,
+      currency: r.currency,
+      amount: r.amount,
+      invoiceNo: '',
+      description: r.description || '',
+      dueDate: pay?.dueDate || '',
+      paidDate: pay?.paidDate || '',
+      installments: Array.isArray(pay?.installments) ? pay.installments : [],
+      paymentNote: pay?.paymentNote || '',
+      paymentId: pay?.id,
+    });
+  });
+  // GA revenues
+  (gaRevs||[]).forEach(r => {
+    const pay = payMap[`gaRev|${r.id}`];
+    list.push({
+      sourceType: 'gaRev',
+      sourceId: r.id,
+      module: 'GA',
+      moduleIcon: '🏢',
+      customer: '(Quản lý chung)',
+      objLabel: 'G&A',
+      projectLabel: '—',
+      entryDate: r.entryDate,
+      amountVnd: parseFloat(r.amountVnd) || 0,
+      currency: 'VND',
+      amount: r.amount,
+      invoiceNo: '',
+      description: r.description || '',
+      dueDate: pay?.dueDate || '',
+      paidDate: pay?.paidDate || '',
+      installments: Array.isArray(pay?.installments) ? pay.installments : [],
+      paymentNote: pay?.paymentNote || '',
+      paymentId: pay?.id,
+    });
+  });
+  // Ship Mgmt revenues (Phí QT)
+  (smRevs||[]).forEach(r => {
+    const ctr = smMap[r.contractId] || {};
+    const pay = payMap[`smRev|${r.id}`];
+    list.push({
+      sourceType: 'smRev',
+      sourceId: r.id,
+      module: 'Ship Mgmt',
+      moduleIcon: '⚓',
+      customer: ctr.ownerName || '—',
+      objLabel: ctr.vesselName || '—',
+      projectLabel: ctr.contractNo || 'Phí QT',
+      entryDate: r.entryDate,
+      amountVnd: parseFloat(r.amountVnd) || 0,
+      currency: r.currency,
+      amount: r.amount,
+      invoiceNo: r.invoiceNo || '',
+      description: r.description || '',
+      dueDate: pay?.dueDate || '',
+      paidDate: pay?.paidDate || '',
+      installments: Array.isArray(pay?.installments) ? pay.installments : [],
+      paymentNote: pay?.paymentNote || '',
+      paymentId: pay?.id,
+    });
+  });
+  return list;
+}
+
+// Helper: tính tổng đã thu/trả + trạng thái (hỗ trợ nhiều đợt)
+//  Input: item có { amountVnd, dueDate, installments?, paidDate? (legacy) }
+//  Output: { paid, remaining, status, label, color }
+function _arStatus(item) {
+  const total = parseFloat(item.amountVnd) || 0;
+
+  // Tính tổng đã thu/trả từ installments (hoặc legacy paidDate)
+  let installments = Array.isArray(item.installments) ? item.installments : [];
+  // Migration legacy: nếu có paidDate cũ mà chưa có installments → tự thêm 1 đợt full
+  if (installments.length === 0 && item.paidDate) {
+    installments = [{
+      id: 'legacy-' + (item.paymentId || item.id || ''),
+      date: item.paidDate,
+      amount: total,
+      note: item.paymentNote || '',
+    }];
+  }
+  const paid = installments.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+  const remaining = total - paid;
+
+  // Status
+  let status, label, color;
+  if (paid === 0) {
+    // Chưa thu/trả gì
+    if (!item.dueDate) {
+      status = 'pending'; label = '⏳ Chờ thu'; color = 'var(--text3)';
+    } else {
+      const today = new Date(); today.setHours(0,0,0,0);
+      const due = new Date(item.dueDate); due.setHours(0,0,0,0);
+      if (due < today) { status = 'overdue'; label = '⚠ Quá hạn'; color = 'var(--red)'; }
+      else {
+        const diff = Math.round((due - today) / 86400000);
+        if (diff <= 7) { status = 'due-soon'; label = `📅 ${diff} ngày`; color = 'var(--amber)'; }
+        else { status = 'pending'; label = `📅 ${diff} ngày`; color = 'var(--text3)'; }
+      }
+    }
+  } else if (paid < total) {
+    // Thu một phần
+    const pct = Math.round(paid / total * 100);
+    status = 'partial';
+    label = `🔵 Thu ${pct}%`;
+    color = 'var(--blue)';
+    // Nếu hạn đã quá mà vẫn còn nợ → ưu tiên báo quá hạn
+    if (item.dueDate) {
+      const today = new Date(); today.setHours(0,0,0,0);
+      const due = new Date(item.dueDate); due.setHours(0,0,0,0);
+      if (due < today) {
+        status = 'overdue-partial';
+        label = `⚠ Quá hạn (đã thu ${pct}%)`;
+        color = 'var(--red)';
+      }
+    }
+  } else if (paid === total) {
+    status = 'paid'; label = '✅ Đã thu đủ'; color = 'var(--green)';
+  } else {
+    // paid > total
+    status = 'overpaid'; label = `⚠ Thu vượt`; color = 'var(--purple)';
+  }
+
+  // Backward compatibility: status code
+  // Cũ: 'paid' | 'overdue' | 'due-soon' | 'pending'
+  // Mới thêm: 'partial' | 'overdue-partial' | 'overpaid'
+  // Khi filter "unpaid" → giữ tất cả trừ paid (bao gồm partial, overdue-partial)
+  // Khi filter "overdue" → 'overdue' + 'overdue-partial'
+  return { paid, remaining, status, label, color };
+}
+
+// Helper: lọc theo filter mode (paid / unpaid / overdue / all)
+function _arMatchFilter(status, filter) {
+  if (filter === 'all') return true;
+  if (filter === 'paid') return status === 'paid';
+  if (filter === 'unpaid') return status !== 'paid' && status !== 'overpaid';
+  if (filter === 'overdue') return status === 'overdue' || status === 'overdue-partial';
+  return true;
+}
+
+async function renderReceivablesPayables() {
+  showLoading();
+  let receivables=[], payables=[], vessels=[], omContracts=[];
+  try {
+    [receivables, payables, vessels, omContracts] = await Promise.all([
+      _buildReceivablesList(),
+      api('getPayables', {}),
+      api('getVessels', {}),
+      api('getOmContracts', {}).catch(()=>[]),
+    ]);
+  } catch(e) { toast('Lỗi: '+e.message, 'err'); }
+  hideLoading();
+
+  // Filter receivables theo tab
+  const filterFn = (item) => _arMatchFilter(_arStatus(item).status, _S_AR_FILTER);
+  const filteredRecv = receivables.filter(filterFn);
+  const filteredPay = payables.filter(p => _arMatchFilter(_arStatus(p).status, _S_AR_FILTER));
+
+  // KPI — dùng "remaining" thay vì amountVnd cho khoản chưa thu xong
+  const totalRecv = receivables.reduce((s,i) => {
+    const st = _arStatus(i);
+    return s + (st.status === 'paid' || st.status === 'overpaid' ? 0 : st.remaining);
+  }, 0);
+  const overdueRecv = receivables.reduce((s,i) => {
+    const st = _arStatus(i);
+    return s + ((st.status === 'overdue' || st.status === 'overdue-partial') ? st.remaining : 0);
+  }, 0);
+  const totalPay = payables.reduce((s,i) => {
+    const st = _arStatus(i);
+    return s + (st.status === 'paid' || st.status === 'overpaid' ? 0 : st.remaining);
+  }, 0);
+  const overduePay = payables.reduce((s,i) => {
+    const st = _arStatus(i);
+    return s + ((st.status === 'overdue' || st.status === 'overdue-partial') ? st.remaining : 0);
+  }, 0);
+
+  const moduleColors = {Vessel:'badge-navy', 'O&M':'badge-teal', GA:'badge-blue', 'Ship Mgmt':'badge-purple'};
+
+  document.getElementById('content').innerHTML = `
+    <div style="background:linear-gradient(135deg,#0a1628,#162d55);border-radius:var(--radius);padding:14px 20px;margin-bottom:16px;color:#fff">
+      <div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Phải thu / Phải trả</div>
+      <div style="font-size:13px;line-height:1.7">
+        <strong>Phải thu:</strong> tự lấy từ Doanh thu các module (Vessel/O&amp;M/GA/Ship Mgmt). Đánh dấu ngày thu xong.<br>
+        <strong>Phải trả:</strong> nhập tay (độc lập). Theo dõi nhà cung cấp/đối tác phải trả.
+      </div>
+    </div>
+
+    <!-- KPI -->
+    <div class="kpi-grid cols4 mb16">
+      <div class="kpi-card accent-teal">
+        <div class="kpi-label">📥 Tổng Phải thu (chưa thu)</div>
+        <div class="kpi-value">${fmtB(totalRecv)}</div>
+        <div class="kpi-sub">${receivables.filter(i=>!i.paidDate).length} khoản</div>
+      </div>
+      <div class="kpi-card accent-red">
+        <div class="kpi-label">⚠ Phải thu QUÁ HẠN</div>
+        <div class="kpi-value" style="color:var(--red)">${fmtB(overdueRecv)}</div>
+        <div class="kpi-sub">Ưu tiên thu ngay</div>
+      </div>
+      <div class="kpi-card accent-amber">
+        <div class="kpi-label">📤 Tổng Phải trả (chưa trả)</div>
+        <div class="kpi-value">${fmtB(totalPay)}</div>
+        <div class="kpi-sub">${payables.filter(i=>!i.paidDate).length} khoản</div>
+      </div>
+      <div class="kpi-card accent-red">
+        <div class="kpi-label">⚠ Phải trả QUÁ HẠN</div>
+        <div class="kpi-value" style="color:var(--red)">${fmtB(overduePay)}</div>
+        <div class="kpi-sub">Cần xử lý gấp</div>
+      </div>
+    </div>
+
+    <!-- Tabs + Filter -->
+    <div class="flex items-center justify-between mb16" style="gap:12px;flex-wrap:wrap">
+      <div class="flex" style="gap:0;border-bottom:1px solid var(--border)">
+        <button class="btn ${_S_AR_TAB==='receivables'?'btn-primary':'btn-ghost'}" style="border-radius:8px 8px 0 0;border-bottom:none" onclick="_S_AR_TAB='receivables';renderReceivablesPayables()">📥 Phải thu (${receivables.filter(i=>!i.paidDate).length})</button>
+        <button class="btn ${_S_AR_TAB==='payables'?'btn-primary':'btn-ghost'}" style="border-radius:8px 8px 0 0;border-bottom:none" onclick="_S_AR_TAB='payables';renderReceivablesPayables()">📤 Phải trả (${payables.filter(i=>!i.paidDate).length})</button>
+      </div>
+      <div class="flex items-center" style="gap:8px">
+        <label style="font-size:12px;color:var(--text3)">Lọc:</label>
+        <select onchange="_S_AR_FILTER=this.value;renderReceivablesPayables()" style="min-width:140px">
+          <option value="unpaid"${_S_AR_FILTER==='unpaid'?' selected':''}>⏳ Chưa thu/trả</option>
+          <option value="overdue"${_S_AR_FILTER==='overdue'?' selected':''}>⚠ Quá hạn</option>
+          <option value="paid"${_S_AR_FILTER==='paid'?' selected':''}>✅ Đã xử lý</option>
+          <option value="all"${_S_AR_FILTER==='all'?' selected':''}>📋 Tất cả</option>
+        </select>
+        ${_S_AR_TAB === 'payables' ? `<button class="btn btn-primary" onclick="openPayableForm()">+ Thêm phải trả</button>` : ''}
+      </div>
+    </div>
+
+    ${_S_AR_TAB === 'receivables' ? `
+    <!-- Tab Phải thu -->
+    <div class="card">
+      <div class="card-body no-pad">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th>Module</th>
+              <th>Khách hàng</th>
+              <th>Đối tượng / Dự án</th>
+              <th class="mono" style="width:90px">Ngày DT</th>
+              <th class="num">Tổng nợ VNĐ</th>
+              <th class="mono" style="width:90px">Hạn thu</th>
+              <th class="num" style="width:130px">Đã thu / Còn lại</th>
+              <th>Trạng thái</th>
+              <th></th>
+            </tr></thead>
+            <tbody>
+              ${filteredRecv.length === 0 ? `<tr><td colspan="9"><div class="empty-state">Không có khoản phải thu (lọc: ${_S_AR_FILTER}).</div></td></tr>` :
+                filteredRecv.slice().sort((a,b) => {
+                  const sa = _arStatus(a), sb = _arStatus(b);
+                  const order = {overdue:0, 'overdue-partial':1, 'due-soon':2, pending:3, partial:4, paid:5, overpaid:6};
+                  if (order[sa.status] !== order[sb.status]) return order[sa.status] - order[sb.status];
+                  return (a.dueDate||'').localeCompare(b.dueDate||'');
+                }).map(item => {
+                  const st = _arStatus(item);
+                  const isOverdue = st.status === 'overdue' || st.status === 'overdue-partial';
+                  const installmentCount = (item.installments||[]).length;
+                  return `<tr style="${isOverdue?'background:#FEF2F2':''}">
+                    <td><span class="badge ${moduleColors[item.module]||'badge-gray'}" style="font-size:10px">${item.moduleIcon} ${item.module}</span></td>
+                    <td><strong>${item.customer}</strong></td>
+                    <td>${item.objLabel}<br><span class="text-muted" style="font-size:11px">${item.projectLabel}</span></td>
+                    <td class="mono">${fmtDate(item.entryDate)}</td>
+                    <td class="num" style="font-weight:600">${fmtVnd(item.amountVnd)}</td>
+                    <td class="mono">${item.dueDate ? fmtDate(item.dueDate) : '<span class="text-muted">—</span>'}</td>
+                    <td class="num" style="font-size:12px">
+                      ${st.paid > 0 ? `<span style="color:var(--green);font-weight:600">+${fmtB(st.paid)}</span>` : '<span class="text-muted">—</span>'}
+                      ${st.remaining > 0 ? `<br><span style="color:var(--red);font-size:11px">Còn: ${fmtB(st.remaining)}</span>` : ''}
+                      ${installmentCount > 0 ? `<br><span class="text-muted" style="font-size:10px">${installmentCount} đợt</span>` : ''}
+                    </td>
+                    <td><span style="color:${st.color};font-weight:600;font-size:12px">${st.label}</span></td>
+                    <td class="row-actions">
+                      <button class="btn btn-ghost btn-xs" onclick='_arEditPayment(${JSON.stringify(item).replace(/'/g, "&apos;")})' title="Quản lý đợt thu">📋</button>
+                      ${st.status !== 'paid' && st.status !== 'overpaid' ? `<button class="btn btn-primary btn-xs" onclick='_arQuickAddInstallment(${JSON.stringify(item).replace(/'/g, "&apos;")})' title="Thêm đợt thu">+</button>` : ''}
+                    </td>
+                  </tr>`;
+                }).join('')
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    ` : `
+    <!-- Tab Phải trả -->
+    <div class="card">
+      <div class="card-body no-pad">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th>Module</th>
+              <th>Nhà cung cấp</th>
+              <th>Mô tả</th>
+              <th class="mono" style="width:90px">Ngày phát sinh</th>
+              <th class="num">Tổng nợ VNĐ</th>
+              <th class="mono" style="width:90px">Hạn trả</th>
+              <th class="num" style="width:130px">Đã trả / Còn lại</th>
+              <th>Trạng thái</th>
+              <th></th>
+            </tr></thead>
+            <tbody>
+              ${filteredPay.length === 0 ? `<tr><td colspan="9"><div class="empty-state">Không có khoản phải trả (lọc: ${_S_AR_FILTER}). <a href="#" onclick="openPayableForm();return false;">+ Thêm</a></div></td></tr>` :
+                filteredPay.slice().sort((a,b) => {
+                  const sa = _arStatus(a), sb = _arStatus(b);
+                  const order = {overdue:0, 'overdue-partial':1, 'due-soon':2, pending:3, partial:4, paid:5, overpaid:6};
+                  if (order[sa.status] !== order[sb.status]) return order[sa.status] - order[sb.status];
+                  return (a.dueDate||'').localeCompare(b.dueDate||'');
+                }).map(item => {
+                  const st = _arStatus(item);
+                  const isOverdue = st.status === 'overdue' || st.status === 'overdue-partial';
+                  const moduleLabel = {vessel:'🚢 Vessel', om:'🏥 O&M', ga:'🏢 GA', sm:'⚓ Ship Mgmt'}[item.module] || item.module;
+                  const installmentCount = (item.installments||[]).length;
+                  return `<tr style="${isOverdue?'background:#FEF2F2':''}">
+                    <td><span class="badge badge-gray" style="font-size:10px">${moduleLabel}</span></td>
+                    <td><strong>${item.supplier||'—'}</strong></td>
+                    <td>${item.description||'—'}${item.invoiceNo?`<br><span class="text-muted" style="font-size:11px">${item.invoiceNo}</span>`:''}</td>
+                    <td class="mono">${fmtDate(item.createdAt)||'—'}</td>
+                    <td class="num" style="font-weight:600">${fmtVnd(item.amountVnd)}</td>
+                    <td class="mono">${item.dueDate ? fmtDate(item.dueDate) : '<span class="text-muted">—</span>'}</td>
+                    <td class="num" style="font-size:12px">
+                      ${st.paid > 0 ? `<span style="color:var(--green);font-weight:600">+${fmtB(st.paid)}</span>` : '<span class="text-muted">—</span>'}
+                      ${st.remaining > 0 ? `<br><span style="color:var(--red);font-size:11px">Còn: ${fmtB(st.remaining)}</span>` : ''}
+                      ${installmentCount > 0 ? `<br><span class="text-muted" style="font-size:10px">${installmentCount} đợt</span>` : ''}
+                    </td>
+                    <td><span style="color:${st.color};font-weight:600;font-size:12px">${st.label}</span></td>
+                    <td class="row-actions">
+                      <button class="btn btn-ghost btn-xs" onclick='openPayableForm(${JSON.stringify(item).replace(/'/g, "&apos;")})' title="Sửa thông tin">✏️</button>
+                      <button class="btn btn-ghost btn-xs" onclick='_arEditPayablePayment(${JSON.stringify(item).replace(/'/g, "&apos;")})' title="Quản lý đợt trả">📋</button>
+                      ${st.status !== 'paid' && st.status !== 'overpaid' ? `<button class="btn btn-primary btn-xs" onclick='_arQuickAddPayableInstallment(${JSON.stringify(item).replace(/'/g, "&apos;")})' title="Thêm đợt trả">+</button>` : ''}
+                      <button class="btn btn-ghost btn-xs" onclick="_arDeletePayable('${item.id}')" title="Xoá">🗑</button>
+                    </td>
+                  </tr>`;
+                }).join('')
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    `}
+  `;
+}
+
+// Modal: quản lý các đợt thu cho 1 receivable
+function _arEditPayment(item) {
+  const total = parseFloat(item.amountVnd) || 0;
+  const installments = Array.isArray(item.installments) ? [...item.installments] : [];
+  // Migrate legacy nếu có paidDate cũ
+  if (installments.length === 0 && item.paidDate) {
+    installments.push({
+      id: 'legacy-' + (item.paymentId || item.id || newId()),
+      date: item.paidDate, amount: total, note: item.paymentNote || '',
+    });
+  }
+  const renderRows = () => installments.map((ins, idx) => `
+    <tr data-idx="${idx}">
+      <td><input type="date" class="ar_ins_date" value="${ins.date||''}" style="width:100%" oninput="_arRecalcInsModal()"/></td>
+      <td><input type="number" class="ar_ins_amt" value="${ins.amount||0}" min="0" step="1000" style="width:100%;text-align:right" oninput="_arRecalcInsModal()"/></td>
+      <td><input type="text" class="ar_ins_note" value="${(ins.note||'').replace(/"/g,'&quot;')}" placeholder="VD: TT đợt 1, BIDV, séc..." style="width:100%"/></td>
+      <td><button class="btn btn-ghost btn-xs" onclick="this.closest('tr').remove();_arRecalcInsModal()">🗑</button></td>
+    </tr>
+  `).join('');
+
+  const html = `
+    <div style="background:#F0F4FF;border-left:4px solid var(--blue);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px">
+      <strong>Khoản phải thu:</strong>
+      <strong>${item.customer}</strong> · ${item.module} · ${item.objLabel}<br>
+      ${item.projectLabel} · Tổng: <strong>${fmtVnd(total)}</strong>
+    </div>
+
+    <div class="form-grid cols2">
+      <div class="field"><label>Hạn thu (dự kiến)</label>
+        <input type="date" id="ar_due" value="${item.dueDate||''}"/>
+      </div>
+      <div class="field"><label>Ghi chú chung</label>
+        <input id="ar_note" value="${item.paymentNote||''}" placeholder="VD: HĐ thanh toán 3 đợt"/>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>📋 Các đợt thu</span>
+      <button class="btn btn-ghost btn-xs" onclick="_arInsAddRow()">+ Thêm đợt</button>
+    </div>
+    <div class="tbl-wrap" style="margin-bottom:8px">
+      <table style="font-size:13px">
+        <thead><tr>
+          <th style="width:140px">Ngày thu</th>
+          <th class="num" style="width:160px">Số tiền (VNĐ)</th>
+          <th>Ghi chú</th>
+          <th style="width:40px"></th>
+        </tr></thead>
+        <tbody id="ar_ins_rows">${renderRows()}</tbody>
+        <tfoot>
+          <tr style="background:var(--gray1);font-weight:700">
+            <td style="text-align:right">Tổng đã thu:</td>
+            <td class="num" id="ar_ins_total">0</td>
+            <td colspan="2" id="ar_ins_remain" style="font-size:12px;font-weight:400;color:var(--text2)">Còn lại: ${fmtVnd(total)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <button class="btn btn-outline btn-sm" onclick="_arInsMarkFullPaid(${total})">⚡ Đánh dấu thu đủ một lần (hôm nay)</button>
+  `;
+
+  openModal('Quản lý đợt thu', html, async() => {
+    // Collect installments từ rows
+    const rows = document.querySelectorAll('#ar_ins_rows tr[data-idx]');
+    const newIns = [];
+    for (const row of rows) {
+      const date = row.querySelector('.ar_ins_date')?.value || '';
+      const amt = parseFloat(row.querySelector('.ar_ins_amt')?.value) || 0;
+      const note = row.querySelector('.ar_ins_note')?.value || '';
+      if (!date || amt <= 0) continue;
+      newIns.push({
+        id: newId(),
+        date,
+        amount: amt,
+        note,
+      });
+    }
+    const payload = {
+      id: item.paymentId || newId(),
+      sourceType: item.sourceType,
+      sourceId: item.sourceId,
+      dueDate: gv('ar_due') || '',
+      installments: newIns,
+      paymentNote: gv('ar_note') || '',
+    };
+    try {
+      await api('saveReceivablePayment', payload);
+      toast('Đã lưu','ok');
+      closeModal();
+      renderReceivablesPayables();
+    } catch(e) { toast('Lỗi: '+e.message, 'err'); }
+  }, 'lg');
+
+  setTimeout(_arRecalcInsModal, 50);
+}
+
+// Helper: thêm dòng mới vào modal
+function _arInsAddRow() {
+  const tbody = document.getElementById('ar_ins_rows');
+  if (!tbody) return;
+  const idx = tbody.children.length;
+  const tr = document.createElement('tr');
+  tr.setAttribute('data-idx', idx);
+  tr.innerHTML = `
+    <td><input type="date" class="ar_ins_date" value="${today()}" style="width:100%" oninput="_arRecalcInsModal()"/></td>
+    <td><input type="number" class="ar_ins_amt" value="" min="0" step="1000" placeholder="0" style="width:100%;text-align:right" oninput="_arRecalcInsModal()"/></td>
+    <td><input type="text" class="ar_ins_note" placeholder="VD: TT đợt ${idx+1}" style="width:100%"/></td>
+    <td><button class="btn btn-ghost btn-xs" onclick="this.closest('tr').remove();_arRecalcInsModal()">🗑</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+// Helper: tính lại tổng đã thu
+function _arRecalcInsModal() {
+  let totalPaid = 0;
+  document.querySelectorAll('#ar_ins_rows tr[data-idx]').forEach(row => {
+    totalPaid += parseFloat(row.querySelector('.ar_ins_amt')?.value) || 0;
+  });
+  const tEl = document.getElementById('ar_ins_total');
+  if (tEl) tEl.textContent = fmtVnd(totalPaid);
+}
+
+// Helper: đánh dấu thu đủ một lần
+function _arInsMarkFullPaid(total) {
+  const tbody = document.getElementById('ar_ins_rows');
+  if (!tbody) return;
+  // Xoá hết và thêm 1 dòng full amount
+  tbody.innerHTML = '';
+  const tr = document.createElement('tr');
+  tr.setAttribute('data-idx', 0);
+  tr.innerHTML = `
+    <td><input type="date" class="ar_ins_date" value="${today()}" style="width:100%" oninput="_arRecalcInsModal()"/></td>
+    <td><input type="number" class="ar_ins_amt" value="${total}" min="0" step="1000" style="width:100%;text-align:right" oninput="_arRecalcInsModal()"/></td>
+    <td><input type="text" class="ar_ins_note" value="Thu đủ một lần" style="width:100%"/></td>
+    <td><button class="btn btn-ghost btn-xs" onclick="this.closest('tr').remove();_arRecalcInsModal()">🗑</button></td>
+  `;
+  tbody.appendChild(tr);
+  _arRecalcInsModal();
+}
+
+// Quick add 1 đợt thu mới (không mở full modal)
+function _arQuickAddInstallment(item) {
+  const st = _arStatus(item);
+  const remaining = st.remaining;
+  const html = `
+    <div style="background:#F0F4FF;border-left:4px solid var(--blue);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px">
+      <strong>${item.customer}</strong> · ${item.objLabel}<br>
+      Tổng nợ: <strong>${fmtVnd(item.amountVnd)}</strong> · Đã thu: <strong style="color:var(--green)">${fmtB(st.paid)}</strong> · Còn lại: <strong style="color:var(--red)">${fmtB(remaining)}</strong>
+    </div>
+    <div class="form-grid cols2">
+      <div class="field required"><label>Ngày thu</label>
+        <input type="date" id="qins_date" value="${today()}"/>
+      </div>
+      <div class="field required"><label>Số tiền (VNĐ)</label>
+        <input type="number" id="qins_amt" value="${remaining}" min="0" step="1000"/>
+      </div>
+      <div class="field" style="grid-column:span 2"><label>Ghi chú</label>
+        <input id="qins_note" placeholder="VD: TT đợt ${(item.installments?.length||0)+1}, BIDV..."/>
+      </div>
+    </div>
+  `;
+  openModal('Thêm đợt thu', html, async() => {
+    const date = gv('qins_date');
+    const amt = parseFloat(gv('qins_amt')) || 0;
+    if (!date || amt <= 0) { toast('Nhập ngày + số tiền','warn'); return; }
+    // Build installments mới = installments cũ + 1 đợt mới
+    const existingIns = Array.isArray(item.installments) ? item.installments : [];
+    const newInsList = [...existingIns, {
+      id: newId(),
+      date,
+      amount: amt,
+      note: gv('qins_note') || '',
+    }];
+    const payload = {
+      id: item.paymentId || newId(),
+      sourceType: item.sourceType,
+      sourceId: item.sourceId,
+      dueDate: item.dueDate || '',
+      installments: newInsList,
+      paymentNote: item.paymentNote || '',
+    };
+    try {
+      await api('saveReceivablePayment', payload);
+      toast('Đã thêm đợt thu','ok');
+      closeModal();
+      renderReceivablesPayables();
+    } catch(e) { toast('Lỗi: '+e.message, 'err'); }
+  });
+}
+
+// Modal: quản lý đợt trả (Phải trả) — tương tự _arEditPayment nhưng cho payable
+function _arEditPayablePayment(item) {
+  const total = parseFloat(item.amountVnd) || 0;
+  const installments = Array.isArray(item.installments) ? [...item.installments] : [];
+  if (installments.length === 0 && item.paidDate) {
+    installments.push({
+      id: 'legacy-' + (item.id || newId()),
+      date: item.paidDate, amount: total, note: '',
+    });
+  }
+  const renderRows = () => installments.map((ins, idx) => `
+    <tr data-idx="${idx}">
+      <td><input type="date" class="ar_ins_date" value="${ins.date||''}" style="width:100%" oninput="_arRecalcInsModal()"/></td>
+      <td><input type="number" class="ar_ins_amt" value="${ins.amount||0}" min="0" step="1000" style="width:100%;text-align:right" oninput="_arRecalcInsModal()"/></td>
+      <td><input type="text" class="ar_ins_note" value="${(ins.note||'').replace(/"/g,'&quot;')}" placeholder="VD: TT đợt 1, BIDV..." style="width:100%"/></td>
+      <td><button class="btn btn-ghost btn-xs" onclick="this.closest('tr').remove();_arRecalcInsModal()">🗑</button></td>
+    </tr>
+  `).join('');
+
+  const html = `
+    <div style="background:#FFF7ED;border-left:4px solid var(--amber);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px">
+      <strong>Khoản phải trả:</strong>
+      <strong>${item.supplier||'—'}</strong> · ${item.description||''}<br>
+      Tổng: <strong>${fmtVnd(total)}</strong>
+    </div>
+
+    <div class="divider"></div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>📋 Các đợt trả</span>
+      <button class="btn btn-ghost btn-xs" onclick="_arInsAddRow()">+ Thêm đợt</button>
+    </div>
+    <div class="tbl-wrap" style="margin-bottom:8px">
+      <table style="font-size:13px">
+        <thead><tr>
+          <th style="width:140px">Ngày trả</th>
+          <th class="num" style="width:160px">Số tiền (VNĐ)</th>
+          <th>Ghi chú</th>
+          <th style="width:40px"></th>
+        </tr></thead>
+        <tbody id="ar_ins_rows">${renderRows()}</tbody>
+        <tfoot>
+          <tr style="background:var(--gray1);font-weight:700">
+            <td style="text-align:right">Tổng đã trả:</td>
+            <td class="num" id="ar_ins_total">0</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <button class="btn btn-outline btn-sm" onclick="_arInsMarkFullPaid(${total})">⚡ Đánh dấu trả đủ một lần (hôm nay)</button>
+  `;
+
+  openModal('Quản lý đợt trả', html, async() => {
+    const rows = document.querySelectorAll('#ar_ins_rows tr[data-idx]');
+    const newIns = [];
+    for (const row of rows) {
+      const date = row.querySelector('.ar_ins_date')?.value || '';
+      const amt = parseFloat(row.querySelector('.ar_ins_amt')?.value) || 0;
+      const note = row.querySelector('.ar_ins_note')?.value || '';
+      if (!date || amt <= 0) continue;
+      newIns.push({ id: newId(), date, amount: amt, note });
+    }
+    // Update payable: thêm installments, xóa paidDate cũ (đã migrate)
+    const updated = {
+      ...item,
+      installments: newIns,
+      paidDate: '',  // legacy — tính từ installments
+    };
+    try {
+      await api('savePayable', updated);
+      toast('Đã lưu','ok');
+      closeModal();
+      renderReceivablesPayables();
+    } catch(e) { toast('Lỗi: '+e.message, 'err'); }
+  }, 'lg');
+
+  setTimeout(_arRecalcInsModal, 50);
+}
+
+// Quick add 1 đợt trả
+function _arQuickAddPayableInstallment(item) {
+  const st = _arStatus(item);
+  const remaining = st.remaining;
+  const html = `
+    <div style="background:#FFF7ED;border-left:4px solid var(--amber);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px">
+      <strong>${item.supplier||'—'}</strong> · ${item.description||''}<br>
+      Tổng nợ: <strong>${fmtVnd(item.amountVnd)}</strong> · Đã trả: <strong style="color:var(--green)">${fmtB(st.paid)}</strong> · Còn lại: <strong style="color:var(--red)">${fmtB(remaining)}</strong>
+    </div>
+    <div class="form-grid cols2">
+      <div class="field required"><label>Ngày trả</label>
+        <input type="date" id="qins_date" value="${today()}"/>
+      </div>
+      <div class="field required"><label>Số tiền (VNĐ)</label>
+        <input type="number" id="qins_amt" value="${remaining}" min="0" step="1000"/>
+      </div>
+      <div class="field" style="grid-column:span 2"><label>Ghi chú</label>
+        <input id="qins_note" placeholder="VD: TT đợt ${(item.installments?.length||0)+1}..."/>
+      </div>
+    </div>
+  `;
+  openModal('Thêm đợt trả', html, async() => {
+    const date = gv('qins_date');
+    const amt = parseFloat(gv('qins_amt')) || 0;
+    if (!date || amt <= 0) { toast('Nhập ngày + số tiền','warn'); return; }
+    const existingIns = Array.isArray(item.installments) ? item.installments : [];
+    const newInsList = [...existingIns, {
+      id: newId(),
+      date, amount: amt,
+      note: gv('qins_note') || '',
+    }];
+    const updated = {
+      ...item,
+      installments: newInsList,
+      paidDate: '',
+    };
+    try {
+      await api('savePayable', updated);
+      toast('Đã thêm đợt trả','ok');
+      closeModal();
+      renderReceivablesPayables();
+    } catch(e) { toast('Lỗi: '+e.message, 'err'); }
+  });
+}
+
+// Form Phải trả
+async function openPayableForm(p={}) {
+  const [vessels, omContracts] = await Promise.all([
+    api('getVessels', {}),
+    api('getOmContracts', {}).catch(()=>[]),
+  ]);
+  const moduleOpts = [
+    {v:'vessel', l:'🚢 Vessel'},
+    {v:'om',     l:'🏥 O&M'},
+    {v:'ga',     l:'🏢 G&A (Quản lý chung)'},
+    {v:'sm',     l:'⚓ Ship Mgmt'},
+  ].map(m => `<option value="${m.v}"${m.v===(p.module||'vessel')?' selected':''}>${m.l}</option>`).join('');
+  const vOpts = '<option value="">— Không gắn —</option>' + vessels.map(v => `<option value="${v.id}"${v.id===p.vesselId?' selected':''}>${v.name}</option>`).join('');
+  const cOpts = '<option value="">— Không gắn —</option>' + (omContracts||[]).map(c => `<option value="${c.id}"${c.id===p.contractId?' selected':''}>${c.contractName||c.contractNo}</option>`).join('');
+  const currs = ['VND','USD','SGD','EUR','GBP'].map(c => `<option value="${c}"${c===(p.currency||'VND')?' selected':''}>${c}</option>`).join('');
+
+  const html = `
+    <div class="form-grid cols2">
+      <div class="field required" style="grid-column:span 2"><label>Nhà cung cấp / Đối tác</label>
+        <input id="pay_supplier" value="${p.supplier||''}" placeholder="Tên công ty/cá nhân nhận tiền"/>
+      </div>
+      <div class="field required"><label>Module</label>
+        <select id="pay_module">${moduleOpts}</select>
+      </div>
+      <div class="field"><label>Tàu (nếu có)</label>
+        <select id="pay_vessel">${vOpts}</select>
+      </div>
+      <div class="field" style="grid-column:span 2"><label>HĐ O&M (nếu có)</label>
+        <select id="pay_contract">${cOpts}</select>
+      </div>
+      <div class="field required"><label>Số tiền</label>
+        <input type="number" id="pay_amt" value="${p.amount||''}" min="0"/>
+      </div>
+      <div class="field"><label>Đồng tiền</label>
+        <select id="pay_cur">${currs}</select>
+      </div>
+      <div class="field"><label>Tỷ giá</label>
+        <input type="number" id="pay_fx" value="${p.fxRate||1}"/>
+      </div>
+      <div class="field"><label>Số tiền VNĐ (tự tính)</label>
+        <input type="number" id="pay_vnd" value="${p.amountVnd||''}" readonly style="background:var(--gray1)"/>
+      </div>
+      <div class="field"><label>Hạn trả (dự kiến)</label>
+        <input type="date" id="pay_due" value="${p.dueDate||''}"/>
+      </div>
+      <div class="field"><label>Ngày trả xong</label>
+        <input type="date" id="pay_paid" value="${p.paidDate||''}"/>
+      </div>
+      <div class="field"><label>Số HĐ / Hoá đơn</label>
+        <input id="pay_inv" value="${p.invoiceNo||''}"/>
+      </div>
+      <div class="field" style="grid-column:span 2"><label>Mô tả / Diễn giải</label>
+        <input id="pay_desc" value="${p.description||''}" placeholder="VD: NCC dầu nhớt tháng 5, Sửa chữa máy chính..."/>
+      </div>
+    </div>
+  `;
+  openModal(p.id?'Cập nhật khoản phải trả':'Thêm khoản phải trả', html, async() => {
+    const supplier = gv('pay_supplier');
+    const amt = parseFloat(gv('pay_amt')) || 0;
+    if (!supplier) { toast('Nhập tên NCC','warn'); return; }
+    if (!amt) { toast('Nhập số tiền','warn'); return; }
+    const fx = parseFloat(gv('pay_fx')) || 1;
+    const payload = {
+      id: p.id || newId(),
+      supplier, module: gv('pay_module'),
+      vesselId: gv('pay_vessel') || '',
+      contractId: gv('pay_contract') || '',
+      amount: amt, currency: gv('pay_cur'), fxRate: fx,
+      amountVnd: Math.round(amt * fx),
+      dueDate: gv('pay_due') || '',
+      paidDate: gv('pay_paid') || '',
+      invoiceNo: gv('pay_inv') || '',
+      description: gv('pay_desc') || '',
+      createdAt: p.createdAt || new Date().toISOString(),
+    };
+    try {
+      await api('savePayable', payload);
+      toast('Đã lưu','ok');
+      closeModal();
+      renderReceivablesPayables();
+    } catch(e) { toast('Lỗi: '+e.message, 'err'); }
+  });
+  // Auto-compute VNĐ
+  setTimeout(() => {
+    const update = () => {
+      const a = parseFloat(document.getElementById('pay_amt')?.value)||0;
+      const f = parseFloat(document.getElementById('pay_fx')?.value)||1;
+      if (document.getElementById('pay_vnd')) document.getElementById('pay_vnd').value = Math.round(a*f);
+    };
+    document.getElementById('pay_amt')?.addEventListener('input', update);
+    document.getElementById('pay_fx')?.addEventListener('input', update);
+    document.getElementById('pay_cur')?.addEventListener('change', update);
+    update();
+  }, 50);
+}
+
+async function _arQuickMarkPayablePaid(id) {
+  const all = await api('getPayables', {});
+  const p = (all||[]).find(x => x.id === id);
+  if (!p) return;
+  p.paidDate = today();
+  try {
+    await api('savePayable', p);
+    toast('Đã đánh dấu trả xong','ok');
+    renderReceivablesPayables();
+  } catch(e) { toast('Lỗi','err'); }
+}
+
+async function _arDeletePayable(id) {
+  if (!confirm('Xoá khoản phải trả này?')) return;
+  try {
+    await api('deletePayable', {id});
+    toast('Đã xoá','ok');
+    renderReceivablesPayables();
+  } catch(e) { toast('Lỗi','err'); }
+}
 
 async function renderInvestments() {
   showLoading();
