@@ -14765,23 +14765,120 @@ async function renderSmDashboard() {
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px;margin-bottom:20px">
       ${contractCards||'<div class="empty-state">Chưa có hợp đồng quản lý tàu nào.</div>'}
     </div>
-    <div class="card">
-      <div class="card-header"><h3>Sổ thu hộ / chi hộ gần đây</h3></div>
-      <div class="card-body no-pad"><div class="tbl-wrap"><table>
-        <thead><tr><th>Ngày</th><th>Tàu</th><th>Loại</th><th class="num">Số tiền gốc</th><th class="num">VNĐ</th><th>Mô tả</th><th></th></tr></thead>
-        <tbody>${entries.length?entries.slice().sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate)).slice(0,15).map(e=>{
-          const ctr=contracts.find(c=>c.id===e.contractId)||{};
-          const typeBadge=e.type==='mgmt_fee'?'<span class="badge badge-teal">Phí QT</span>':e.type==='thu_ho'?'<span class="badge badge-blue">Thu hộ</span>':'<span class="badge badge-amber">Chi hộ</span>';
-          const cur=e.currency||'VND';
-          const origAmt = (cur==='VND') ? '—' : `${fmtCurrency(e.amount,cur)}<div style="font-size:10px;color:var(--text3)">@${(e.fxRate||1).toLocaleString('vi-VN')}</div>`;
-          return `<tr><td class="mono">${fmtDate(e.entryDate)}</td><td style="font-size:12px">${ctr.vesselName||'—'}</td><td>${typeBadge}</td>
-            <td class="num" style="font-size:12px">${origAmt}</td>
-            <td class="num ${e.type==='thu_ho'?'pos':e.type==='chi_ho'?'neg':''}">${fmtVnd(e.amountVnd)}</td>
-            <td style="font-size:12px">${e.description||'—'}</td>
-            <td class="row-actions"><button class="btn btn-ghost btn-xs" onclick="openSmPassthroughForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">✏️</button><button class="btn btn-ghost btn-xs" onclick="deleteSmPassthrough('${e.id}')">🗑</button></td></tr>`;
-        }).join(''):'<tr><td colspan="7"><div class="empty-state">Chưa có bút toán nào.</div></td></tr>'}</tbody>
-      </table></div></div>
-    </div>`;
+
+    <!-- ─── Sổ thu/chi hộ tách riêng theo tàu ─── -->
+    <div style="margin-bottom:8px;font-size:12px;font-weight:600;color:var(--ink4);text-transform:uppercase;letter-spacing:.06em">
+      Sổ thu hộ / chi hộ — Tách riêng theo từng tàu
+    </div>
+    ${(() => {
+      // Filter các bút toán pass-through (thu_ho + chi_ho), bỏ mgmt_fee (là DT QT)
+      const passEntries = entries.filter(e => e.type === 'thu_ho' || e.type === 'chi_ho');
+      if (passEntries.length === 0) {
+        return `<div class="card"><div class="card-body"><div class="empty-state">Chưa có bút toán thu/chi hộ nào.</div></div></div>`;
+      }
+      // Group by contractId
+      const byContract = {};
+      passEntries.forEach(e => {
+        if (!byContract[e.contractId]) byContract[e.contractId] = [];
+        byContract[e.contractId].push(e);
+      });
+      // Sort contracts theo order trong contracts list
+      const orderedContractIds = contracts.map(c => c.id).filter(id => byContract[id]);
+
+      const renderEntryTable = (rows, type) => {
+        if (rows.length === 0) {
+          return `<div class="empty-state" style="padding:12px;font-size:11px">— Chưa có ${type==='thu_ho'?'thu hộ':'chi hộ'} —</div>`;
+        }
+        const totalVnd = rows.reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
+        return `
+          <div class="tbl-wrap">
+            <table style="font-size:12px">
+              <thead><tr>
+                <th style="width:90px">Ngày</th>
+                <th class="num" style="width:130px">Số tiền gốc</th>
+                <th class="num" style="width:120px">VNĐ</th>
+                <th>Mô tả</th>
+                <th style="width:60px"></th>
+              </tr></thead>
+              <tbody>
+                ${rows.slice().sort((a,b) => new Date(b.entryDate)-new Date(a.entryDate)).map(e => {
+                  const cur = e.currency || 'VND';
+                  const origAmt = (cur === 'VND') ? '<span class="text-muted">—</span>' :
+                    `${fmtCurrency(e.amount,cur)} <span style="color:var(--text3);font-size:10px">@${(e.fxRate||1).toLocaleString('vi-VN')}</span>`;
+                  return `<tr>
+                    <td class="mono">${fmtDate(e.entryDate)}</td>
+                    <td class="num" style="font-size:11px">${origAmt}</td>
+                    <td class="num ${type==='thu_ho'?'pos':'neg'}" style="font-weight:600">${fmtVnd(e.amountVnd)}</td>
+                    <td style="font-size:11px">${e.description || '<span class="text-muted">—</span>'}</td>
+                    <td class="row-actions">
+                      <button class="btn btn-ghost btn-xs" onclick='openSmPassthroughForm(${JSON.stringify(e).replace(/'/g, "&apos;")})' title="Sửa">✏️</button>
+                      <button class="btn btn-ghost btn-xs" onclick="deleteSmPassthrough('${e.id}')" title="Xoá">🗑</button>
+                    </td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+              <tfoot style="background:var(--gray1);font-weight:700">
+                <tr>
+                  <td colspan="2" style="text-align:right;font-size:11px">Tổng (${rows.length} dòng):</td>
+                  <td class="num ${type==='thu_ho'?'pos':'neg'}">${fmtVnd(totalVnd)}</td>
+                  <td colspan="2"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>`;
+      };
+
+      return orderedContractIds.map(cId => {
+        const ctr = contracts.find(c => c.id === cId) || {};
+        const ce = byContract[cId] || [];
+        const thuRows = ce.filter(e => e.type === 'thu_ho');
+        const chiRows = ce.filter(e => e.type === 'chi_ho');
+        const totalThu = thuRows.reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
+        const totalChi = chiRows.reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
+        const balance = totalThu - totalChi;
+
+        return `
+          <div class="card mb16">
+            <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+              <div>
+                <h3 style="margin:0">⚓ ${ctr.vesselName || '(Tàu không rõ)'}</h3>
+                <span style="font-size:11px;color:var(--text3)">Chủ: ${ctr.ownerName || '—'} · ${ce.length} bút toán</span>
+              </div>
+              <div style="display:flex;gap:14px;font-size:12px">
+                <div style="text-align:right">
+                  <div style="color:var(--text3);font-size:10px;text-transform:uppercase">Thu hộ</div>
+                  <div style="color:var(--teal);font-weight:700;font-family:var(--mono)">${fmtVnd(totalThu)}</div>
+                </div>
+                <div style="text-align:right">
+                  <div style="color:var(--text3);font-size:10px;text-transform:uppercase">Chi hộ</div>
+                  <div style="color:var(--amber);font-weight:700;font-family:var(--mono)">${fmtVnd(totalChi)}</div>
+                </div>
+                <div style="text-align:right;border-left:1px solid var(--border);padding-left:12px">
+                  <div style="color:var(--text3);font-size:10px;text-transform:uppercase">Số dư</div>
+                  <div style="color:${balance>=0?'var(--green)':'var(--red)'};font-weight:700;font-family:var(--mono)">${balance>=0?'+':'−'}${fmtVnd(Math.abs(balance))}</div>
+                </div>
+              </div>
+            </div>
+            <div class="card-body" style="padding-top:8px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+                <div>
+                  <div style="font-weight:600;font-size:12px;color:var(--teal);margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                    📥 Thu hộ <span style="color:var(--text3);font-weight:400">(${thuRows.length} dòng)</span>
+                  </div>
+                  ${renderEntryTable(thuRows, 'thu_ho')}
+                </div>
+                <div>
+                  <div style="font-weight:600;font-size:12px;color:var(--amber);margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                    📤 Chi hộ <span style="color:var(--text3);font-weight:400">(${chiRows.length} dòng)</span>
+                  </div>
+                  ${renderEntryTable(chiRows, 'chi_ho')}
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    })()}`;
 }
 
 function openSmContractForm(c={}) {
