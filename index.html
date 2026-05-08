@@ -3995,6 +3995,14 @@ async function viewProjectReport(id) {
 // ═══════════════════════════════════════════════════════
 // PAGE: COSTS
 // ═══════════════════════════════════════════════════════
+// State filter cho trang Chi phí (giữ trong session, reset khi đổi tàu/năm)
+let _S_COSTS_FILTER = { month:'', group:'', projectId:'', type:'', acctType:'' };
+
+// Reset filter khi đổi context
+function _resetCostsFilter() {
+  _S_COSTS_FILTER = { month:'', group:'', projectId:'', type:'', acctType:'' };
+}
+
 async function renderCosts() {
   showLoading();
   let entries=[], projects=[];
@@ -4011,20 +4019,76 @@ async function renderCosts() {
   const getCat   = id => S.costCats.find(c=>c.id===id)||{};
   const projName = id => (projects.find(p=>p.id===id)||{}).name||'—';
   const vName    = id => (S.vessels.find(v=>v.id===id)||{}).name||id;
-  const total    = entries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
 
-  // Group totals for mini summary
+  // ─── APPLY FILTER ───
+  const f = _S_COSTS_FILTER;
+  const filteredEntries = entries.filter(e => {
+    const cat = getCat(e.categoryId);
+    if (f.month) {
+      const m = e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0;
+      if (String(m) !== String(f.month)) return false;
+    }
+    if (f.group && cat.group !== f.group) return false;
+    if (f.projectId === '__none__') {
+      if (e.projectId) return false;  // Chỉ chi phí KHÔNG gắn dự án
+    } else if (f.projectId && e.projectId !== f.projectId) {
+      return false;
+    }
+    if (f.type && (e.type||'') !== f.type) return false;
+    if (f.acctType === '__normal__') {
+      if (e.accountType && e.accountType !== '') return false;  // Bình thường = rỗng
+    } else if (f.acctType && (e.accountType||'') !== f.acctType) {
+      return false;
+    }
+    return true;
+  });
+
+  const total = filteredEntries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const totalAll = entries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+
+  // Group totals: từ filteredEntries để KPI cards tự đổi theo lọc
   const groupTotals = {};
-  entries.forEach(e=>{
+  filteredEntries.forEach(e=>{
     const g = getCat(e.categoryId).group||'?';
     groupTotals[g] = (groupTotals[g]||0) + (parseFloat(e.amountVnd)||0);
   });
   const groupLabels={'A':'Hàng hải','B':'Kỹ thuật (Khoan/KS/ĐCCT)','C':'Nhiên liệu','D':'Phát sinh dự án','E':'Không thường xuyên','F':'Phân bổ','T':'Trích quỹ (T)','P':'Thuê ngoài (Pass-through)','I':'Nội bộ (I)','L':'Chi phí khác (ngoài BCTC)'};
   const groupColors={'A':'accent-red','B':'accent-blue','C':'accent-amber','D':'accent-gray','F':'accent-teal','T':'accent-amber','I':'accent-purple'};
 
+  // ─── BUILD FILTER OPTIONS từ entries (dynamic — chỉ hiển thị options có data) ───
+  const monthsAvail = [...new Set(entries.map(e => e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0).filter(m=>m>0))].sort((a,b)=>a-b);
+  const groupsAvail = [...new Set(entries.map(e => getCat(e.categoryId).group).filter(Boolean))].sort();
+  const typesAvail = [...new Set(entries.map(e => e.type).filter(Boolean))].sort();
+  const acctTypesAvail = [...new Set(entries.map(e => e.accountType||'').filter(t => t !== ''))];
+  const hasNormalAcctType = entries.some(e => !e.accountType);  // Có chi phí bình thường?
+
+  const monthOpts = `<option value="">Tất cả tháng</option>` +
+    monthsAvail.map(m => `<option value="${m}"${String(f.month)===String(m)?' selected':''}>Tháng ${String(m).padStart(2,'0')}</option>`).join('');
+  const groupOpts = `<option value="">Tất cả nhóm</option>` +
+    groupsAvail.map(g => `<option value="${g}"${f.group===g?' selected':''}>${g}. ${groupLabels[g]||g}</option>`).join('');
+  // Project options: chỉ projects xuất hiện trong cost entries của năm này
+  const projectIdsInUse = [...new Set(entries.map(e => e.projectId).filter(Boolean))];
+  const projectOpts = `<option value="">Tất cả dự án</option>
+    <option value="__none__"${f.projectId==='__none__'?' selected':''}>(Phát sinh ngoài HĐ — không gắn dự án)</option>` +
+    projectIdsInUse.map(pid => {
+      const pn = projName(pid);
+      return `<option value="${pid}"${f.projectId===pid?' selected':''}>${pn}</option>`;
+    }).join('');
+  const typeOpts = `<option value="">Tất cả loại</option>` +
+    typesAvail.map(t => `<option value="${t}"${f.type===t?' selected':''}>${typeLabel[t]||t}</option>`).join('');
+  const acctTypeLabel = {Capitalize:'(3) Vốn hoá', Q:'(2) Chi từ quỹ Q', T:'(T) Trích quỹ'};
+  const acctTypeOpts = `<option value="">Tất cả</option>
+    ${hasNormalAcctType ? `<option value="__normal__"${f.acctType==='__normal__'?' selected':''}>(1) Bình thường</option>` : ''}` +
+    acctTypesAvail.map(t => `<option value="${t}"${f.acctType===t?' selected':''}>${acctTypeLabel[t]||t}</option>`).join('');
+
+  const hasAnyFilter = !!(f.month || f.group || f.projectId || f.type || f.acctType);
+  const filterStatus = hasAnyFilter
+    ? `Hiển thị <strong>${filteredEntries.length}</strong> / ${entries.length} bút toán · Tổng: <strong>${fmtB(total)}</strong> / ${fmtB(totalAll)}`
+    : `${filteredEntries.length} bút toán • Tổng: <strong>${fmtB(total)}</strong>`;
+
   document.getElementById('content').innerHTML = `
     <div class="flex items-center justify-between mb12">
-      <span class="text-muted text-small">${entries.length} bút toán • Tổng: <strong>${fmtB(total)}</strong></span>
+      <span class="text-muted text-small">${filterStatus}</span>
       <button class="btn btn-primary" onclick="openCostForm()">+ Nhập chi phí</button>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
@@ -4034,6 +4098,20 @@ async function renderCosts() {
           <div style="font-size:14px;font-weight:700;font-family:var(--mono)">${fmtB(v)}</div>
         </div>`).join('')}
     </div>
+
+    <!-- ─── TOOLBAR FILTER ─── -->
+    <div class="card mb16" style="background:var(--gray1);border:1px solid var(--border)">
+      <div style="padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div style="font-size:12px;font-weight:600;color:var(--text2)">🔍 Lọc:</div>
+        <select onchange="_S_COSTS_FILTER.month=this.value;renderCosts()" style="min-width:120px;font-size:12px">${monthOpts}</select>
+        <select onchange="_S_COSTS_FILTER.group=this.value;renderCosts()" style="min-width:170px;font-size:12px">${groupOpts}</select>
+        <select onchange="_S_COSTS_FILTER.projectId=this.value;renderCosts()" style="min-width:200px;font-size:12px">${projectOpts}</select>
+        <select onchange="_S_COSTS_FILTER.type=this.value;renderCosts()" style="min-width:120px;font-size:12px">${typeOpts}</select>
+        <select onchange="_S_COSTS_FILTER.acctType=this.value;renderCosts()" style="min-width:140px;font-size:12px">${acctTypeOpts}</select>
+        ${hasAnyFilter ? `<button class="btn btn-ghost btn-xs" onclick="_resetCostsFilter();renderCosts()" style="margin-left:auto" title="Bỏ tất cả lọc">🔄 Reset</button>` : ''}
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-body no-pad">
         <div class="tbl-wrap">
@@ -4045,7 +4123,7 @@ async function renderCosts() {
               <th>Mô tả</th><th></th>
             </tr></thead>
             <tbody>
-              ${entries.length ? entries.slice().sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate)).map(e=>{
+              ${filteredEntries.length ? filteredEntries.slice().sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate)).map(e=>{
                 const cat = getCat(e.categoryId);
                 const rowCls = cat.group==='P' ? 'row-passthrough' : cat.group==='L' ? 'row-excluded' : cat.group==='I' ? 'row-passthrough' : '';
                 const grpBadge = cat.group==='P'
@@ -4071,7 +4149,7 @@ async function renderCosts() {
                     <button class="btn btn-ghost btn-xs" onclick="deleteCostEntry('${e.id}')">🗑</button>
                   </td>
                 </tr>`;
-              }).join('') : `<tr><td colspan="11"><div class="empty-state">Chưa có bút toán chi phí nào.</div></td></tr>`}
+              }).join('') : `<tr><td colspan="11"><div class="empty-state">${hasAnyFilter ? 'Không có bút toán nào khớp với bộ lọc.' : 'Chưa có bút toán chi phí nào.'}</div></td></tr>`}
             </tbody>
           </table>
         </div>
@@ -8861,6 +8939,12 @@ async function deleteOmContract(id) {
 }
 
 // ── PAGE: O&M Chi phí ────────────────────────────────────
+// Filter state cho trang Chi phí O&M
+let _S_OMCOSTS_FILTER = { month:'', group:'', contractId:'', type:'' };
+function _resetOmCostsFilter() {
+  _S_OMCOSTS_FILTER = { month:'', group:'', contractId:'', type:'' };
+}
+
 async function renderOmCosts() {
   showLoading();
   let contracts=[], entries=[];
@@ -8874,16 +8958,59 @@ async function renderOmCosts() {
 
   const ctrName = id => (contracts.find(c=>c.id===id)||{}).name||id;
   const grpColors={'A':'badge-blue','B':'badge-green','C':'badge-teal','D':'badge-amber','E':'badge-purple','F':'badge-gray'};
-  const total = entries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const getCat = id => OM_DEMO.omCostCats.find(c=>c.id===id)||{};
 
-  // Group totals
+  // ─── APPLY FILTER ───
+  const f = _S_OMCOSTS_FILTER;
+  const filteredEntries = entries.filter(e => {
+    const cat = getCat(e.categoryId);
+    if (f.month) {
+      const m = e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0;
+      if (String(m) !== String(f.month)) return false;
+    }
+    if (f.group && cat.group !== f.group) return false;
+    if (f.contractId === '__none__') {
+      if (e.contractId) return false;
+    } else if (f.contractId && e.contractId !== f.contractId) {
+      return false;
+    }
+    if (f.type && (e.type||'') !== f.type) return false;
+    return true;
+  });
+
+  const total = filteredEntries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const totalAll = entries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+
+  // Group totals (theo data đã lọc)
   const grpTotals={};
-  entries.forEach(e=>{ const g=(OM_DEMO.omCostCats.find(c=>c.id===e.categoryId)||{}).group||'?'; grpTotals[g]=(grpTotals[g]||0)+(parseFloat(e.amountVnd)||0); });
+  filteredEntries.forEach(e=>{ const g=getCat(e.categoryId).group||'?'; grpTotals[g]=(grpTotals[g]||0)+(parseFloat(e.amountVnd)||0); });
   const grpLabels={'A':'Chuyên gia','B':'Bảo hiểm','C':'Logistics','D':'CPQL','E':'PTSC QN','F':'KTX / Khác'};
+
+  // ─── BUILD FILTER OPTIONS ───
+  const monthsAvail = [...new Set(entries.map(e => e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0).filter(m=>m>0))].sort((a,b)=>a-b);
+  const groupsAvail = [...new Set(entries.map(e => getCat(e.categoryId).group).filter(Boolean))].sort();
+  const contractIdsInUse = [...new Set(entries.map(e => e.contractId).filter(Boolean))];
+  const typesAvail = [...new Set(entries.map(e => e.type).filter(Boolean))].sort();
+  const omTypeLabel = {onhire:'Onhire', offhire:'Offhire', commercial:'Commercial', allocated:'Phân bổ', recurring:'Định kỳ'};
+
+  const monthOpts = `<option value="">Tất cả tháng</option>` +
+    monthsAvail.map(m => `<option value="${m}"${String(f.month)===String(m)?' selected':''}>Tháng ${String(m).padStart(2,'0')}</option>`).join('');
+  const groupOpts = `<option value="">Tất cả nhóm</option>` +
+    groupsAvail.map(g => `<option value="${g}"${f.group===g?' selected':''}>${g}. ${grpLabels[g]||g}</option>`).join('');
+  const contractOpts = `<option value="">Tất cả HĐ</option>
+    <option value="__none__"${f.contractId==='__none__'?' selected':''}>(Không gắn HĐ)</option>` +
+    contractIdsInUse.map(cid => `<option value="${cid}"${f.contractId===cid?' selected':''}>${ctrName(cid)}</option>`).join('');
+  const typeOpts = `<option value="">Tất cả loại</option>` +
+    typesAvail.map(t => `<option value="${t}"${f.type===t?' selected':''}>${omTypeLabel[t]||t}</option>`).join('');
+
+  const hasAnyFilter = !!(f.month || f.group || f.contractId || f.type);
+  const filterStatus = hasAnyFilter
+    ? `Hiển thị <strong>${filteredEntries.length}</strong> / ${entries.length} bút toán · Tổng: <strong>${fmtB(total)}</strong> / ${fmtB(totalAll)}`
+    : `${filteredEntries.length} bút toán • Tổng: <strong>${fmtB(total)}</strong>`;
 
   document.getElementById('content').innerHTML = `
     <div class="flex items-center justify-between mb12">
-      <span class="text-muted text-small">${entries.length} bút toán • Tổng: <strong>${fmtB(total)}</strong></span>
+      <span class="text-muted text-small">${filterStatus}</span>
       <button class="btn btn-primary" onclick="openOmCostForm()">+ Nhập chi phí O&M</button>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
@@ -8893,6 +9020,19 @@ async function renderOmCosts() {
           <div style="font-size:14px;font-weight:700;font-family:var(--mono)">${fmtB(v)}</div>
         </div>`).join('')}
     </div>
+
+    <!-- ─── TOOLBAR FILTER ─── -->
+    <div class="card mb16" style="background:var(--gray1);border:1px solid var(--border)">
+      <div style="padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div style="font-size:12px;font-weight:600;color:var(--text2)">🔍 Lọc:</div>
+        <select onchange="_S_OMCOSTS_FILTER.month=this.value;renderOmCosts()" style="min-width:120px;font-size:12px">${monthOpts}</select>
+        <select onchange="_S_OMCOSTS_FILTER.group=this.value;renderOmCosts()" style="min-width:170px;font-size:12px">${groupOpts}</select>
+        <select onchange="_S_OMCOSTS_FILTER.contractId=this.value;renderOmCosts()" style="min-width:200px;font-size:12px">${contractOpts}</select>
+        <select onchange="_S_OMCOSTS_FILTER.type=this.value;renderOmCosts()" style="min-width:120px;font-size:12px">${typeOpts}</select>
+        ${hasAnyFilter ? `<button class="btn btn-ghost btn-xs" onclick="_resetOmCostsFilter();renderOmCosts()" style="margin-left:auto" title="Bỏ tất cả lọc">🔄 Reset</button>` : ''}
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-body no-pad">
         <div class="tbl-wrap">
@@ -8902,8 +9042,8 @@ async function renderOmCosts() {
               <th class="num">Số tiền VNĐ</th><th>Mô tả</th><th></th>
             </tr></thead>
             <tbody>
-              ${entries.length ? entries.slice().sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate)).map(e=>{
-                const cat = OM_DEMO.omCostCats.find(c=>c.id===e.categoryId)||{};
+              ${filteredEntries.length ? filteredEntries.slice().sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate)).map(e=>{
+                const cat = getCat(e.categoryId);
                 const rowCls = cat.group==='P'?'row-passthrough':cat.group==='L'?'row-excluded':'';
                 const grpBadge = cat.group==='P'
                   ? `<span class="badge badge-passthrough" style="font-size:10px">💠 P</span>`
@@ -8923,7 +9063,7 @@ async function renderOmCosts() {
                     <button class="btn btn-ghost btn-xs" onclick="deleteOmCostEntry('${e.id}')">🗑</button>
                   </td>
                 </tr>`;
-              }).join('') : `<tr><td colspan="8"><div class="empty-state">Chưa có bút toán chi phí O&M nào.</div></td></tr>`}
+              }).join('') : `<tr><td colspan="8"><div class="empty-state">${hasAnyFilter ? 'Không có bút toán nào khớp với bộ lọc.' : 'Chưa có bút toán chi phí O&M nào.'}</div></td></tr>`}
             </tbody>
           </table>
         </div>
@@ -15894,9 +16034,31 @@ function gaSwitch(tab) {
   }
 }
 
+// Filter state cho trang Chi phí GA
+let _S_GACOSTS_FILTER = { month:'', group:'', categoryId:'' };
+function _resetGaCostsFilter() {
+  _S_GACOSTS_FILTER = { month:'', group:'', categoryId:'' };
+  if (typeof gaSwitch === 'function') gaSwitch('cost');
+}
+
 function gaRenderCost(cats, entries, total) {
+  // ─── APPLY FILTER ───
+  const f = _S_GACOSTS_FILTER;
+  const filteredEntries = entries.filter(e => {
+    const cat = cats.find(c=>c.id===e.categoryId)||{};
+    if (f.month) {
+      const m = e.month || (e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0);
+      if (String(m) !== String(f.month)) return false;
+    }
+    if (f.group && cat.group !== f.group) return false;
+    if (f.categoryId && e.categoryId !== f.categoryId) return false;
+    return true;
+  });
+
+  const filteredTotal = filteredEntries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+
   const byCat={};
-  entries.forEach(e=>{
+  filteredEntries.forEach(e=>{
     const cat=cats.find(c=>c.id===e.categoryId)||{};
     const g=cat.group||'?';
     if(!byCat[g])byCat[g]={label:GA_GROUP_LABELS[g]||g,total:0,items:{}};
@@ -15904,24 +16066,59 @@ function gaRenderCost(cats, entries, total) {
     if(!byCat[g].items[cat.id])byCat[g].items[cat.id]={name:cat.name||cat.id,total:0};
     byCat[g].items[cat.id].total+=parseFloat(e.amountVnd)||0;
   });
-  const months=[...new Set(entries.map(e=>e.month).filter(Boolean))].sort();
-  const monthlyTotal=months.map(m=>entries.filter(e=>e.month===m).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0));
+  const months=[...new Set(filteredEntries.map(e=>e.month).filter(Boolean))].sort();
+  const monthlyTotal=months.map(m=>filteredEntries.filter(e=>e.month===m).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0));
+
+  // ─── BUILD FILTER OPTIONS ───
+  const monthsAvail = [...new Set(entries.map(e => {
+    const m = e.month || (e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0);
+    return m;
+  }).filter(m=>m>0))].sort((a,b)=>a-b);
+  const groupsAvail = [...new Set(entries.map(e => (cats.find(c=>c.id===e.categoryId)||{}).group).filter(Boolean))].sort();
+  const catIdsInUse = [...new Set(entries.map(e => e.categoryId).filter(Boolean))];
+
+  const monthOpts = `<option value="">Tất cả tháng</option>` +
+    monthsAvail.map(m => `<option value="${m}"${String(f.month)===String(m)?' selected':''}>Tháng ${String(m).padStart(2,'0')}</option>`).join('');
+  const groupOpts = `<option value="">Tất cả nhóm</option>` +
+    groupsAvail.map(g => `<option value="${g}"${f.group===g?' selected':''}>${GA_GROUP_LABELS[g]||g}</option>`).join('');
+  const catOpts = `<option value="">Tất cả khoản mục</option>` +
+    catIdsInUse.map(cid => {
+      const cat = cats.find(c=>c.id===cid)||{};
+      return `<option value="${cid}"${f.categoryId===cid?' selected':''}>${cat.name||cid}</option>`;
+    }).join('');
+
+  const hasAnyFilter = !!(f.month || f.group || f.categoryId);
+  const filterStatus = hasAnyFilter
+    ? `Hiển thị <strong>${filteredEntries.length}</strong> / ${entries.length} bút toán · Tổng: <strong>${fmtB(filteredTotal)}</strong> / ${fmtB(total)}`
+    : `${filteredEntries.length} bút toán · <strong>${fmtB(filteredTotal)}</strong>`;
 
   document.getElementById('ga-tab-content').innerHTML=`
     <div class="flex items-center justify-between mb12">
-      <span class="text-muted text-small">${entries.length} bút toán · <strong>${fmtB(total)}</strong></span>
+      <span class="text-muted text-small">${filterStatus}</span>
       <div class="flex gap8">
         <button class="btn btn-outline btn-sm" onclick="renderGaCats()">⚙ Danh mục</button>
         <button class="btn btn-primary" onclick="openGaEntryForm()">+ Nhập chi phí</button>
       </div>
     </div>
+
+    <!-- ─── TOOLBAR FILTER ─── -->
+    <div class="card mb16" style="background:var(--gray1);border:1px solid var(--border)">
+      <div style="padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div style="font-size:12px;font-weight:600;color:var(--text2)">🔍 Lọc:</div>
+        <select onchange="_S_GACOSTS_FILTER.month=this.value;gaSwitch('cost')" style="min-width:120px;font-size:12px">${monthOpts}</select>
+        <select onchange="_S_GACOSTS_FILTER.group=this.value;gaSwitch('cost')" style="min-width:170px;font-size:12px">${groupOpts}</select>
+        <select onchange="_S_GACOSTS_FILTER.categoryId=this.value;gaSwitch('cost')" style="min-width:200px;font-size:12px">${catOpts}</select>
+        ${hasAnyFilter ? `<button class="btn btn-ghost btn-xs" onclick="_resetGaCostsFilter()" style="margin-left:auto" title="Bỏ tất cả lọc">🔄 Reset</button>` : ''}
+      </div>
+    </div>
+
     <div class="form-grid cols2 mb16" style="gap:16px">
       <div class="card"><div class="card-header"><h3>Chi tiết theo nhóm</h3></div>
         <div class="card-body no-pad"><table>
           <thead><tr><th colspan="2">Khoản mục</th><th class="num">Số tiền</th><th class="num">%</th></tr></thead>
           <tbody>${Object.entries(byCat).map(([g,d])=>`
-            <tr style="background:var(--gray1)"><td colspan="2"><span class="badge ${GA_GROUP_COLORS[g]||'badge-gray'}" style="font-size:10px">${d.label}</span> <strong>${fmtB(d.total)}</strong></td><td></td><td class="num">${pct(total?d.total/total*100:0)}</td></tr>
-            ${Object.values(d.items).map(item=>`<tr><td style="padding-left:16px;font-size:11px;color:var(--text3)">↳</td><td style="font-size:12px">${item.name}</td><td class="num">${fmtB(item.total)}</td><td class="num text-muted">${pct(total?item.total/total*100:0)}</td></tr>`).join('')}`).join('')}
+            <tr style="background:var(--gray1)"><td colspan="2"><span class="badge ${GA_GROUP_COLORS[g]||'badge-gray'}" style="font-size:10px">${d.label}</span> <strong>${fmtB(d.total)}</strong></td><td></td><td class="num">${pct(filteredTotal?d.total/filteredTotal*100:0)}</td></tr>
+            ${Object.values(d.items).map(item=>`<tr><td style="padding-left:16px;font-size:11px;color:var(--text3)">↳</td><td style="font-size:12px">${item.name}</td><td class="num">${fmtB(item.total)}</td><td class="num text-muted">${pct(filteredTotal?item.total/filteredTotal*100:0)}</td></tr>`).join('')}`).join('')||'<tr><td colspan="4"><div class="empty-state">—</div></td></tr>'}
           </tbody></table></div>
       </div>
       <div class="card"><div class="card-header"><h3>Xu hướng tháng</h3></div><div class="card-body"><canvas id="chartGa" height="200"></canvas></div></div>
@@ -15929,7 +16126,7 @@ function gaRenderCost(cats, entries, total) {
     <div class="card"><div class="card-header"><h3>Bảng chi tiết</h3></div>
       <div class="card-body no-pad"><div class="tbl-wrap"><table>
         <thead><tr><th>Ngày</th><th>Tháng</th><th>Nhóm</th><th>Khoản mục</th><th class="num">Số tiền</th><th>Mô tả</th><th></th></tr></thead>
-        <tbody>${entries.length?entries.slice().sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate)).map(e=>{
+        <tbody>${filteredEntries.length?filteredEntries.slice().sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate)).map(e=>{
           const cat=cats.find(c=>c.id===e.categoryId)||{};
           return `<tr><td class="mono">${fmtDate(e.entryDate)}</td><td class="mono">${e.month||'—'}</td>
             <td><span class="badge ${GA_GROUP_COLORS[cat.group]||'badge-gray'}" style="font-size:10px">${GA_GROUP_LABELS[cat.group]||cat.group||'—'}</span></td>
@@ -15939,7 +16136,7 @@ function gaRenderCost(cats, entries, total) {
               <button class="btn btn-ghost btn-xs" onclick="openGaEntryForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">✏️</button>
               <button class="btn btn-ghost btn-xs" onclick="deleteGaEntry('${e.id}')">🗑</button>
             </td></tr>`;
-        }).join(''):'<tr><td colspan="7"><div class="empty-state">Chưa có bút toán nào.</div></td></tr>'}</tbody>
+        }).join(''):`<tr><td colspan="7"><div class="empty-state">${hasAnyFilter ? 'Không có bút toán nào khớp với bộ lọc.' : 'Chưa có bút toán nào.'}</div></td></tr>`}</tbody>
       </table></div></div>
     </div>`;
   setTimeout(()=>{
