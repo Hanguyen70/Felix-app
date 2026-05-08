@@ -14683,9 +14683,11 @@ function fmtUsdFromVnd(vnd){
 function fmtCurrency(amount, currency){
   if (currency==='VND' || !currency) return fmtVnd(amount);
   const sign = {USD:'$',SGD:'S$',EUR:'€',GBP:'£'}[currency] || (currency+' ');
-  if (Math.abs(amount) >= 1000000) return sign + (amount/1000000).toFixed(2) + 'M';
-  if (Math.abs(amount) >= 1000) return sign + (amount/1000).toFixed(1) + 'K';
-  return sign + Number(amount).toLocaleString('vi-VN');
+  // Ngoại tệ: format đầy đủ với 2 chữ số thập phân (vd $15,200.00, $1,036,400.50)
+  return sign + Number(amount||0).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 async function renderSmDashboard() {
