@@ -12326,6 +12326,26 @@ async function renderReceivablesPayables() {
   // Vessels/objects (đối tượng — tàu/HĐ O&M)
   const vesselsList = [...new Set(receivables.map(i => i.objLabel).filter(v => v && v !== '—'))].sort();
 
+  // Auto-reset filter values nếu không còn trong data (tránh bug giá trị cũ ẩn data)
+  if (_S_AR_CUSTOMER && !customersList.includes(_S_AR_CUSTOMER)) _S_AR_CUSTOMER = '';
+  if (_S_AR_PROJECT && !projectsList.includes(_S_AR_PROJECT)) _S_AR_PROJECT = '';
+  if (_S_AR_VESSEL && !vesselsList.includes(_S_AR_VESSEL)) _S_AR_VESSEL = '';
+
+  // Re-apply filter sau khi reset (để filteredPay/filteredRecv đúng)
+  const _filterFn2 = (item) => _arMatchFilter(_arStatus(item).status, _S_AR_FILTER) && (
+    (!_S_AR_CUSTOMER || item.customer === _S_AR_CUSTOMER) &&
+    (!_S_AR_PROJECT || item.projectLabel === _S_AR_PROJECT) &&
+    (!_S_AR_VESSEL || item.objLabel === _S_AR_VESSEL)
+  );
+  const _filteredRecv2 = receivables.filter(_filterFn2);
+  const _filteredPay2 = payables.filter(p =>
+    _arMatchFilter(_arStatus(p).status, _S_AR_FILTER) &&
+    (!_S_AR_CUSTOMER || p.supplier === _S_AR_CUSTOMER)
+  );
+  // Override với version đã re-apply
+  filteredRecv.length = 0; filteredRecv.push(..._filteredRecv2);
+  filteredPay.length = 0; filteredPay.push(..._filteredPay2);
+
   // KPI — dùng "remaining" thay vì amountVnd cho khoản chưa thu xong
   const totalRecv = receivables.reduce((s,i) => {
     const st = _arStatus(i);
@@ -12383,8 +12403,8 @@ async function renderReceivablesPayables() {
     <!-- Tabs + Filter -->
     <div class="flex items-center justify-between mb12" style="gap:12px;flex-wrap:wrap">
       <div class="flex" style="gap:0;border-bottom:1px solid var(--border)">
-        <button class="btn ${_S_AR_TAB==='receivables'?'btn-primary':'btn-ghost'}" style="border-radius:8px 8px 0 0;border-bottom:none" onclick="_S_AR_TAB='receivables';renderReceivablesPayables()">📥 Phải thu (${receivables.filter(i=>!i.paidDate).length})</button>
-        <button class="btn ${_S_AR_TAB==='payables'?'btn-primary':'btn-ghost'}" style="border-radius:8px 8px 0 0;border-bottom:none" onclick="_S_AR_TAB='payables';renderReceivablesPayables()">📤 Phải trả (${payables.filter(i=>!i.paidDate).length})</button>
+        <button class="btn ${_S_AR_TAB==='receivables'?'btn-primary':'btn-ghost'}" style="border-radius:8px 8px 0 0;border-bottom:none" onclick="_S_AR_TAB='receivables';_S_AR_CUSTOMER='';_S_AR_PROJECT='';_S_AR_VESSEL='';renderReceivablesPayables()">📥 Phải thu (${receivables.filter(i=>!i.paidDate).length})</button>
+        <button class="btn ${_S_AR_TAB==='payables'?'btn-primary':'btn-ghost'}" style="border-radius:8px 8px 0 0;border-bottom:none" onclick="_S_AR_TAB='payables';_S_AR_CUSTOMER='';_S_AR_PROJECT='';_S_AR_VESSEL='';renderReceivablesPayables()">📤 Phải trả (${payables.filter(i=>!i.paidDate).length})</button>
       </div>
       <div class="flex items-center" style="gap:8px">
         <label style="font-size:12px;color:var(--text3)">Trạng thái:</label>
