@@ -3851,7 +3851,7 @@ async function renderCosts() {
   try {
     [entries, projects] = await Promise.all([
       api('getCostEntries',{vesselId:S.vesselId,year:S.year}),
-      api('getProjects',{vesselId:S.vesselId,year:S.year}),
+      api('getProjects',{vesselId:S.vesselId}),  // Bỏ filter year — cần lookup dự án các năm khác
     ]);
   } catch(e){ toast('Lỗi: '+e.message,'err'); }
   hideLoading();
@@ -4440,7 +4440,7 @@ async function renderRevenue() {
   try {
     [entries, projects] = await Promise.all([
       api('getRevEntries',{vesselId:S.vesselId,year:S.year}),
-      api('getProjects',{vesselId:S.vesselId,year:S.year}),
+      api('getProjects',{vesselId:S.vesselId}),  // Bỏ filter year — cần lookup dự án các năm khác
     ]);
   } catch(e){ toast('Lỗi: '+e.message,'err'); }
   hideLoading();
@@ -14357,9 +14357,170 @@ async function renderSmReport(contractId) {
         <div class="card-header"><h3>P&L SME theo tháng</h3></div>
         <div class="card-body no-pad"><table>
           <thead><tr><th>Tháng</th><th class="num">Phí QT</th><th class="num">CP SME</th><th class="num">Margin</th></tr></thead>
-          <tbody>${months.map(m=>{const fee=cFees.filter(e=>e.month===m).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);const cost=cCosts.filter(e=>e.month===m).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);const mg=fee-cost;return `<tr><td class="mono">${m}</td><td class="num">${fmtB(fee)}</td><td class="num">${fmtB(cost)}</td><td class="num ${mg>=0?'pos':'neg'}">${fmtB(mg)}</td></tr>`;}).join('')||'<tr><td colspan="4"><div class="empty-state">Chưa có</div></td></tr>'}</tbody>
+          <tbody>${months.map(m=>{const fee=cRevs.filter(e=>e.month===m).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);const cost=cCosts.filter(e=>e.month===m).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);const mg=fee-cost;return `<tr><td class="mono">${m}</td><td class="num">${fmtB(fee)}</td><td class="num">${fmtB(cost)}</td><td class="num ${mg>=0?'pos':'neg'}">${fmtB(mg)}</td></tr>`;}).join('')||'<tr><td colspan="4"><div class="empty-state">Chưa có</div></td></tr>'}</tbody>
         </table></div>
       </div>
+    </div>
+
+    <!-- ─── BẢNG CHI TIẾT BÚT TOÁN: Sửa/Xóa từng dòng ─── -->
+    <div class="section-title" style="margin-top:24px">📋 Chi tiết bút toán — ${c.vesselName}</div>
+
+    <div class="card mb16">
+      <div class="card-header flex items-center justify-between">
+        <h3>💰 Phí quản lý tàu (Doanh thu QT)</h3>
+        <span class="badge badge-teal">${cRevs.length} dòng</span>
+      </div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th style="width:90px">Ngày</th>
+              <th style="width:80px">Tháng</th>
+              <th class="num">Số tiền (NT)</th>
+              <th>Ngoại tệ</th>
+              <th class="num">Quy VNĐ</th>
+              <th>Số HĐ/Invoice</th>
+              <th>Mô tả</th>
+              <th style="width:90px"></th>
+            </tr></thead>
+            <tbody>
+              ${cRevs.length === 0 ? '<tr><td colspan="8"><div class="empty-state">Chưa có DT QT nào</div></td></tr>' :
+                cRevs.slice().sort((a,b) => (b.entryDate||'').localeCompare(a.entryDate||'')).map(e => `
+                  <tr>
+                    <td class="mono">${fmtDate(e.entryDate)||'—'}</td>
+                    <td class="mono">${e.month||'—'}</td>
+                    <td class="num">${e.currency&&e.currency!=='VND'?fmt(e.amount):fmtVnd(e.amountVnd)}</td>
+                    <td>${e.currency&&e.currency!=='VND'?`${e.currency} (${fmt(e.fxRate||1)})`:'—'}</td>
+                    <td class="num" style="font-weight:600;color:var(--teal)">${fmtVnd(e.amountVnd)}</td>
+                    <td>${e.invoiceNo||'—'}</td>
+                    <td>${e.description||'—'}</td>
+                    <td class="row-actions">
+                      <button class="btn btn-ghost btn-xs" onclick='openSmRevForm(${JSON.stringify(e).replace(/'/g, "&apos;")})' title="Sửa">✏️</button>
+                      <button class="btn btn-ghost btn-xs" onclick="deleteSmRev('${e.id}')" title="Xoá">🗑</button>
+                    </td>
+                  </tr>
+                `).join('')
+              }
+            </tbody>
+            ${cRevs.length > 0 ? `<tfoot style="background:var(--gray2);font-weight:700">
+              <tr>
+                <td colspan="4" style="text-align:right">TỔNG:</td>
+                <td class="num" style="color:var(--teal)">${fmtVnd(totalFee)}</td>
+                <td colspan="3"></td>
+              </tr>
+            </tfoot>` : ''}
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb16">
+      <div class="card-header flex items-center justify-between">
+        <h3>💼 Chi phí quản lý SME</h3>
+        <span class="badge badge-amber">${cCosts.length} dòng</span>
+      </div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th style="width:90px">Ngày</th>
+              <th style="width:80px">Tháng</th>
+              <th>Khoản mục</th>
+              <th class="num">Số tiền (NT)</th>
+              <th>Ngoại tệ</th>
+              <th class="num">Quy VNĐ</th>
+              <th>Mô tả</th>
+              <th style="width:90px"></th>
+            </tr></thead>
+            <tbody>
+              ${cCosts.length === 0 ? '<tr><td colspan="8"><div class="empty-state">Chưa có CP nào</div></td></tr>' :
+                cCosts.slice().sort((a,b) => (b.entryDate||'').localeCompare(a.entryDate||'')).map(e => `
+                  <tr>
+                    <td class="mono">${fmtDate(e.entryDate)||'—'}</td>
+                    <td class="mono">${e.month||'—'}</td>
+                    <td>${e.categoryName||e.category||'—'}</td>
+                    <td class="num">${e.currency&&e.currency!=='VND'?fmt(e.amount):fmtVnd(e.amountVnd)}</td>
+                    <td>${e.currency&&e.currency!=='VND'?`${e.currency} (${fmt(e.fxRate||1)})`:'—'}</td>
+                    <td class="num" style="font-weight:600;color:var(--amber)">${fmtVnd(e.amountVnd)}</td>
+                    <td>${e.description||'—'}</td>
+                    <td class="row-actions">
+                      <button class="btn btn-ghost btn-xs" onclick='openSmCostForm(${JSON.stringify(e).replace(/'/g, "&apos;")})' title="Sửa">✏️</button>
+                      <button class="btn btn-ghost btn-xs" onclick="deleteSmCost('${e.id}')" title="Xoá">🗑</button>
+                    </td>
+                  </tr>
+                `).join('')
+              }
+            </tbody>
+            ${cCosts.length > 0 ? `<tfoot style="background:var(--gray2);font-weight:700">
+              <tr>
+                <td colspan="5" style="text-align:right">TỔNG:</td>
+                <td class="num" style="color:var(--amber)">${fmtVnd(totalCost)}</td>
+                <td colspan="2"></td>
+              </tr>
+            </tfoot>` : ''}
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb16">
+      <div class="card-header flex items-center justify-between">
+        <h3>🔄 Thu/Chi hộ chủ tàu (pass-through)</h3>
+        <span class="badge badge-blue">${(cThuHo.length+cChiHo.length)} dòng</span>
+      </div>
+      <div class="card-body no-pad">
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th style="width:90px">Ngày</th>
+              <th style="width:80px">Tháng</th>
+              <th style="width:90px">Loại</th>
+              <th class="num">Số tiền (NT)</th>
+              <th>Ngoại tệ</th>
+              <th class="num">Quy VNĐ</th>
+              <th>Mô tả</th>
+              <th style="width:90px"></th>
+            </tr></thead>
+            <tbody>
+              ${[...cThuHo, ...cChiHo].length === 0 ? '<tr><td colspan="8"><div class="empty-state">Chưa có thu/chi hộ nào</div></td></tr>' :
+                [...cThuHo, ...cChiHo].slice().sort((a,b) => (b.entryDate||'').localeCompare(a.entryDate||'')).map(e => {
+                  const isThuHo = e.type === 'thu_ho';
+                  return `
+                    <tr>
+                      <td class="mono">${fmtDate(e.entryDate)||'—'}</td>
+                      <td class="mono">${e.month||'—'}</td>
+                      <td>${isThuHo?'<span class="badge badge-teal" style="font-size:10px">📥 Thu hộ</span>':'<span class="badge badge-amber" style="font-size:10px">📤 Chi hộ</span>'}</td>
+                      <td class="num">${e.currency&&e.currency!=='VND'?fmt(e.amount):fmtVnd(e.amountVnd)}</td>
+                      <td>${e.currency&&e.currency!=='VND'?`${e.currency} (${fmt(e.fxRate||1)})`:'—'}</td>
+                      <td class="num" style="font-weight:600;color:${isThuHo?'var(--teal)':'var(--amber)'}">${isThuHo?'+':'−'}${fmtVnd(e.amountVnd)}</td>
+                      <td>${e.description||'—'}</td>
+                      <td class="row-actions">
+                        <button class="btn btn-ghost btn-xs" onclick='openSmPassthroughForm(${JSON.stringify(e).replace(/'/g, "&apos;")})' title="Sửa">✏️</button>
+                        <button class="btn btn-ghost btn-xs" onclick="deleteSmPassthrough('${e.id}')" title="Xoá">🗑</button>
+                      </td>
+                    </tr>
+                  `;
+                }).join('')
+              }
+            </tbody>
+            ${(cThuHo.length+cChiHo.length) > 0 ? `<tfoot style="background:var(--gray2);font-weight:700">
+              <tr>
+                <td colspan="5" style="text-align:right">TỔNG (Thu hộ − Chi hộ):</td>
+                <td class="num" style="color:${(totalThu-totalChi)>=0?'var(--teal)':'var(--amber)'}">${(totalThu-totalChi)>=0?'+':'−'}${fmtVnd(Math.abs(totalThu-totalChi))}</td>
+                <td colspan="2" style="font-weight:400;font-size:11px;color:var(--text3)">Số dư công nợ với chủ tàu</td>
+              </tr>
+            </tfoot>` : ''}
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action buttons -->
+    <div class="flex gap8 mb16" style="flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="openSmRevForm({contractId:'${c.id}'})" style="background:var(--teal);border-color:var(--teal)">💰 + Phí QT</button>
+      <button class="btn btn-outline" onclick="openSmCostForm({contractId:'${c.id}'})">+ Chi phí SME</button>
+      <button class="btn btn-outline" onclick="openSmPassthroughForm({contractId:'${c.id}'})">+ Thu/Chi hộ</button>
+      <button class="btn btn-outline" onclick="renderSmDashboard()">← Quay lại</button>
     </div>`;
 }
 
