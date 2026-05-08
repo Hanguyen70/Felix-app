@@ -9595,23 +9595,49 @@ function getInvCategoryLabel(catId, module) {
   return catId;
 }
 
-// Filter UI state: module hiện tại đang xem (mặc định 'vessel')
-let _S_INV_MODULE = 'vessel';
+// Filter UI state: đối tượng đang xem
+//  - 'vessel:<vesselId>' = 1 tàu cụ thể
+//  - 'om' = O&M chung
+//  - 'ga' = QLC chung
+let _S_INV_MODULE = 'vessel';   // legacy, vẫn giữ để tương thích form
+let _S_INV_TARGET = '';         // sẽ set khi load lần đầu
 
 async function renderInventory() {
   showLoading();
-  let entries = [], allEntries = [], vessels = [], projects = [], omContracts = [];
+  let allEntries = [], vessels = [], projects = [], omContracts = [];
   try {
-    [entries, allEntries, vessels, projects, omContracts] = await Promise.all([
-      api('getInventoryEntries', { module: _S_INV_MODULE, year: S.year }),
-      // Lấy toàn bộ entries lifetime của module này để tính tồn kho cộng dồn qua các năm
-      api('getInventoryEntries', { module: _S_INV_MODULE }),
+    [allEntries, vessels, projects, omContracts] = await Promise.all([
+      api('getInventoryEntries', {}),  // Lấy lifetime tất cả module
       api('getVessels', {}),
       api('getProjects', {}),
       api('getOmContracts', {}).catch(()=>[]),
     ]);
   } catch(e) { toast('Lỗi: '+e.message,'err'); }
   hideLoading();
+
+  // Auto-select target lần đầu: tàu đầu tiên có data, hoặc tàu đầu tiên trong danh sách
+  if (!_S_INV_TARGET) {
+    if (vessels.length > 0) {
+      _S_INV_TARGET = `vessel:${vessels[0].id}`;
+    } else {
+      _S_INV_TARGET = 'om';
+    }
+  }
+
+  // Parse target
+  const isVesselTarget = _S_INV_TARGET.startsWith('vessel:');
+  const targetVesselId = isVesselTarget ? _S_INV_TARGET.substring(7) : '';
+  const targetModule = isVesselTarget ? 'vessel' : _S_INV_TARGET;
+  _S_INV_MODULE = targetModule;  // sync để form còn dùng
+
+  // Filter entries theo target
+  const targetEntries = (allEntries||[]).filter(e => {
+    if (e.module !== targetModule) return false;
+    if (isVesselTarget && e.vesselId !== targetVesselId) return false;
+    return true;
+  });
+  // Filter cho năm hiện tại
+  const entries = targetEntries.filter(e => String(e.year) === String(S.year));
 
   const vName = id => (vessels.find(v=>v.id===id)||{}).name||'—';
   const pName = id => (projects.find(p=>p.id===id)||{}).name||'—';
@@ -9620,33 +9646,78 @@ async function renderInventory() {
     return c ? (c.contractName||c.contractNo||'—') : '—';
   };
 
-  // Sắp xếp theo tháng giảm dần (mới nhất trên cùng), trong cùng tháng theo đối tượng
-  entries.sort((a,b) => {
-    const aType = a.entryType || 'out';
-    const bType = b.entryType || 'out';
-    // Opening luôn ở trên cùng của năm
-    if (aType === 'opening' && bType !== 'opening') return -1;
-    if (bType === 'opening' && aType !== 'opening') return 1;
-    const aKey = `${a.year||0}-${String(a.month||0).padStart(2,'0')}`;
-    const bKey = `${b.year||0}-${String(b.month||0).padStart(2,'0')}`;
-    return bKey.localeCompare(aKey);
+  // ─── Tính tồn cho mỗi đối tượng (để hiển thị sidebar) ───
+  const calcStockForTarget = (lifetimeForTarget) => {
+    const yr = S.year;
+    const opening = (lifetimeForTarget||[])
+      .filter(e => String(e.year) === String(yr) && (e.entryType||'out') === 'opening')
+      .reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
+    let endPrev = 0;
+    (lifetimeForTarget||[]).forEach(e => {
+      if (parseInt(e.year) >= yr) return;
+      const t = e.entryType || 'out';
+      const a = parseFloat(e.amountVnd)||0;
+      if (t === 'opening' || t === 'in') endPrev += a;
+      else if (t === 'out') endPrev -= a;
+    });
+    let stockOpen = opening + endPrev;
+    let inSum=0, outSum=0;
+    (lifetimeForTarget||[]).filter(e => String(e.year) === String(yr)).forEach(e => {
+      const t = e.entryType || 'out';
+      const a = parseFloat(e.amountVnd)||0;
+      if (t === 'in') inSum += a;
+      else if (t === 'out') outSum += a;
+    });
+    return { stockOpen, inSum, outSum, stockEnd: stockOpen + inSum - outSum };
+  };
+
+  // ─── Build sidebar items ───
+  const sidebarItems = [];
+  // Tàu
+  vessels.forEach(v => {
+    const vEntries = (allEntries||[]).filter(e => e.module === 'vessel' && e.vesselId === v.id);
+    const stock = calcStockForTarget(vEntries);
+    sidebarItems.push({
+      key: `vessel:${v.id}`,
+      icon: '🚢',
+      label: v.name,
+      sublabel: 'Tàu',
+      stockEnd: stock.stockEnd,
+      hasData: vEntries.length > 0,
+    });
+  });
+  // O&M
+  const omEntries = (allEntries||[]).filter(e => e.module === 'om');
+  const omStock = calcStockForTarget(omEntries);
+  sidebarItems.push({
+    key: 'om',
+    icon: '🏥',
+    label: 'O&M chung',
+    sublabel: 'Hợp đồng',
+    stockEnd: omStock.stockEnd,
+    hasData: omEntries.length > 0,
+  });
+  // GA
+  const gaEntries = (allEntries||[]).filter(e => e.module === 'ga');
+  const gaStock = calcStockForTarget(gaEntries);
+  sidebarItems.push({
+    key: 'ga',
+    icon: '🏢',
+    label: 'Quản lý chung',
+    sublabel: 'Văn phòng',
+    stockEnd: gaStock.stockEnd,
+    hasData: gaEntries.length > 0,
   });
 
-  // ─── TÍNH TỒN KHO THEO THÁNG ───
-  // Tồn đầu năm Y = sum(opening của năm Y) + (Tồn cuối năm Y-1)
-  // Tồn cuối tháng M = Tồn đầu năm + sum(in tháng 1..M) - sum(out tháng 1..M)
-  // Vì entries đã filter theo year, mình dùng allEntries để tính tồn cuối năm trước.
+  // ─── Tính KPI và tồn theo tháng cho TARGET hiện tại ───
   const _entryType = e => e.entryType || 'out';
   const _amt = e => parseFloat(e.amountVnd) || 0;
 
-  // Tồn đầu năm S.year:
-  //   1. Lấy tất cả opening của S.year
   const openingThisYear = (entries||[])
     .filter(e => _entryType(e) === 'opening')
     .reduce((s, e) => s + _amt(e), 0);
-  //   2. Tồn cuối năm trước (lifetime tính tới năm S.year-1)
   let endOfPrevYear = 0;
-  (allEntries||[]).forEach(e => {
+  (targetEntries||[]).forEach(e => {
     const yr = parseInt(e.year)||0;
     if (yr >= S.year) return;
     const t = _entryType(e);
@@ -9655,7 +9726,6 @@ async function renderInventory() {
   });
   const stockOpening = openingThisYear + endOfPrevYear;
 
-  // Tổng nhập/xuất từng tháng năm S.year
   const monthlyData = {};
   for (let m = 1; m <= 12; m++) monthlyData[m] = { in: 0, out: 0 };
   (entries||[]).forEach(e => {
@@ -9664,29 +9734,75 @@ async function renderInventory() {
     const t = _entryType(e);
     if (t === 'in') monthlyData[m].in += _amt(e);
     else if (t === 'out') monthlyData[m].out += _amt(e);
-    // 'opening' không vào monthlyData (tính riêng)
   });
-
-  // Tính tồn cuối từng tháng (cộng dồn)
   let runningStock = stockOpening;
   const monthlyStock = {};
   for (let m = 1; m <= 12; m++) {
-    const opening_m = runningStock;
-    const ending_m = opening_m + monthlyData[m].in - monthlyData[m].out;
+    const ending_m = runningStock + monthlyData[m].in - monthlyData[m].out;
     monthlyStock[m] = {
-      opening: opening_m,
-      in: monthlyData[m].in,
-      out: monthlyData[m].out,
-      ending: ending_m,
+      opening: runningStock, in: monthlyData[m].in, out: monthlyData[m].out, ending: ending_m,
     };
     runningStock = ending_m;
   }
   const stockEnding = runningStock;
-
   const totalIn  = Object.values(monthlyData).reduce((s,d) => s + d.in,  0);
   const totalOut = Object.values(monthlyData).reduce((s,d) => s + d.out, 0);
 
-  // Build object label helper
+  // Sort entries by month desc, opening on top
+  entries.sort((a,b) => {
+    const aType = _entryType(a), bType = _entryType(b);
+    if (aType === 'opening' && bType !== 'opening') return -1;
+    if (bType === 'opening' && aType !== 'opening') return 1;
+    return (parseInt(b.month)||0) - (parseInt(a.month)||0);
+  });
+
+  // ─── Tính chi tiết theo chủng loại × tháng (cho target hiện tại) ───
+  const allCats = (window.__DEMO_STORE__?.inventoryCategories) || [];
+  const catNameById = {};
+  const catGroupById = {};
+  allCats.forEach(c => { catNameById[c.id] = c.name; catGroupById[c.id] = c.group || '(Khác)'; });
+
+  const detailByCat = {};   // {catId: { catName, catGroup, openYear, monthlyIn[], monthlyOut[], monthlyEnd[] }}
+  // Init từ targetEntries (lifetime)
+  (targetEntries||[]).forEach(e => {
+    const catId = e.categoryId || e.category || '__unknown__';
+    if (!detailByCat[catId]) {
+      detailByCat[catId] = {
+        catId, catName: catNameById[catId] || catId,
+        catGroup: catGroupById[catId] || '(Khác)',
+        openYear: 0,
+        monthlyIn: Array(13).fill(0),
+        monthlyOut: Array(13).fill(0),
+      };
+    }
+    const rec = detailByCat[catId];
+    const eYr = parseInt(e.year) || 0;
+    const eM = parseInt(e.month) || 0;
+    const amt = _amt(e);
+    const t = _entryType(e);
+    if (eYr < S.year) {
+      if (t === 'opening' || t === 'in') rec.openYear += amt;
+      else if (t === 'out') rec.openYear -= amt;
+    } else if (eYr === S.year) {
+      if (t === 'opening') rec.openYear += amt;
+      else if (eM >= 1 && eM <= 12) {
+        if (t === 'in') rec.monthlyIn[eM] += amt;
+        else if (t === 'out') rec.monthlyOut[eM] += amt;
+      }
+    }
+  });
+  // Tính monthlyEnd cộng dồn
+  Object.values(detailByCat).forEach(rec => {
+    let r = rec.openYear;
+    rec.monthlyEnd = Array(13).fill(0);
+    for (let m = 1; m <= 12; m++) {
+      r = r + (rec.monthlyIn[m]||0) - (rec.monthlyOut[m]||0);
+      rec.monthlyEnd[m] = r;
+    }
+    rec.finalEnd = r;
+  });
+
+  // Object label helper
   const objLabel = e => {
     if (e.module === 'vessel') {
       return `${vName(e.vesselId)}${e.projectId ? ` · ${pName(e.projectId)}` : ''}`;
@@ -9696,14 +9812,6 @@ async function renderInventory() {
     return '—';
   };
 
-  // Module tabs
-  const moduleTabs = [
-    { k:'vessel', label:'🚢 Tàu / Vessel' },
-    { k:'om',     label:'🏥 O&M' },
-    { k:'ga',     label:'🏢 Quản lý chung' },
-  ];
-
-  // Helper render entry type badge
   const typeBadge = e => {
     const t = _entryType(e);
     if (t === 'opening') return '<span class="badge badge-purple" style="font-size:10px">📋 Tồn đầu kỳ</span>';
@@ -9711,7 +9819,7 @@ async function renderInventory() {
     return '<span class="badge badge-amber" style="font-size:10px">📤 Xuất</span>';
   };
 
-  // Tháng có dữ liệu (để bảng tồn không quá dài)
+  // Tháng có dữ liệu
   const activeMonths = [];
   for (let m = 1; m <= 12; m++) {
     if (monthlyStock[m].in > 0 || monthlyStock[m].out > 0 || (m === 1 && stockOpening > 0)) {
@@ -9719,128 +9827,195 @@ async function renderInventory() {
     }
   }
 
+  // Target label cho heading
+  const targetLabel = isVesselTarget ? `🚢 ${vName(targetVesselId)}` :
+                      targetModule === 'om' ? '🏥 O&M chung' : '🏢 Quản lý chung';
+
   document.getElementById('content').innerHTML = `
     <div style="background:linear-gradient(135deg,#0a1628,#162d55);border-radius:var(--radius);padding:14px 20px;margin-bottom:16px;color:#fff">
       <div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Kho vật tư</div>
       <div style="font-size:13px;line-height:1.7">
-        <strong>Nhập kho:</strong> mua/nhập thêm — tăng tồn, KHÔNG vào P&amp;L. <strong>Xuất kho:</strong> sử dụng — vào P&amp;L &amp; BCTC.<br>
-        <strong>Tồn đầu kỳ:</strong> khai khi bắt đầu năm. <strong>Chuyển năm tự động:</strong> tồn cuối năm Y → tồn đầu năm Y+1.
+        Mỗi tàu là <strong>1 kho riêng</strong>. <strong>Nhập:</strong> tăng tồn, KHÔNG vào P&amp;L. <strong>Xuất:</strong> vào P&amp;L &amp; BCTC. <strong>Tồn cuối năm</strong> tự chuyển sang năm sau.
       </div>
     </div>
 
-    <!-- Module tabs -->
-    <div class="flex gap8 mb16" style="border-bottom:1px solid var(--border);padding-bottom:0">
-      ${moduleTabs.map(t => `
-        <button class="btn ${t.k===_S_INV_MODULE?'btn-primary':'btn-ghost'}"
-                style="border-radius:8px 8px 0 0;border-bottom:none"
-                onclick="switchInventoryModule('${t.k}')">${t.label}</button>
-      `).join('')}
-    </div>
+    <!-- Layout 2 cột: Sidebar | Content -->
+    <div style="display:grid;grid-template-columns:240px 1fr;gap:16px;align-items:start">
 
-    <!-- 4 KPI: Tồn đầu năm | Nhập | Xuất | Tồn cuối năm -->
-    <div class="kpi-grid cols4 mb16">
-      <div class="kpi-card accent-purple">
-        <div class="kpi-label">Tồn đầu năm ${S.year}</div>
-        <div class="kpi-value">${fmtB(stockOpening)}</div>
-        <div class="kpi-sub" style="font-size:10px">Kế thừa từ năm trước: ${fmtB(endOfPrevYear)}</div>
-      </div>
-      <div class="kpi-card accent-blue">
-        <div class="kpi-label">📥 Nhập trong năm</div>
-        <div class="kpi-value">${fmtB(totalIn)}</div>
-      </div>
-      <div class="kpi-card accent-amber">
-        <div class="kpi-label">📤 Xuất trong năm</div>
-        <div class="kpi-value">${fmtB(totalOut)}</div>
-        <div class="kpi-sub" style="font-size:10px">Vào P&amp;L &amp; BCTC</div>
-      </div>
-      <div class="kpi-card ${stockEnding>=0?'accent-green':'accent-red'}">
-        <div class="kpi-label">Tồn cuối năm ${S.year}</div>
-        <div class="kpi-value ${stockEnding>=0?'kpi-positive':'kpi-negative'}">${fmtB(stockEnding)}</div>
-        <div class="kpi-sub" style="font-size:10px">${stockEnding < 0 ? '⚠ Xuất vượt tồn — kiểm tra' : 'Sẽ chuyển sang năm sau'}</div>
-      </div>
-    </div>
-
-    ${stockEnding < 0 ? `<div style="background:#fee2e2;border-left:4px solid #ef4444;color:#991b1b;border-radius:6px;padding:12px 16px;margin-bottom:16px;font-weight:600">⚠ Xuất kho vượt tồn — Có thể thiếu bút toán Tồn đầu kỳ hoặc Nhập kho. Kiểm tra lại số liệu.</div>` : ''}
-
-    <!-- Bảng Tồn kho theo tháng (gọn) -->
-    ${activeMonths.length > 0 ? `<div class="card mb16">
-      <div class="card-header"><h3>📊 Tồn kho theo tháng năm ${S.year}</h3></div>
-      <div class="card-body no-pad">
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr>
-              <th>Tháng</th>
-              <th class="num">Tồn đầu kỳ</th>
-              <th class="num">📥 Nhập</th>
-              <th class="num">📤 Xuất</th>
-              <th class="num" style="background:var(--gray2)">Tồn cuối kỳ</th>
-            </tr></thead>
-            <tbody>
-              ${activeMonths.map(m => {
-                const d = monthlyStock[m];
-                return `<tr>
-                  <td class="mono">T${String(m).padStart(2,'0')}/${S.year}</td>
-                  <td class="num" style="font-family:var(--mono);font-size:12px">${fmtB(d.opening)}</td>
-                  <td class="num pos" style="font-family:var(--mono);font-size:12px">${d.in?'+'+fmtB(d.in):'—'}</td>
-                  <td class="num neg" style="font-family:var(--mono);font-size:12px">${d.out?'−'+fmtB(d.out):'—'}</td>
-                  <td class="num" style="font-family:var(--mono);font-weight:700;background:var(--gray1);color:${d.ending<0?'var(--red)':'inherit'}">${fmtB(d.ending)}</td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
+      <!-- ─── SIDEBAR: Danh sách kho ─── -->
+      <div class="card" style="position:sticky;top:16px">
+        <div style="padding:10px 12px;border-bottom:1px solid var(--border);font-weight:700;font-size:12px;color:var(--text2)">
+          📦 Chọn kho
+        </div>
+        <div style="max-height:calc(100vh - 140px);overflow-y:auto;padding:6px 0">
+          ${sidebarItems.map(item => {
+            const active = item.key === _S_INV_TARGET;
+            return `<div onclick="_invSelectTarget('${item.key}')"
+              style="padding:10px 12px;cursor:pointer;border-left:3px solid ${active?'var(--blue)':'transparent'};background:${active?'#F0F4FF':''};transition:all .15s"
+              onmouseover="if(!${active})this.style.background='var(--gray1)'"
+              onmouseout="if(!${active})this.style.background=''">
+              <div style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:${active?'700':'500'};color:${active?'var(--blue)':'var(--text1)'}">
+                <span style="font-size:14px">${item.icon}</span>
+                <span style="flex:1">${item.label}</span>
+              </div>
+              <div style="font-size:10px;color:var(--text3);margin-top:2px;margin-left:22px">${item.sublabel}</div>
+              <div style="font-size:11px;font-weight:600;color:${item.stockEnd>0?'var(--green)':item.stockEnd<0?'var(--red)':'var(--text3)'};margin-top:3px;margin-left:22px;font-family:var(--mono)">
+                ${item.hasData ? (item.stockEnd === 0 ? '0' : fmtB(item.stockEnd)) : '—'}
+              </div>
+            </div>`;
+          }).join('')}
         </div>
       </div>
-    </div>` : ''}
 
-    <!-- Bảng list bút toán -->
-    <div class="card">
-      <div class="card-header flex items-center justify-between">
-        <h3>📦 Bút toán kho — ${entries.length} dòng</h3>
-        <button class="btn btn-primary" onclick="openInventoryForm({module:'${_S_INV_MODULE}'})">+ Nhập số liệu tháng</button>
-      </div>
-      <div class="card-body no-pad">
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr>
-              <th style="width:100px">Tháng/Năm</th>
-              <th style="width:110px">Loại</th>
-              <th>Đối tượng</th>
-              <th>Loại vật tư</th>
-              <th class="num">Giá trị (VNĐ)</th>
-              <th>Mô tả</th>
-              <th></th>
-            </tr></thead>
-            <tbody>
-              ${entries.length ? entries.map(e => {
-                const t = _entryType(e);
-                const rowBg = t === 'opening' ? 'background:#F5F0FF' : t === 'in' ? 'background:#F0F4FF' : '';
-                return `<tr style="${rowBg}">
-                  <td class="mono" style="font-size:12px">${t==='opening'?'01/'+(e.year||''):String(e.month||'').padStart(2,'0')+'/'+(e.year||'')}</td>
-                  <td>${typeBadge(e)}</td>
-                  <td><strong>${objLabel(e)}</strong></td>
-                  <td><span class="badge badge-teal" style="font-size:11px">${getInvCategoryLabel(e.category, e.module||_S_INV_MODULE)}</span></td>
-                  <td class="num">${fmtVnd(e.amountVnd)}</td>
-                  <td>${e.description||'<span class="text-muted">—</span>'}</td>
-                  <td class="row-actions">
-                    <button class="btn btn-ghost btn-xs" onclick="openInventoryForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">✏️</button>
-                    <button class="btn btn-ghost btn-xs" onclick="deleteInventoryEntry('${e.id}')">🗑</button>
-                  </td>
-                </tr>`;
-              }).join('') : `<tr><td colspan="7"><div class="empty-state">
-                  Chưa có bút toán nào trong năm ${S.year} cho module ${_S_INV_MODULE.toUpperCase()}.<br>
-                  <span style="font-size:12px;color:var(--text3)">Click "+ Nhập số liệu tháng" để thêm.</span>
-                </div></td></tr>`}
-            </tbody>
-          </table>
+      <!-- ─── CONTENT ─── -->
+      <div>
+        <!-- Heading + Add button -->
+        <div class="flex items-center justify-between mb16">
+          <h3 style="margin:0;font-size:18px">${targetLabel}</h3>
+          <button class="btn btn-primary" onclick="openInventoryForm()">+ Nhập số liệu tháng</button>
+        </div>
+
+        <!-- 4 KPI -->
+        <div class="kpi-grid cols4 mb16">
+          <div class="kpi-card accent-purple">
+            <div class="kpi-label">Tồn đầu năm ${S.year}</div>
+            <div class="kpi-value">${fmtB(stockOpening)}</div>
+            <div class="kpi-sub" style="font-size:10px">Kế thừa từ Y-1: ${fmtB(endOfPrevYear)}</div>
+          </div>
+          <div class="kpi-card accent-blue">
+            <div class="kpi-label">📥 Nhập trong năm</div>
+            <div class="kpi-value">+${fmtB(totalIn)}</div>
+          </div>
+          <div class="kpi-card accent-amber">
+            <div class="kpi-label">📤 Xuất trong năm</div>
+            <div class="kpi-value">−${fmtB(totalOut)}</div>
+            <div class="kpi-sub" style="font-size:10px">Vào P&L & BCTC như chi phí</div>
+          </div>
+          <div class="kpi-card accent-green">
+            <div class="kpi-label">Tồn cuối năm ${S.year}</div>
+            <div class="kpi-value">${fmtB(stockEnding)}</div>
+            <div class="kpi-sub" style="font-size:10px">Chuyển sang năm ${S.year+1}</div>
+          </div>
+        </div>
+
+        <!-- Bảng Tồn theo tháng -->
+        <div class="card mb16">
+          <div class="card-header"><h3>📊 Tồn kho theo tháng năm ${S.year}</h3></div>
+          <div class="card-body no-pad">
+            <div class="tbl-wrap">
+              <table>
+                <thead><tr>
+                  <th>Tháng</th>
+                  <th class="num">Tồn đầu kỳ</th>
+                  <th class="num">📥 Nhập</th>
+                  <th class="num">📤 Xuất</th>
+                  <th class="num" style="background:var(--gray2)">Tồn cuối kỳ</th>
+                </tr></thead>
+                <tbody>
+                  ${activeMonths.length === 0 ? '<tr><td colspan="5"><div class="empty-state">Chưa có dữ liệu năm ' + S.year + '</div></td></tr>' :
+                    activeMonths.map(m => `
+                      <tr>
+                        <td class="mono">T${String(m).padStart(2,'0')}/${S.year}</td>
+                        <td class="num">${fmtB(monthlyStock[m].opening)}</td>
+                        <td class="num pos">${monthlyStock[m].in?'+'+fmtB(monthlyStock[m].in):'<span class="text-muted">—</span>'}</td>
+                        <td class="num neg">${monthlyStock[m].out?'−'+fmtB(monthlyStock[m].out):'<span class="text-muted">—</span>'}</td>
+                        <td class="num" style="background:var(--gray1);font-weight:700">${fmtB(monthlyStock[m].ending)}</td>
+                      </tr>
+                    `).join('')
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bảng Chi tiết theo chủng loại × tháng -->
+        ${Object.keys(detailByCat).length > 0 ? `
+        <div class="card mb16">
+          <div class="card-header"><h3>📋 Chi tiết tồn theo chủng loại × tháng</h3></div>
+          <div class="card-body" style="padding-top:0">
+            <p style="font-size:11px;color:var(--text3);margin:8px 0 12px">
+              Tồn cuối tháng cộng dồn cho từng chủng loại. Hover ô để xem Nhập/Xuất tháng đó.
+            </p>
+            <div class="tbl-wrap">
+              <table style="font-size:12px">
+                <thead style="background:var(--gray1)">
+                  <tr>
+                    <th rowspan="2" style="width:200px;vertical-align:middle;border-right:2px solid var(--gray3)">Chủng loại</th>
+                    <th rowspan="2" class="num" style="width:100px;background:var(--gray2);vertical-align:middle;border-right:2px solid var(--gray3)">Tồn đầu năm</th>
+                    <th colspan="12" style="text-align:center">Tồn cuối tháng</th>
+                  </tr>
+                  <tr>
+                    ${Array.from({length:12}, (_,i)=>`<th class="num" style="font-size:11px">T${i+1}</th>`).join('')}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${Object.values(detailByCat).slice().sort((a,b) => (a.catGroup||'').localeCompare(b.catGroup||'') || (a.catName||'').localeCompare(b.catName||'')).map(rec => `
+                    <tr>
+                      <td><strong style="font-size:12px">${rec.catName}</strong><br><span class="text-muted" style="font-size:10px">${rec.catGroup}</span></td>
+                      <td class="num" style="background:var(--gray1);font-weight:600;border-right:2px solid var(--gray3)">${rec.openYear ? fmtB(rec.openYear) : '<span class="text-muted">—</span>'}</td>
+                      ${rec.monthlyEnd.slice(1).map((v,i) => {
+                        const m = i+1;
+                        const isNeg = v < 0;
+                        const cellStyle = isNeg ? 'background:#FEE2E2;color:#DC2626;font-weight:600' : (rec.monthlyIn[m]||rec.monthlyOut[m]?'':'color:var(--text3)');
+                        return `<td class="num" style="font-size:11px;${cellStyle}" title="Nhập: ${fmtB(rec.monthlyIn[m]||0)} | Xuất: ${fmtB(rec.monthlyOut[m]||0)}">${v ? fmtB(v) : '—'}</td>`;
+                      }).join('')}
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>` : ''}
+
+        <!-- Bảng bút toán -->
+        <div class="card">
+          <div class="card-header"><h3>📦 Bút toán kho — ${entries.length} dòng</h3></div>
+          <div class="card-body no-pad">
+            <div class="tbl-wrap">
+              <table>
+                <thead><tr>
+                  <th>Tháng/Năm</th>
+                  <th>Loại</th>
+                  <th>Đối tượng</th>
+                  <th>Loại vật tư</th>
+                  <th class="num">Giá trị (VNĐ)</th>
+                  <th>Mô tả</th>
+                  <th></th>
+                </tr></thead>
+                <tbody>
+                  ${entries.length === 0 ?
+                    '<tr><td colspan="7"><div class="empty-state">Chưa có bút toán nào — bấm "+ Nhập số liệu tháng" để bắt đầu.</div></td></tr>'
+                    :
+                    entries.map(e => `<tr>
+                      <td class="mono">${(e.entryType||'out')==='opening' ? `Đầu năm ${e.year}` : (`${String(e.month).padStart(2,'0')}/${e.year}`)}</td>
+                      <td>${typeBadge(e)}</td>
+                      <td><strong>${objLabel(e)}</strong></td>
+                      <td><span class="badge badge-teal" style="font-size:11px">${getInvCategoryLabel(e.categoryId||e.category, e.module||targetModule)}</span></td>
+                      <td class="num" style="font-weight:600">${fmtVnd(e.amountVnd)}</td>
+                      <td>${e.description || '—'}</td>
+                      <td class="row-actions">
+                        <button class="btn btn-ghost btn-xs" onclick='openInventoryForm(${JSON.stringify(e).replace(/'/g, "&apos;")})' title="Sửa">✏️</button>
+                        <button class="btn btn-ghost btn-xs" onclick="deleteInventoryEntry('${e.id}')" title="Xoá">🗑</button>
+                      </td>
+                    </tr>`).join('')
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
-    </div>`;
+    </div>
+  `;
 }
 
-function switchInventoryModule(m) {
-  _S_INV_MODULE = m;
+// Click sidebar item → đổi target và re-render
+function _invSelectTarget(key) {
+  _S_INV_TARGET = key;
   renderInventory();
 }
+
 
 // Form nhập 1 bút toán xuất kho
 async function openInventoryForm(e = {}) {
