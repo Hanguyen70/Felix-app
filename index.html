@@ -1359,34 +1359,11 @@ async function performUndo() {
   hideLoading();
 }
 
-// Cập nhật UI nút floating Hoàn tác
+// Nút Hoàn tác đã bị tắt theo yêu cầu (user muốn sửa sau khi lưu, không undo)
+// Stack vẫn chạy ngầm để không break code khác, chỉ ẩn UI
 function _undoUpdateBtn() {
-  let btn = document.getElementById('felix-undo-btn');
-  if (_UNDO_STACK.length === 0) {
-    if (btn) btn.style.display = 'none';
-    return;
-  }
-  if (!btn) {
-    btn = document.createElement('button');
-    btn.id = 'felix-undo-btn';
-    btn.onclick = performUndo;
-    btn.style.cssText = `
-      position:fixed; bottom:20px; left:20px; z-index:9998;
-      background:#1e293b; color:#fff;
-      border:none; border-radius:24px;
-      padding:10px 18px; font-size:13px; font-weight:600;
-      box-shadow:0 4px 12px rgba(0,0,0,.25);
-      cursor:pointer; display:flex; align-items:center; gap:8px;
-      transition: transform .15s, background .15s;
-    `;
-    btn.onmouseenter = () => { btn.style.background = '#0f172a'; btn.style.transform = 'translateY(-2px)'; };
-    btn.onmouseleave = () => { btn.style.background = '#1e293b'; btn.style.transform = 'translateY(0)'; };
-    document.body.appendChild(btn);
-  }
-  const last = _UNDO_STACK[_UNDO_STACK.length - 1];
-  const labelTrim = last.label.length > 40 ? last.label.slice(0, 38) + '…' : last.label;
-  btn.innerHTML = `↶ Hoàn tác: <span style="opacity:.85;font-weight:400">${labelTrim}</span> <span style="opacity:.5;font-size:10px;margin-left:4px">(${_UNDO_STACK.length})</span>`;
-  btn.style.display = 'flex';
+  const btn = document.getElementById('felix-undo-btn');
+  if (btn) btn.style.display = 'none';
 }
 
 // ═══════════════════════════════════════════════════════
@@ -3458,9 +3435,9 @@ async function init() {
 async function renderDashboard() {
   showLoading();
   let vesselData, omRevs, omCosts, omContracts, smEntries, smContracts, gaEntries, gaRevEntries, smRevEntries;
-  let arList=[], payables=[];
+  let arList=[], payables=[], gaCats=[];
   try {
-    [vesselData, omRevs, omCosts, omContracts, smEntries, smContracts, gaEntries, gaRevEntries, smRevEntries] =
+    [vesselData, omRevs, omCosts, omContracts, smEntries, smContracts, gaEntries, gaRevEntries, smRevEntries, gaCats] =
       await Promise.allSettled([
         api('getDashboard',    {year:S.year}),
         api('getOmRevEntries', {year:S.year}),
@@ -3471,7 +3448,8 @@ async function renderDashboard() {
         api('getGaEntries',    {year:S.year}),
         api('getGaRevEntries', {year:S.year}),
         api('getSmRevEntries', {year:S.year}),
-      ]).then(r=>r.map((x,i)=>x.status==='fulfilled'?x.value:[{},{totals:{totalRevVnd:0,totalMarginVnd:0},vessels:[]},'','','','','','','',[]][i]));
+        api('getGaCats',       {}),
+      ]).then(r=>r.map((x,i)=>x.status==='fulfilled'?x.value:[{},{totals:{totalRevVnd:0,totalMarginVnd:0},vessels:[]},'','','','','','','',[],[]][i]));
     // AR/AP — load độc lập sau (không block dashboard)
     [arList, payables] = await Promise.all([
       _buildReceivablesList().catch(()=>[]),
@@ -4125,7 +4103,9 @@ async function renderCosts() {
             <tbody>
               ${filteredEntries.length ? filteredEntries.slice().sort((a,b)=>new Date(b.entryDate)-new Date(a.entryDate)).map(e=>{
                 const cat = getCat(e.categoryId);
-                const rowCls = cat.group==='P' ? 'row-passthrough' : cat.group==='L' ? 'row-excluded' : cat.group==='I' ? 'row-passthrough' : '';
+                const isLAcct = e.accountType === 'L';
+                const rowCls = isLAcct ? 'row-excluded' :
+                  cat.group==='P' ? 'row-passthrough' : cat.group==='L' ? 'row-excluded' : cat.group==='I' ? 'row-passthrough' : '';
                 const grpBadge = cat.group==='P'
                   ? `<span class="badge badge-passthrough" style="font-size:10px">💠 P</span>`
                   : cat.group==='I'
@@ -4133,13 +4113,18 @@ async function renderCosts() {
                   : cat.group==='L'
                   ? `<span class="badge badge-excluded" style="font-size:10px">⊘ L</span>`
                   : `<span class="badge badge-gray" style="font-size:10px">${cat.group||''}. ${cat.groupLabel||''}</span>`;
+                const acctBadge = isLAcct
+                  ? `<span class="badge badge-excluded" style="font-size:9px;margin-left:4px" title="Chỉ ghi nhận P/L, không vào BCTC">⊘ L</span>`
+                  : e.accountType==='Q' ? `<span class="badge badge-amber" style="font-size:9px;margin-left:4px" title="Chi từ quỹ T">Q</span>`
+                  : e.accountType==='Capitalize' ? `<span class="badge badge-blue" style="font-size:9px;margin-left:4px" title="Vốn hoá">🔒</span>`
+                  : '';
                 return `<tr class="${rowCls}">
                   <td class="mono">${fmtDate(e.entryDate)}</td>
                   <td><span class="badge badge-navy" style="font-size:10px">${vName(e.vesselId)}</span></td>
                   <td style="font-size:12px">${projName(e.projectId)}</td>
                   <td>${grpBadge}</td>
                   <td style="font-size:12px;color:var(--text3)">${cat.category||''} ${cat.categoryLabel||''}</td>
-                  <td style="font-size:12px"><strong>${cat.name||e.categoryId}</strong></td>
+                  <td style="font-size:12px"><strong>${cat.name||e.categoryId}</strong>${acctBadge}</td>
                   <td class="num">${fmtVnd(e.amountVnd)}</td>
                   <td>${e.currency&&e.currency!=='VND'?`<span class="text-small text-muted">${fmt(e.amount)} ${e.currency}</span>`:'—'}</td>
                   <td><span class="badge ${typeMap[e.type]||'badge-gray'}" style="font-size:10px">${typeLabel[e.type]||e.type||'—'}</span></td>
@@ -4276,6 +4261,7 @@ function openCostForm(e={}) {
           <option value=""${!e.accountType?' selected':''}>(1) Ghi nhận BCTC (mặc định) — Chi phí thường, vào cả P/L &amp; BCTC</option>
           <option value="Q"${e.accountType==='Q'?' selected':''}>(2) Chi từ quỹ lương dự án — Không vào P/L (đã trích T trước)</option>
           <option value="Capitalize"${e.accountType==='Capitalize'?' selected':''}>(3) Vốn hoá vào tài sản — KHÔNG vào P/L &amp; BCTC, tự sinh KH theo TG còn lại của tàu</option>
+          <option value="L"${e.accountType==='L'?' selected':''}>(4) Chỉ ghi nhận P/L — Có vào P/L (giảm EBITDA), KHÔNG vào BCTC (không hoá đơn / không khấu trừ thuế)</option>
         </select>
       </div>
       <div class="field" id="ce_asset_field" style="grid-column:span 2;${e.accountType==='Capitalize'?'':'display:none'}">
@@ -9133,6 +9119,7 @@ function openOmCostForm(e={}) {
           <option value=""${!e.accountType?' selected':''}>(1) Ghi nhận BCTC (mặc định) — Chi phí thường, vào cả P/L &amp; BCTC</option>
           <option value="Q"${e.accountType==='Q'?' selected':''}>(2) Chi từ quỹ lương dự án — Không vào P/L (đã trích T trước)</option>
           <option value="Capitalize"${e.accountType==='Capitalize'?' selected':''}>(3) Capitalize vào tài sản — KHÔNG vào P/L &amp; BCTC, cộng vào giá trị TS</option>
+          <option value="L"${e.accountType==='L'?' selected':''}>(4) Chỉ ghi nhận P/L — Có vào P/L (giảm EBITDA), KHÔNG vào BCTC (không hoá đơn / không khấu trừ thuế)</option>
         </select>
       </div>
       <div class="field" id="oce_asset_field" style="grid-column:span 2;${e.accountType==='Capitalize'?'':'display:none'}">
@@ -13450,11 +13437,12 @@ async function renderTaxReport() {
   const gaCatGroup   = Object.fromEntries(((GA_DEMO?.categories)||[]).map(c=>[c.id, c.group]));
   const gaRevGroup   = Object.fromEntries(((GA_DEMO?.revCategories)||[]).map(c=>[c.id, c.group]));
 
-  // Helper: lọc bút toán năm hiện tại + KHÔNG bị BCTC excluded + (cost: KHÔNG accountType='Q')
+  // Helper: lọc bút toán năm hiện tại + KHÔNG bị BCTC excluded + KHÔNG accountType='Q'/'Capitalize'/'L'
+  // accountType='L' = "Chỉ ghi nhận P/L" → có vào P/L (gánh EBITDA) nhưng KHÔNG vào BCTC
   const yearStr = String(S.year);
   const inYear = e => (e.entryDate||'').startsWith(yearStr) || (e.month||'').startsWith(yearStr);
   const filterCost = (entries, groupMap) => entries.filter(e =>
-    inYear(e) && e.accountType !== 'Q' && e.accountType !== 'Capitalize' && !isBctcExcluded(groupMap[e.categoryId])
+    inYear(e) && e.accountType !== 'Q' && e.accountType !== 'Capitalize' && e.accountType !== 'L' && !isBctcExcluded(groupMap[e.categoryId])
   );
   const filterRev = (entries, groupMap) => entries.filter(e =>
     inYear(e) && !isBctcExcluded(groupMap[e.categoryId])
@@ -13477,14 +13465,15 @@ async function renderTaxReport() {
   const smCostAmt    = (smCosts||[]).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0); // SM cost không có category group
   const finIds   = (GA_DEMO.categories||[]).filter(c=>c.group==='Fin').map(c=>c.id);
   const deprIds  = (GA_DEMO.categories||[]).filter(c=>c.group==='Depr').map(c=>c.id);
-  // GA op = không phải Fin/Depr/L/I
+  // GA op = không phải Fin/Depr/L/I, không phải accountType='L' (chỉ vào P/L, không vào BCTC)
   const gaOp     = (gaEntries||[]).filter(e=>{
+    if (e.accountType === 'L') return false;
     if (finIds.includes(e.categoryId)) return false;
     if (deprIds.includes(e.categoryId)) return false;
     if (isBctcExcluded(gaCatGroup[e.categoryId])) return false;
     return true;
   }).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-  const finCost  = (gaEntries||[]).filter(e=>finIds.includes(e.categoryId)).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const finCost  = (gaEntries||[]).filter(e=>finIds.includes(e.categoryId) && e.accountType!=='L').reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   // Vật tư xuất kho — vào BCTC như chi phí hoạt động (toàn bộ 3 module gộp chung)
   // Vật tư XUẤT KHO — chỉ entryType='out' vào BCTC như chi phí (in/opening = tăng tồn, không phải chi phí)
   const inventoryCost = (inventoryEntries||[])
@@ -14796,6 +14785,23 @@ const GA_GROUP_COLORS = {
   T:'badge-purple',
   PropRev:'badge-green', FinRev:'badge-teal', Other:'badge-gray',
 };
+
+// Helper: tính tổng chi phí, LOẠI TRỪ accountType='L' (Chỉ ghi nhận P/L, không vào BCTC)
+// Áp dụng cho: BCTC, Bảng cân đối, BCTC tổng hợp.
+// CHÚ Ý: P/L (EBITDA) VẪN tính nhóm L vì nó vào P/L. Helper này dùng cho BCTC.
+// Cho EBITDA: dùng tổng đầy đủ; cho BCTC: dùng helper này.
+function _costExcludingL(entries) {
+  if (!Array.isArray(entries)) return 0;
+  return entries.reduce((s, e) => {
+    if ((e.accountType || '') === 'L') return s;  // Loại trừ L (ngoài BCTC)
+    return s + (parseFloat(e.amountVnd) || 0);
+  }, 0);
+}
+
+// Alias: cũ tên _gaCostExcludingPL — giữ để các chỗ đã gọi không lỗi
+function _gaCostExcludingPL(entries) {
+  return _costExcludingL(entries);
+}
 
 
 function smStatusBadge(s){const m={active:'badge-green',expired:'badge-gray',cancelled:'badge-red'};const l={active:'Đang quản lý',expired:'Hết hạn',cancelled:'Huỷ'};return '<span class="badge '+( m[s]||'badge-gray')+'">'+( l[s]||s)+'</span>';}
@@ -16463,6 +16469,7 @@ function openGaEntryForm(e={}) {
         <option value=""${!e.accountType?' selected':''}>(1) Ghi nhận BCTC (mặc định) — Chi phí thường, vào cả P/L &amp; BCTC</option>
         <option value="Q"${e.accountType==='Q'?' selected':''}>(2) Chi từ quỹ lương dự án — Không vào P/L (đã trích T trước)</option>
         <option value="Capitalize"${e.accountType==='Capitalize'?' selected':''}>(3) Capitalize vào tài sản — KHÔNG vào P/L &amp; BCTC, cộng vào giá trị TS</option>
+        <option value="L"${e.accountType==='L'?' selected':''}>(4) Chỉ ghi nhận P/L — Có vào P/L (giảm EBITDA), KHÔNG vào BCTC (không hoá đơn / không khấu trừ thuế)</option>
       </select>
     </div>
     <div class="field" id="ga_asset_field" style="grid-column:span 2;${e.accountType==='Capitalize'?'':'display:none'}">
