@@ -3109,6 +3109,128 @@ function fmtDays(n){ return fmt(n,1)+' ngày'; }
 function fmtDate(s){ if(!s) return '—'; return new Date(s).toLocaleDateString('vi-VN'); }
 function fmtDT(s)  { if(!s) return '—'; return new Date(s).toLocaleString('vi-VN',{dateStyle:'short',timeStyle:'short'}); }
 
+// ═══════════════════════════════════════════════════════
+// FORMULA INPUT — Tự tính khi user nhập "=15000+25000" (giống Excel)
+// Áp dụng cho tất cả input type=number qua event delegation.
+// ═══════════════════════════════════════════════════════
+//
+// Safe eval: chỉ chấp nhận số, toán tử +-*/(), khoảng trắng, dấu chấm/phẩy.
+// Trả về { ok:true, value:N } hoặc { ok:false, error:'...' }
+function safeFormulaEval(expr) {
+  if (typeof expr !== 'string') return { ok:false, error:'Không phải chuỗi' };
+  let s = expr.trim();
+  if (s.startsWith('=')) s = s.slice(1).trim();
+  if (!s) return { ok:false, error:'Trống' };
+
+  // Chuyển dấu phẩy ngăn cách hàng nghìn (vi-VN: 1.000.000) thành rỗng
+  // và dấu phẩy thập phân (1,5) thành dấu chấm
+  // Logic đơn giản: bỏ tất cả dấu chấm (vì user thường dùng . cho hàng nghìn ở VN)
+  // và chuyển dấu phẩy thành chấm thập phân — NHƯNG chỉ khi không phải toán tử
+  // Cách an toàn: bỏ dấu chấm, đổi phẩy → chấm
+  s = s.replace(/\./g, '').replace(/,/g, '.');
+
+  // Whitelist: chỉ cho phép số, +, -, *, /, (, ), khoảng trắng, e (cho mũ scientific)
+  if (!/^[\d+\-*/().\s eE]+$/.test(s)) {
+    return { ok:false, error:'Có ký tự không cho phép' };
+  }
+  // Không cho phép 2 toán tử liền nhau (vd ++, **, /*) ngoại trừ + sau toán tử (vd 5*-3)
+  // Chỉ cho 1 ký tự +/- sau toán tử
+  if (/[*\/]\s*[*\/]/.test(s)) return { ok:false, error:'Toán tử lặp' };
+
+  try {
+    // Function constructor an toàn hơn eval (không truy cập scope ngoài)
+    // Vì đã whitelist regex, chỉ chứa số học → an toàn
+    const result = Function('"use strict"; return (' + s + ')')();
+    if (typeof result !== 'number' || !isFinite(result)) {
+      return { ok:false, error:'Kết quả không hợp lệ' };
+    }
+    return { ok:true, value: result };
+  } catch(e) {
+    return { ok:false, error: e.message || 'Lỗi cú pháp' };
+  }
+}
+
+// Event delegation: bắt blur trên mọi input type=number
+// Trigger eval khi user nhập chuỗi bắt đầu bằng "=" hoặc chứa toán tử
+document.addEventListener('blur', function(ev) {
+  const el = ev.target;
+  if (!el || el.tagName !== 'INPUT' || el.type !== 'number') return;
+  const raw = el.value;
+  if (typeof raw !== 'string' || !raw) return;
+
+  // Chỉ trigger nếu có dấu "=" đầu hoặc chứa toán tử (+, -, *, /) ở giữa số
+  // (input type=number có thể block dấu =, nhưng số có thể trống → check value attribute)
+  // Tuy nhiên input type=number khi gõ "=" thì browser thường không cho → ta check qua data attribute hoặc event input
+
+  // Bỏ qua nếu chỉ là số đơn thuần
+  if (/^-?[\d.,]+$/.test(raw.trim())) return;
+
+  const result = safeFormulaEval(raw);
+  if (result.ok) {
+    // Format lại với 0 decimals nếu là số nguyên, 2 nếu thập phân
+    el.value = Number.isInteger(result.value) ? result.value : Number(result.value.toFixed(2));
+    // Trigger input event để các listener khác (như recalc VND) chạy
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+}, true);  // capture phase để bắt được trước khi browser xử lý
+
+// Hỗ trợ thêm: cho phép nhập dấu "=" trong input type=number bằng cách chuyển sang text tạm
+// Khi user focus vào input type=number, nếu họ paste/gõ "=" → cho phép
+document.addEventListener('keydown', function(ev) {
+  const el = ev.target;
+  if (!el || el.tagName !== 'INPUT' || el.type !== 'number') return;
+  // Cho phép gõ "=" vào input type=number
+  if (ev.key === '=' && !ev.ctrlKey && !ev.metaKey) {
+    ev.preventDefault();
+    // Tạm chuyển sang type=text để chấp nhận công thức
+    el.dataset._origType = 'number';
+    el.type = 'text';
+    el.value = (el.value || '') + '=';
+    setTimeout(() => el.setSelectionRange(el.value.length, el.value.length), 0);
+  }
+}, true);
+
+// Khi input type=text (đang ở chế độ formula) được blur → eval rồi chuyển lại type=number
+document.addEventListener('blur', function(ev) {
+  const el = ev.target;
+  if (!el || el.tagName !== 'INPUT' || el.dataset._origType !== 'number') return;
+  const raw = el.value;
+  const result = safeFormulaEval(raw);
+  if (result.ok) {
+    el.value = Number.isInteger(result.value) ? result.value : Number(result.value.toFixed(2));
+  } else {
+    // Lỗi: xoá công thức, giữ value rỗng
+    if (raw.startsWith('=')) {
+      el.value = '';
+    }
+  }
+  // Chuyển lại type=number
+  el.type = 'number';
+  delete el.dataset._origType;
+  // Trigger events
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}, true);
+
+// Hỗ trợ nhập toán tử + - * / vào input type=number (mặc định browser block)
+document.addEventListener('keypress', function(ev) {
+  const el = ev.target;
+  if (!el || el.tagName !== 'INPUT' || el.type !== 'number') return;
+  // Cho phép * và ( ) khi input đã bắt đầu bằng "=" hoặc đang ở chế độ formula
+  // Tuy nhiên type=number ngăn các ký tự này — chuyển sang text khi cần
+  if (['*', '(', ')'].includes(ev.key)) {
+    if ((el.value || '').startsWith('=') || el.value === '') {
+      ev.preventDefault();
+      el.dataset._origType = 'number';
+      el.type = 'text';
+      const cursor = el.selectionStart || el.value.length;
+      el.value = el.value.slice(0, cursor) + ev.key + el.value.slice(cursor);
+      setTimeout(() => el.setSelectionRange(cursor + 1, cursor + 1), 0);
+    }
+  }
+}, true);
+
 // ══ CURRENCY HELPER ══════════════════════════════════════
 const CURRENCIES = ['VND','USD','USD','SGD','EUR','GBP','JPY'];
 const DEFAULT_FX = { VND:1, USD:25450, SGD:19000, EUR:27500, GBP:32000, JPY:170 };
