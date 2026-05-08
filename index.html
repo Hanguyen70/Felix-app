@@ -12073,6 +12073,16 @@ let _S_CONS_TO = new Date().getFullYear();
 
 let _S_AR_TAB = 'receivables';   // 'receivables' | 'payables'
 let _S_AR_FILTER = 'unpaid';      // 'unpaid' | 'paid' | 'all' | 'overdue'
+let _S_AR_CUSTOMER = '';          // tên khách hàng
+let _S_AR_PROJECT = '';           // dự án (cho receivables, "" = tất cả)
+let _S_AR_VESSEL = '';            // tàu/đối tượng (cho receivables)
+function _resetArFilters() {
+  _S_AR_FILTER = 'unpaid';
+  _S_AR_CUSTOMER = '';
+  _S_AR_PROJECT = '';
+  _S_AR_VESSEL = '';
+  renderReceivablesPayables();
+}
 
 // Helper: build danh sách phải thu từ tất cả Rev sources
 async function _buildReceivablesList() {
@@ -12286,10 +12296,35 @@ async function renderReceivablesPayables() {
   } catch(e) { toast('Lỗi: '+e.message, 'err'); }
   hideLoading();
 
-  // Filter receivables theo tab
-  const filterFn = (item) => _arMatchFilter(_arStatus(item).status, _S_AR_FILTER);
+  // Filter receivables: status + customer + project + vessel
+  const matchExtraFilters = (item) => {
+    if (_S_AR_CUSTOMER && item.customer !== _S_AR_CUSTOMER) return false;
+    if (_S_AR_PROJECT && item.projectLabel !== _S_AR_PROJECT) return false;
+    if (_S_AR_VESSEL && item.objLabel !== _S_AR_VESSEL) return false;
+    return true;
+  };
+  const filterFn = (item) => _arMatchFilter(_arStatus(item).status, _S_AR_FILTER) && matchExtraFilters(item);
   const filteredRecv = receivables.filter(filterFn);
-  const filteredPay = payables.filter(p => _arMatchFilter(_arStatus(p).status, _S_AR_FILTER));
+  // Phải trả: customer/vessel — không có project (do user tự nhập)
+  const matchPayableFilters = (p) => {
+    if (_S_AR_CUSTOMER && p.supplier !== _S_AR_CUSTOMER) return false;
+    // Không filter project/vessel cho payable (không có gắn cụ thể từ form)
+    return true;
+  };
+  const filteredPay = payables.filter(p => _arMatchFilter(_arStatus(p).status, _S_AR_FILTER) && matchPayableFilters(p));
+
+  // ─── Build options cho dropdowns (lấy từ data có thật) ───
+  // Customers: từ receivables (KH) hoặc payables (NCC)
+  const customersFromRecv = [...new Set(receivables.map(i => i.customer).filter(c => c && c !== '—'))].sort();
+  const customersFromPay = [...new Set(payables.map(p => p.supplier).filter(c => c))].sort();
+  const customersList = _S_AR_TAB === 'receivables' ? customersFromRecv : customersFromPay;
+  const customerLabel = _S_AR_TAB === 'receivables' ? 'Khách hàng' : 'Nhà cung cấp';
+
+  // Projects (chỉ dùng cho receivables tab)
+  const projectsList = [...new Set(receivables.map(i => i.projectLabel).filter(p => p && p !== '—' && p !== '(Phát sinh ngoài HĐ)'))].sort();
+
+  // Vessels/objects (đối tượng — tàu/HĐ O&M)
+  const vesselsList = [...new Set(receivables.map(i => i.objLabel).filter(v => v && v !== '—'))].sort();
 
   // KPI — dùng "remaining" thay vì amountVnd cho khoản chưa thu xong
   const totalRecv = receivables.reduce((s,i) => {
@@ -12309,6 +12344,7 @@ async function renderReceivablesPayables() {
     return s + ((st.status === 'overdue' || st.status === 'overdue-partial') ? st.remaining : 0);
   }, 0);
 
+  const hasExtraFilter = !!(_S_AR_CUSTOMER || _S_AR_PROJECT || _S_AR_VESSEL);
   const moduleColors = {Vessel:'badge-navy', 'O&M':'badge-teal', GA:'badge-blue', 'Ship Mgmt':'badge-purple'};
 
   document.getElementById('content').innerHTML = `
@@ -12345,13 +12381,13 @@ async function renderReceivablesPayables() {
     </div>
 
     <!-- Tabs + Filter -->
-    <div class="flex items-center justify-between mb16" style="gap:12px;flex-wrap:wrap">
+    <div class="flex items-center justify-between mb12" style="gap:12px;flex-wrap:wrap">
       <div class="flex" style="gap:0;border-bottom:1px solid var(--border)">
         <button class="btn ${_S_AR_TAB==='receivables'?'btn-primary':'btn-ghost'}" style="border-radius:8px 8px 0 0;border-bottom:none" onclick="_S_AR_TAB='receivables';renderReceivablesPayables()">📥 Phải thu (${receivables.filter(i=>!i.paidDate).length})</button>
         <button class="btn ${_S_AR_TAB==='payables'?'btn-primary':'btn-ghost'}" style="border-radius:8px 8px 0 0;border-bottom:none" onclick="_S_AR_TAB='payables';renderReceivablesPayables()">📤 Phải trả (${payables.filter(i=>!i.paidDate).length})</button>
       </div>
       <div class="flex items-center" style="gap:8px">
-        <label style="font-size:12px;color:var(--text3)">Lọc:</label>
+        <label style="font-size:12px;color:var(--text3)">Trạng thái:</label>
         <select onchange="_S_AR_FILTER=this.value;renderReceivablesPayables()" style="min-width:140px">
           <option value="unpaid"${_S_AR_FILTER==='unpaid'?' selected':''}>⏳ Chưa thu/trả</option>
           <option value="overdue"${_S_AR_FILTER==='overdue'?' selected':''}>⚠ Quá hạn</option>
@@ -12359,6 +12395,31 @@ async function renderReceivablesPayables() {
           <option value="all"${_S_AR_FILTER==='all'?' selected':''}>📋 Tất cả</option>
         </select>
         ${_S_AR_TAB === 'payables' ? `<button class="btn btn-primary" onclick="openPayableForm()">+ Thêm phải trả</button>` : ''}
+      </div>
+    </div>
+
+    <!-- Toolbar lọc theo Khách hàng / Dự án / Tàu -->
+    <div class="card mb16" style="background:var(--gray1);border:1px solid var(--border)">
+      <div style="padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div style="font-size:12px;font-weight:600;color:var(--text2)">🔍 Lọc:</div>
+        <select onchange="_S_AR_CUSTOMER=this.value;renderReceivablesPayables()" style="min-width:180px;font-size:12px">
+          <option value="">Tất cả ${customerLabel.toLowerCase()}</option>
+          ${customersList.map(c => `<option value="${c.replace(/"/g,'&quot;')}"${_S_AR_CUSTOMER===c?' selected':''}>${c}</option>`).join('')}
+        </select>
+        ${_S_AR_TAB === 'receivables' ? `
+        <select onchange="_S_AR_PROJECT=this.value;renderReceivablesPayables()" style="min-width:200px;font-size:12px">
+          <option value="">Tất cả dự án</option>
+          ${projectsList.map(p => `<option value="${p.replace(/"/g,'&quot;')}"${_S_AR_PROJECT===p?' selected':''}>${p}</option>`).join('')}
+        </select>
+        <select onchange="_S_AR_VESSEL=this.value;renderReceivablesPayables()" style="min-width:160px;font-size:12px">
+          <option value="">Tất cả tàu/đối tượng</option>
+          ${vesselsList.map(v => `<option value="${v.replace(/"/g,'&quot;')}"${_S_AR_VESSEL===v?' selected':''}>${v}</option>`).join('')}
+        </select>
+        ` : ''}
+        <span style="font-size:11px;color:var(--text3)">
+          Hiển thị <strong>${_S_AR_TAB==='receivables'?filteredRecv.length:filteredPay.length}</strong> / ${_S_AR_TAB==='receivables'?receivables.length:payables.length} khoản
+        </span>
+        ${hasExtraFilter ? `<button class="btn btn-ghost btn-xs" onclick="_resetArFilters()" style="margin-left:auto" title="Bỏ tất cả lọc">🔄 Reset</button>` : ''}
       </div>
     </div>
 
@@ -16175,7 +16236,15 @@ function gaRenderCost(cats, entries, total) {
   const filteredEntries = entries.filter(e => {
     const cat = cats.find(c=>c.id===e.categoryId)||{};
     if (f.month) {
-      const m = e.month || (e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0);
+      // Extract month: "2026-05" → 5; số đơn lẻ → giữ nguyên; entryDate → parse
+      let m = 0;
+      if (e.month && typeof e.month === 'string' && e.month.includes('-')) {
+        m = parseInt(e.month.split('-')[1]) || 0;
+      } else if (e.month) {
+        m = parseInt(e.month) || 0;
+      } else if (e.entryDate) {
+        m = parseInt(e.entryDate.slice(5,7)) || 0;
+      }
       if (String(m) !== String(f.month)) return false;
     }
     if (f.group && cat.group !== f.group) return false;
@@ -16198,10 +16267,19 @@ function gaRenderCost(cats, entries, total) {
   const monthlyTotal=months.map(m=>filteredEntries.filter(e=>e.month===m).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0));
 
   // ─── BUILD FILTER OPTIONS ───
-  const monthsAvail = [...new Set(entries.map(e => {
-    const m = e.month || (e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0);
-    return m;
-  }).filter(m=>m>0))].sort((a,b)=>a-b);
+  // GA dùng input type=month → e.month là "YYYY-MM" (vd "2026-05")
+  // Cần extract phần MM
+  const extractMonth = (e) => {
+    if (e.month && typeof e.month === 'string' && e.month.includes('-')) {
+      // Format "YYYY-MM" → lấy phần sau dấu -
+      const parts = e.month.split('-');
+      return parseInt(parts[1]) || 0;
+    }
+    if (e.month) return parseInt(e.month) || 0;
+    if (e.entryDate) return parseInt(e.entryDate.slice(5,7)) || 0;
+    return 0;
+  };
+  const monthsAvail = [...new Set(entries.map(extractMonth).filter(m=>m>0&&m<=12))].sort((a,b)=>a-b);
   const groupsAvail = [...new Set(entries.map(e => (cats.find(c=>c.id===e.categoryId)||{}).group).filter(Boolean))].sort();
   const catIdsInUse = [...new Set(entries.map(e => e.categoryId).filter(Boolean))];
 
