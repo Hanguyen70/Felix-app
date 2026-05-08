@@ -4205,14 +4205,24 @@ function openCostForm(e={}) {
         <select id="ce_asset">
           <option value="">— Đang tải danh sách tài sản... —</option>
         </select>
-        <span style="font-size:11px;color:var(--text3)">📊 Hệ thống sẽ tự tạo 1 khoản đầu tư riêng trong "Đầu tư &amp; Khấu hao" — KH theo kỳ Dock mới (riêng với tàu).</span>
+        <span style="font-size:11px;color:var(--text3)">📊 Hệ thống sẽ ghi tăng nguyên giá tàu vào Capex. Tick "Trích khấu hao" để tạo thêm khoản đầu tư có khấu hao trong "Đầu tư &amp; Khấu hao".</span>
       </div>
-      <div class="field" id="ce_capdate_field" style="${e.accountType==='Capitalize'?'':'display:none'}">
+      <div class="field" id="ce_caprecord_field" style="${e.accountType==='Capitalize'?'':'display:none'};grid-column:span 2;background:#FFF8E1;border:1px solid var(--amber);border-radius:6px;padding:10px 12px;margin-top:6px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+          <input type="checkbox" id="ce_caprecord" ${e.capRecordDepr === true?'checked':''} style="width:16px;height:16px" onchange="onCeRecordDeprChange()"/>
+          <span style="font-weight:600">📊 Trích khấu hao vào BCTC</span>
+        </label>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.5">
+          ⚙ <strong>Mặc định KHÔNG tick</strong> → chỉ ghi tăng <strong>Capex tàu</strong> (theo dõi đầu tư đích danh, KHÔNG khấu hao, KHÔNG vào BCTC).<br>
+          ✅ <strong>Tick</strong> → tạo thêm khoản trong <strong>Đầu tư &amp; Khấu hao</strong>, trích KH theo phương pháp đường thẳng vào BCTC.
+        </div>
+      </div>
+      <div class="field" id="ce_capdate_field" style="${e.accountType==='Capitalize' && e.capRecordDepr===true?'':'display:none'}">
         <label>📅 Ngày bắt đầu khấu hao <span style="color:var(--red)">*</span></label>
         <input type="date" id="ce_capdate" value="${e.capDeprStartDate||''}"/>
         <span style="font-size:11px;color:var(--text3)" id="ce_capdate_hint">Ngày tàu trở lại hoạt động sau dock. Auto-fill từ Offhire của dự án docking nếu có.</span>
       </div>
-      <div class="field" id="ce_capyears_field" style="${e.accountType==='Capitalize'?'':'display:none'}">
+      <div class="field" id="ce_capyears_field" style="${e.accountType==='Capitalize' && e.capRecordDepr===true?'':'display:none'}">
         <label>♻️ Số năm KH chu kỳ Dock <span style="color:var(--red)">*</span></label>
         <input type="number" id="ce_capyears" value="${e.capDeprYears||''}" min="0.5" max="30" step="0.5" placeholder="Vd: 5"/>
         <span style="font-size:11px;color:var(--text3)">Chu kỳ KH riêng cho lần dock này (đến lần dock kế tiếp). Tàu khảo sát thường 5 năm.</span>
@@ -4261,14 +4271,18 @@ function openCostForm(e={}) {
     } else {
       acctType = gv('ceacc') || '';  // '' = bình thường (mặc định), 'Q' = chi từ quỹ, 'Capitalize' = capitalize
     }
-    // Validate: nếu chọn Capitalize thì bắt buộc chọn tài sản + ngày bắt đầu KH + số năm KH
+    // Validate: nếu chọn Capitalize thì bắt buộc chọn tài sản; ngày KH + số năm chỉ bắt buộc khi tick "Trích KH"
     const capitalizedToAssetId = (acctType === 'Capitalize') ? (gv('ce_asset') || '') : '';
+    const capRecordDepr = (acctType === 'Capitalize') ? (document.getElementById('ce_caprecord')?.checked === true) : false;
     const capDeprStartDate = (acctType === 'Capitalize') ? (gv('ce_capdate') || '') : '';
     const capDeprYears = (acctType === 'Capitalize') ? (parseFloat(gv('ce_capyears')) || 0) : 0;
     if (acctType === 'Capitalize') {
       if (!capitalizedToAssetId) { toast('Vui lòng chọn tài sản nhận vốn hoá','warn'); return; }
-      if (!capDeprStartDate) { toast('Vui lòng nhập ngày bắt đầu khấu hao (ngày ra dock)','warn'); return; }
-      if (!capDeprYears || capDeprYears <= 0) { toast('Vui lòng nhập số năm KH chu kỳ Dock','warn'); return; }
+      if (capRecordDepr) {
+        // Có trích KH → bắt buộc nhập ngày + số năm
+        if (!capDeprStartDate) { toast('Đã tick trích KH — vui lòng nhập ngày bắt đầu khấu hao','warn'); return; }
+        if (!capDeprYears || capDeprYears <= 0) { toast('Đã tick trích KH — vui lòng nhập số năm KH','warn'); return; }
+      }
     }
     const payload = {
       id:e.id||newId(), vesselId:gv('cev'), projectId:gv('cep')||'',
@@ -4278,6 +4292,7 @@ function openCostForm(e={}) {
       description:gv('cedesc'), invoiceNo:gv('ceinv'), type:gv('cetype'),
       accountType: acctType,
       capitalizedToAssetId,                                // ID tài sản nhận capitalize (nếu accountType='Capitalize')
+      capRecordDepr,                                       // Tick "Trích khấu hao" → tạo Investment + Capex; không tick → chỉ Capex
       capDeprStartDate,                                    // Ngày ra dock = ngày bắt đầu KH cho khoản vốn hoá
       capDeprYears,                                        // Số năm KH chu kỳ Dock (riêng với chu kỳ KH của tàu)
       // ── Fields phân bổ F (chỉ relevant khi type='allocated') ──
@@ -4333,37 +4348,52 @@ async function _syncCapitalizeInvestment(costPayload) {
   // Số năm KH = chu kỳ Dock mới (user nhập), KHÔNG dùng thời gian còn lại của tàu
   const dockYears = parseFloat(c.capDeprYears) || 5;
 
-  // ─── 1. Tạo / cập nhật Investment riêng (để tự sinh KH) ───
+  // Flag: có trích khấu hao không (mặc định = false → chỉ Capex, không Investment)
+  const recordDepr = c.capRecordDepr === true;
+
+  // ─── 1. Tạo / cập nhật Investment riêng (chỉ khi có trích khấu hao) ───
   const allInvest = await api('getInvestments', {}).catch(()=>[]);
   const existingInvest = (allInvest||[]).find(inv =>
     inv.capexLinkId === linkId && inv._autoSource === AUTO_TAG
   );
-  const investPayload = {
-    id: existingInvest?.id || newId(),
-    name: investName,
-    scope: 'vessel',
-    vesselId: c.vesselId,
-    capexLinkId: linkId,
-    investDate: startDate,                 // Ngày ra dock = ngày bắt đầu KH (kỳ mới, riêng tàu)
-    amount: c.amountVnd,
-    currency: 'VND',
-    fxRate: 1,
-    amountVnd: c.amountVnd,
-    method: 'straight',
-    years: dockYears,                      // Chu kỳ Dock (user nhập, không phải remaining của tàu)
-    decliningRate: 0,
-    salvageValue: 0,
-    description: `Tự đồng bộ từ bút toán vốn hoá. KH theo chu kỳ Dock mới (${dockYears} năm) tính từ ${startDate}.${c.description ? ' Mô tả gốc: ' + c.description : ''}`,
-    _autoSource: AUTO_TAG,
-    createdAt: existingInvest?.createdAt || new Date().toISOString(),
-  };
-  await api('saveInvestment', investPayload);
 
-  // ─── 2. Tạo / cập nhật Capex con để ghi tăng nguyên giá tàu (track riêng) ───
+  let investPayloadId = null;
+  if (recordDepr) {
+    // Tạo Investment có khấu hao
+    const investPayload = {
+      id: existingInvest?.id || newId(),
+      name: investName,
+      scope: 'vessel',
+      vesselId: c.vesselId,
+      capexLinkId: linkId,
+      investDate: startDate,                 // Ngày ra dock = ngày bắt đầu KH (kỳ mới, riêng tàu)
+      amount: c.amountVnd,
+      currency: 'VND',
+      fxRate: 1,
+      amountVnd: c.amountVnd,
+      method: 'straight',
+      years: dockYears,                      // Chu kỳ Dock (user nhập, không phải remaining của tàu)
+      decliningRate: 0,
+      salvageValue: 0,
+      description: `Tự đồng bộ từ bút toán vốn hoá. KH theo chu kỳ Dock mới (${dockYears} năm) tính từ ${startDate}.${c.description ? ' Mô tả gốc: ' + c.description : ''}`,
+      _autoSource: AUTO_TAG,
+      createdAt: existingInvest?.createdAt || new Date().toISOString(),
+    };
+    await api('saveInvestment', investPayload);
+    investPayloadId = investPayload.id;
+  } else if (existingInvest) {
+    // Trước đây có trích KH → bây giờ user bỏ tick → xoá Investment đã tạo
+    await api('deleteInvestment', { id: existingInvest.id });
+  }
+
+  // ─── 2. Tạo / cập nhật Capex con để ghi tăng nguyên giá tàu (luôn tạo, không khấu hao) ───
   const allCapex = await api('getCapex', {}).catch(()=>[]);
   const existingCapex = (allCapex||[]).find(cx =>
     cx._linkedCostEntryId === c.id && cx._autoSource === AUTO_TAG
   );
+  const capexNote = recordDepr
+    ? `Ghi tăng nguyên giá ${vesselName} từ chi phí vốn hoá. KH theo chu kỳ Dock ${dockYears} năm từ ${startDate}.`
+    : `Ghi tăng nguyên giá ${vesselName} từ chi phí vốn hoá (KHÔNG khấu hao — chỉ theo dõi đầu tư đích danh).`;
   const capexPayload = {
     id: existingCapex?.id || newId(),
     vesselId: c.vesselId,
@@ -4375,10 +4405,11 @@ async function _syncCapitalizeInvestment(costPayload) {
     fxRate: 1,
     amount: c.amountVnd,
     investDate: startDate,
-    notes: `Ghi tăng nguyên giá ${vesselName} từ chi phí vốn hoá. KH theo chu kỳ Dock ${dockYears} năm từ ${startDate}.`,
+    notes: capexNote,
     _autoSource: AUTO_TAG,
     _linkedCostEntryId: c.id,
-    _linkedInvestmentId: investPayload.id,
+    _linkedInvestmentId: investPayloadId || null,
+    _capRecordDepr: recordDepr,
     createdAt: existingCapex?.createdAt || new Date().toISOString(),
   };
   await api('saveCapex', capexPayload);
@@ -4388,15 +4419,29 @@ async function _syncCapitalizeInvestment(costPayload) {
 function onAcctTypeChange() {
   const acc = gv('ceacc');
   const isCap = (acc === 'Capitalize');
-  const fields = ['ce_asset_field', 'ce_capdate_field', 'ce_capyears_field'];
-  fields.forEach(id => {
+  // ce_asset_field + ce_caprecord_field luôn hiện khi Capitalize
+  ['ce_asset_field', 'ce_caprecord_field'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = isCap ? '' : 'none';
   });
+  // ce_capdate_field + ce_capyears_field chỉ hiện khi Capitalize + đã tick "Trích KH"
+  onCeRecordDeprChange();
   if (isCap) {
     // Auto-detect ngày bắt đầu KH từ project docking nếu có
     _autoDetectDockReturnDate();
   }
+}
+
+// Toggle ngày KH + số năm khi user tick/uncheck "Trích khấu hao"
+function onCeRecordDeprChange() {
+  const acc = gv('ceacc');
+  const isCap = (acc === 'Capitalize');
+  const checked = document.getElementById('ce_caprecord')?.checked === true;
+  const showDeprFields = isCap && checked;
+  ['ce_capdate_field', 'ce_capyears_field'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = showDeprFields ? '' : 'none';
+  });
 }
 
 // Auto-fill "Ngày bắt đầu KH" từ Project Docking đã chọn (nếu có)
@@ -14837,6 +14882,38 @@ async function renderSmDashboard() {
         const totalChi = chiRows.reduce((s,e) => s + (parseFloat(e.amountVnd)||0), 0);
         const balance = totalThu - totalChi;
 
+        // Tổng theo từng ngoại tệ (chỉ ngoại tệ, bỏ VND vì đã hiện)
+        const sumByCurrency = (entries) => {
+          const m = {};
+          entries.forEach(e => {
+            const cur = e.currency || 'VND';
+            if (cur === 'VND') return;  // bỏ VND khỏi sub-line
+            m[cur] = (m[cur] || 0) + (parseFloat(e.amount) || 0);
+          });
+          return m;
+        };
+        const renderCurrSubline = (entries) => {
+          const m = sumByCurrency(entries);
+          const items = Object.entries(m).filter(([c,v]) => v > 0);
+          if (items.length === 0) return '';
+          return `<div style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:1px">${items.map(([c,v]) => fmtCurrency(v, c)).join(' · ')}</div>`;
+        };
+        // Số dư ngoại tệ = thu - chi cho từng currency
+        const balanceByCurrency = () => {
+          const thu = sumByCurrency(thuRows);
+          const chi = sumByCurrency(chiRows);
+          const all = new Set([...Object.keys(thu), ...Object.keys(chi)]);
+          const m = {};
+          all.forEach(c => { m[c] = (thu[c]||0) - (chi[c]||0); });
+          return m;
+        };
+        const renderBalanceSubline = () => {
+          const m = balanceByCurrency();
+          const items = Object.entries(m).filter(([c,v]) => v !== 0);
+          if (items.length === 0) return '';
+          return `<div style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:1px">${items.map(([c,v]) => `${v>=0?'+':''}${fmtCurrency(v, c)}`).join(' · ')}</div>`;
+        };
+
         return `
           <div class="card mb16">
             <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
@@ -14848,14 +14925,17 @@ async function renderSmDashboard() {
                 <div style="text-align:right">
                   <div style="color:var(--text3);font-size:10px;text-transform:uppercase">Thu hộ</div>
                   <div style="color:var(--teal);font-weight:700;font-family:var(--mono)">${fmtVnd(totalThu)}</div>
+                  ${renderCurrSubline(thuRows)}
                 </div>
                 <div style="text-align:right">
                   <div style="color:var(--text3);font-size:10px;text-transform:uppercase">Chi hộ</div>
                   <div style="color:var(--amber);font-weight:700;font-family:var(--mono)">${fmtVnd(totalChi)}</div>
+                  ${renderCurrSubline(chiRows)}
                 </div>
                 <div style="text-align:right;border-left:1px solid var(--border);padding-left:12px">
                   <div style="color:var(--text3);font-size:10px;text-transform:uppercase">Số dư</div>
                   <div style="color:${balance>=0?'var(--green)':'var(--red)'};font-weight:700;font-family:var(--mono)">${balance>=0?'+':'−'}${fmtVnd(Math.abs(balance))}</div>
+                  ${renderBalanceSubline()}
                 </div>
               </div>
             </div>
