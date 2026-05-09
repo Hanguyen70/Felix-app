@@ -3175,9 +3175,15 @@ function buildDemoCapexReport(D, p) {
   const vId = p.vesselId || (D.vessels[0]||{}).id || '';
   const vessel = D.vessels.find(v=>v.id===vId) || D.vessels[0] || {};
   const capexRows = (D.capex||[]).filter(c => c.vesselId === vId);
-  const purchaseCost = parseFloat(vessel.purchaseCost||0);
+  // Ưu tiên purchaseCostVND (đã quy đổi); fallback purchaseCost cho data cũ
+  const purchaseCost = parseFloat(vessel.purchaseCostVND || vessel.purchaseCost || 0);
   const totalCapexEntries = capexRows.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
   const totalCapexVnd = purchaseCost + totalCapexEntries;
+
+  // Thông tin gốc ngoại tệ (cho chú thích)
+  const purchaseCurrency = vessel.purchaseCurrency || 'VND';
+  const purchaseAmount = parseFloat(vessel.purchaseCost || 0);
+  const purchaseFxRate = parseFloat(vessel.purchaseFxRate || 1);
 
   // Tính timeline từ dữ liệu thực — quét các năm có giao dịch
   const yearsWithData = new Set();
@@ -3213,6 +3219,7 @@ function buildDemoCapexReport(D, p) {
   const cumulativeMargin = timeline[timeline.length-1]?.cumulativeMargin || 0;
   return {
     vessel, totalCapexVnd, purchaseCost,
+    purchaseCurrency, purchaseAmount, purchaseFxRate,
     totalCapexEntries, capexRows,
     breakevenYear, remainingToBreakeven: Math.max(0, totalCapexVnd - cumulativeMargin),
     cumulativeMargin, timeline,
@@ -8647,13 +8654,18 @@ async function renderCapexReport() {
   const breakevenPct = data.totalCapexVnd
     ? Math.min(100, data.cumulativeMargin / data.totalCapexVnd * 100) : 0;
 
+  // Chú thích quy đổi ngoại tệ
+  const fxSubtitle = (data.purchaseCurrency && data.purchaseCurrency !== 'VND' && data.purchaseAmount > 0)
+    ? `≈ ${fmtCurrency(data.purchaseAmount, data.purchaseCurrency)} × ${data.purchaseFxRate.toLocaleString('vi-VN')}`
+    : '';
+
   const timelineRows = (data.timeline||[]).map(t=>`
     <tr>
       <td class="mono">${t.year}</td>
-      <td class="num">${fmtB(t.annualRev)}</td>
-      <td class="num">${fmtB(t.annualCost)}</td>
-      <td class="num ${t.annualMargin>=0?'pos':'neg'}">${fmtB(t.annualMargin)}</td>
-      <td class="num ${t.cumulativeMargin>=data.totalCapexVnd?'pos':''}">${fmtB(t.cumulativeMargin)}</td>
+      <td class="num">${fmtVnd(t.annualRev)}</td>
+      <td class="num">${fmtVnd(t.annualCost)}</td>
+      <td class="num ${t.annualMargin>=0?'pos':'neg'}">${fmtVnd(t.annualMargin)}</td>
+      <td class="num ${t.cumulativeMargin>=data.totalCapexVnd?'pos':''}">${fmtVnd(t.cumulativeMargin)}</td>
       <td>
         ${t.cumulativeMargin >= data.totalCapexVnd
           ? '<span class="badge badge-green">✓ Hoà vốn</span>'
@@ -8666,28 +8678,34 @@ async function renderCapexReport() {
     <div class="kpi-grid cols4 mb16">
       <div class="kpi-card accent-red">
         <div class="kpi-label">Tổng Capex tích luỹ</div>
-        <div class="kpi-value">${fmtB(data.totalCapexVnd)}</div>
-        <div class="kpi-sub">Mua + đầu tư thêm</div>
+        <div class="kpi-value">${fmtVnd(data.totalCapexVnd)}</div>
+        <div class="kpi-sub" style="font-size:11px">Mua + đầu tư thêm${fxSubtitle?'<br><span style="color:var(--text3);font-style:italic">'+fxSubtitle+'</span>':''}</div>
       </div>
       <div class="kpi-card accent-teal">
         <div class="kpi-label">Margin tích luỹ</div>
-        <div class="kpi-value kpi-positive">${fmtB(data.cumulativeMargin)}</div>
+        <div class="kpi-value kpi-positive">${fmtVnd(data.cumulativeMargin)}</div>
+        <div class="kpi-sub" style="font-size:11px">Doanh thu - Chi phí (lifetime)</div>
       </div>
       <div class="kpi-card ${data.breakevenYear?'accent-green':'accent-amber'}">
         <div class="kpi-label">Năm hoà vốn</div>
         <div class="kpi-value">${data.breakevenYear||'Chưa đạt'}</div>
+        <div class="kpi-sub" style="font-size:11px">${data.breakevenYear?'Margin tích luỹ ≥ Capex':'Cần thêm doanh thu'}</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Còn thiếu để hoà vốn</div>
-        <div class="kpi-value ${data.remainingToBreakeven>0?'kpi-negative':'kpi-positive'}">${data.remainingToBreakeven>0?fmtB(data.remainingToBreakeven):'Đã hoà vốn'}</div>
+        <div class="kpi-label">${data.remainingToBreakeven>0?'Còn thiếu để hoà vốn':'Lợi nhuận sau hoà vốn'}</div>
+        <div class="kpi-value ${data.remainingToBreakeven>0?'kpi-negative':'kpi-positive'}">${data.remainingToBreakeven>0?fmtVnd(data.remainingToBreakeven):fmtVnd(data.cumulativeMargin - data.totalCapexVnd)}</div>
+        <div class="kpi-sub" style="font-size:11px">${data.remainingToBreakeven>0?'Còn cần margin':'Đã hoà vốn ✓'}</div>
       </div>
     </div>
 
     <div class="card mb16">
       <div class="card-header"><h3>Tiến độ hoà vốn</h3></div>
       <div class="card-body">
-        <div style="margin-bottom:8px;font-size:12px;color:var(--text3)">
-          Margin tích luỹ / Tổng Capex: <strong>${fmtB(data.cumulativeMargin)}</strong> / <strong>${fmtB(data.totalCapexVnd)}</strong>
+        <div style="margin-bottom:8px;font-size:13px">
+          <span style="color:var(--text3)">Margin tích luỹ:</span> <strong>${fmtVnd(data.cumulativeMargin)}</strong>
+          <span style="color:var(--text3);margin:0 8px">/</span>
+          <span style="color:var(--text3)">Tổng Capex:</span> <strong>${fmtVnd(data.totalCapexVnd)}</strong>
+          ${fxSubtitle?`<br><span style="color:var(--text3);font-size:11px;font-style:italic">Capex gốc: ${fxSubtitle}</span>`:''}
         </div>
         <div class="progress-wrap" style="height:16px">
           <div class="progress-bar ${breakevenPct<40?'danger':breakevenPct<80?'warn':''}" style="width:${breakevenPct.toFixed(1)}%"></div>
@@ -8702,16 +8720,18 @@ async function renderCapexReport() {
         <div class="card-body">
           <table>
             <tbody>
-              <tr><td>Giá mua tàu</td><td class="num">${fmtB(data.purchaseCost)}</td></tr>
-              <tr><td>Đầu tư thêm tích luỹ</td><td class="num">${fmtB(data.totalCapexEntries)}</td></tr>
-              <tr><td><strong>Tổng Capex</strong></td><td class="num"><strong>${fmtB(data.totalCapexVnd)}</strong></td></tr>
+              <tr><td>Giá mua tàu</td>
+                <td class="num">${fmtVnd(data.purchaseCost)}
+                ${fxSubtitle?`<br><span style="font-size:10px;color:var(--text3);font-weight:400;font-style:italic">${fxSubtitle}</span>`:''}</td></tr>
+              <tr><td>Đầu tư thêm tích luỹ</td><td class="num">${fmtVnd(data.totalCapexEntries)}</td></tr>
+              <tr><td><strong>Tổng Capex</strong></td><td class="num"><strong>${fmtVnd(data.totalCapexVnd)}</strong></td></tr>
             </tbody>
           </table>
           ${(data.capexRows||[]).length ? `
           <div class="divider"></div>
           <table>
             <thead><tr><th>Năm</th><th>Mô tả</th><th class="num">Số tiền</th></tr></thead>
-            <tbody>${(data.capexRows||[]).map(r=>`<tr><td>${r.year}</td><td>${r.description}</td><td class="num">${fmtB(r.amountVnd)}</td></tr>`).join('')}</tbody>
+            <tbody>${(data.capexRows||[]).map(r=>`<tr><td class="mono">${r.year}</td><td style="font-size:12px">${r.description||'—'}</td><td class="num">${fmtVnd(r.amountVnd)}</td></tr>`).join('')}</tbody>
           </table>` : ''}
         </div>
       </div>
