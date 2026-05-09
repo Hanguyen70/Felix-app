@@ -1365,6 +1365,45 @@ async function performUndo() {
 
 // Nút Hoàn tác đã bị tắt theo yêu cầu (user muốn sửa sau khi lưu, không undo)
 // Stack vẫn chạy ngầm để không break code khác, chỉ ẩn UI
+// ═══════════════════════════════════════════════════════
+// QUỸ LƯƠNG DỰ ÁN (T) — Tỷ lệ trích chung toàn công ty
+// ═══════════════════════════════════════════════════════
+//
+// Schema: localStorage 'felix_t_rates' = { '2024':1.5, '2025':2, '2026':2 }
+// Logic: 1 tỷ lệ chung × tất cả module (Vessel/O&M/GA/SM)
+// User tự lock từng năm — sang năm khác phải set lại
+
+function _getTRate(year) {
+  try {
+    const rates = JSON.parse(localStorage.getItem('felix_t_rates') || '{}');
+    return parseFloat(rates[String(year)]) || 0;
+  } catch(e) { return 0; }
+}
+
+function _setTRate(year, pct) {
+  try {
+    const rates = JSON.parse(localStorage.getItem('felix_t_rates') || '{}');
+    rates[String(year)] = parseFloat(pct) || 0;
+    localStorage.setItem('felix_t_rates', JSON.stringify(rates));
+    return true;
+  } catch(e) { return false; }
+}
+
+function _getAllTRates() {
+  try {
+    return JSON.parse(localStorage.getItem('felix_t_rates') || '{}');
+  } catch(e) { return {}; }
+}
+
+// Save handler from settings panel
+function _saveTRate() {
+  const pct = parseFloat(document.getElementById('t_rate')?.value) || 0;
+  if (pct < 0 || pct > 100) { toast('Tỷ lệ phải trong khoảng 0-100%','warn'); return; }
+  _setTRate(S.year, pct);
+  toast(`Đã lock tỷ lệ ${pct}% cho năm ${S.year}`,'ok');
+  renderPayrollFund();
+}
+
 function _undoUpdateBtn() {
   const btn = document.getElementById('felix-undo-btn');
   if (btn) btn.style.display = 'none';
@@ -1401,6 +1440,55 @@ window.diagInvestments = function() {
     vessels: D.vessels || [],
     capex: D.capex || [],
     investments: D.investments || [],
+  };
+};
+
+// ═══════════════════════════════════════════════════════
+// DIAGNOSTIC: Kiểm tra tỷ lệ trích quỹ T tất cả module
+// Gọi: window.diagPayrollT() trong DevTools Console
+// ═══════════════════════════════════════════════════════
+window.diagPayrollT = function() {
+  const D = window.__DEMO_STORE__;
+  const yr = (typeof S !== 'undefined') ? S.year : new Date().getFullYear();
+  console.group(`🔍 FELIX Diagnostic — Tỷ lệ trích quỹ T cho năm ${yr}`);
+
+  const showCats = (cats, label) => {
+    const tCats = (cats||[]).filter(c => c.group === 'T');
+    if (tCats.length === 0) {
+      console.log(`${label}: KHÔNG có khoản mục nhóm T`);
+      return;
+    }
+    console.log(`${label} (${tCats.length} khoản):`);
+    tCats.forEach(c => {
+      const lockedPct = c.accrualPctByYear && c.accrualPctByYear[String(yr)];
+      const effectivePct = lockedPct !== undefined ? lockedPct : (c.accrualPct || 0);
+      const isLocked = lockedPct !== undefined;
+      const appliesTo = c.appliesToRevCatId ? `chỉ áp ${c.appliesToRevCatId}` : 'tất cả DT';
+      const historyStr = c.accrualPctByYear ? Object.entries(c.accrualPctByYear).map(([y,p])=>`${y}:${p}%`).join(', ') : '(không có lịch sử)';
+      console.log(`  • [${c.id}] ${c.name}`);
+      console.log(`    Năm ${yr}: ${effectivePct}% ${isLocked?'🔒(lock)':'(default)'} | ${appliesTo}`);
+      console.log(`    Lịch sử: ${historyStr}`);
+    });
+  };
+
+  showCats(D.costCats, '🚢 Vessel');
+  console.log('');
+  showCats(window.OM_DEMO?.omCostCats, '🏥 O&M');
+  console.log('');
+  showCats(window.GA_DEMO?.categories, '🏢 GA / Quản lý chung');
+
+  console.log('');
+  console.log('💡 Cách sửa tỷ lệ:');
+  console.log('   • Vessel mode → "Khoản mục" → tab "Chi phí" → sửa khoản nhóm T');
+  console.log('   • O&M mode → "Danh mục O&M" → khoản nhóm T');
+  console.log('   • Quản lý chung → "Danh mục G&A" → khoản nhóm T');
+  console.log('   • Hoặc vào "Quỹ lương dự án (T/Q)" để xem tổng hợp');
+  console.groupEnd();
+  return {
+    year: yr,
+    vesselTCats: (D.costCats||[]).filter(c=>c.group==='T'),
+    omTCats: (window.OM_DEMO?.omCostCats||[]).filter(c=>c.group==='T'),
+    gaTCats: (window.GA_DEMO?.categories||[]).filter(c=>c.group==='T'),
   };
 };
 
@@ -3213,6 +3301,67 @@ function _vatReadPayload(prefix) {
   return {
     vatRate: parseFloat(document.getElementById(prefix+'vat_rate')?.value) || 0,
     vatAmountVnd: parseFloat(document.getElementById(prefix+'vat_amt')?.value) || 0,
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// T-FUND BLOCK HELPER cho 4 form Doanh thu
+// ═══════════════════════════════════════════════════════
+//
+// Sinh HTML cho block trích quỹ T (checkbox + tỷ lệ + số tiền T tự tính)
+// prefix: tiền tố ID (vd 'rev_' → rev_t_check, rev_t_rate, rev_t_amt)
+// amountInputId: ID input số tiền VNĐ (để recalc khi đổi)
+// e: object data — chứa withTAccrual (boolean)
+// year: năm dùng để lookup tỷ lệ (default S.year)
+// isPlanField (optional): nếu true mặc định untick (kế hoạch không trích)
+function _tBlockHtml(prefix, amountInputId, e = {}, isPlan = false) {
+  const yr = (typeof S !== 'undefined') ? S.year : new Date().getFullYear();
+  const rate = _getTRate(yr);
+  // Default tick (theo yêu cầu user) — nhưng kế hoạch thì untick
+  const checked = e.withTAccrual !== undefined
+    ? !!e.withTAccrual
+    : !isPlan;  // default: thực thu tick, kế hoạch untick
+  const baseAmt = parseFloat(e.amountVnd) || 0;
+  const tAmt = checked ? baseAmt * rate / 100 : 0;
+  return `
+    <div style="grid-column:span 2;background:#F5F3FF;border:1px solid var(--purple);border-radius:6px;padding:10px 12px;margin-top:4px">
+      <div style="font-size:11px;font-weight:600;color:var(--purple);margin-bottom:6px;display:flex;align-items:center;gap:6px">
+        💰 Trích quỹ lương dự án (T)
+        <span style="font-weight:400;color:var(--text3);font-size:10px">— Tỷ lệ chung năm ${yr}: <strong>${rate}%</strong>${rate===0?' ⚠ chưa set':''}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0;font-size:13px">
+          <input type="checkbox" id="${prefix}t_check" ${checked?'checked':''} onchange="_tRecalc('${prefix}','${amountInputId}')" style="width:16px;height:16px"/>
+          <span style="font-weight:600">Trích quỹ T cho bút toán này</span>
+        </label>
+        <span style="font-size:12px;color:var(--text3)">→ Tự trích: <strong id="${prefix}t_amt_display" style="color:var(--purple);font-family:var(--mono)">${tAmt > 0 ? fmtVnd(Math.round(tAmt)) : '—'}</strong></span>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:6px">
+        ${rate === 0
+          ? '⚠ Chưa cấu hình tỷ lệ trích — vào "Quỹ lương dự án (T/Q)" để set tỷ lệ năm ' + yr
+          : 'Bỏ tick nếu DT này không trích quỹ (vd: Pass-through, hoàn tiền, đặc biệt)'}
+      </div>
+    </div>`;
+}
+
+// Recalc số tiền T khi đổi checkbox hoặc đổi số tiền VNĐ
+function _tRecalc(prefix, amountInputId) {
+  const yr = (typeof S !== 'undefined') ? S.year : new Date().getFullYear();
+  const rate = _getTRate(yr);
+  const checked = document.getElementById(prefix+'t_check')?.checked || false;
+  const amt = document.getElementById(amountInputId);
+  if (!amt) return;
+  const base = parseFloat(amt.value) || 0;
+  const tAmt = checked ? base * rate / 100 : 0;
+  const display = document.getElementById(prefix+'t_amt_display');
+  if (display) display.innerHTML = tAmt > 0 ? fmtVnd(Math.round(tAmt)) : '—';
+}
+
+// Đọc giá trị T từ form, trả về object để gắn vào payload
+function _tReadPayload(prefix) {
+  return {
+    withTAccrual: document.getElementById(prefix+'t_check')?.checked === true,
+    // Tính tAmount tại save dựa trên rate hiện tại + amountVnd
   };
 }
 
@@ -5110,6 +5259,7 @@ function openRevForm(e={}) {
         <div class="field"><label>Số hợp đồng / HĐ</label><input id="rev_inv" value="${e.invoiceNo||''}"/></div>
         <div class="field" style="grid-column:span 2"><label>Mô tả</label><input id="rev_desc" value="${e.description||''}"/></div>
         ${_vatBlockHtml('rev_', 'rev_vnd', e)}
+        ${_tBlockHtml('rev_', 'rev_vnd', e, e.isPlan)}
       </div>`;
     openModal('Cập nhật doanh thu', html, async()=>{
       const amt=parseFloat(gv('rev_amt'))||0;
@@ -5130,6 +5280,7 @@ function openRevForm(e={}) {
         description:gv('rev_desc'), invoiceNo:gv('rev_inv'),
         isPlan,
         ..._vatReadPayload('rev_'),  // vatRate, vatAmountVnd
+        ..._tReadPayload('rev_'),     // withTAccrual
         createdAt:e.createdAt||new Date().toISOString(),
       };
       if(!payload.vesselId||!payload.amount){toast('Điền đủ thông tin','warn');return;}
@@ -5146,6 +5297,7 @@ function openRevForm(e={}) {
         if(document.getElementById('rev_vnd'))document.getElementById('rev_vnd').value=Math.round(a*fx);
         // Recalc VAT theo rate hiện tại
         _vatRecalc('rev_', 'rev_vnd');
+        if (document.getElementById('rev_t_check')) _tRecalc('rev_', 'rev_vnd');
       };
       document.getElementById('rev_amt')?.addEventListener('input',compVnd);
       document.getElementById('rev_fx')?.addEventListener('input',compVnd);
@@ -5182,6 +5334,13 @@ function openRevForm(e={}) {
           <option value="0.10" selected>10%</option>
         </select>
         <span style="font-size:10px;color:var(--text3)">VAT KHÔNG vào doanh thu/P/L, sẽ cộng vào Phải thu</span>
+      </div>
+      <div class="field" style="grid-column:span 2;background:#F5F3FF;border:1px solid var(--purple);border-radius:6px;padding:8px 10px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0;font-size:13px">
+          <input type="checkbox" id="rev_t_check_h" checked style="width:16px;height:16px"/>
+          <span style="font-weight:600;color:var(--purple)">💰 Trích quỹ T cho TẤT CẢ dòng (tỷ lệ năm ${S.year}: <strong>${_getTRate(S.year)}%</strong>)</span>
+        </label>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px">${_getTRate(S.year)===0?'⚠ Chưa cấu hình tỷ lệ — vào trang "Quỹ lương dự án" để set':'Bỏ tick nếu DT đợt này không trích quỹ'}</div>
       </div>
       <div class="field" style="grid-column:span 2"><label>Số hợp đồng / Số HĐ</label><input id="rev_inv" placeholder="Không bắt buộc — nếu nhập, các dòng sẽ chia sẻ chung mã invoice"/></div>
     </div>
@@ -5243,6 +5402,9 @@ function openRevForm(e={}) {
     }
     if (lines.length === 0) { toast('Nhập ít nhất 1 dòng đầu mục có số tiền','warn'); return; }
 
+    // T accrual: tick header áp cho tất cả dòng
+    const withTAccrual = document.getElementById('rev_t_check_h')?.checked === true;
+
     showLoading();
     try {
       // Lưu lần lượt từng dòng — mỗi dòng = 1 RevEntry
@@ -5257,6 +5419,8 @@ function openRevForm(e={}) {
           // VAT chung header → áp cho từng dòng
           vatRate,
           vatAmountVnd: Math.round(amtVnd * vatRate),
+          // T accrual: tick header áp cho tất cả dòng
+          withTAccrual,
           createdAt: new Date().toISOString(),
         };
         await api('saveRevEntry', payload);
@@ -9625,6 +9789,7 @@ function openOmRevForm(r={}) {
         <div class="field"><label>Số tiền VNĐ</label><input type="number" id="orv_vnd" value="${r.amountVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--teal)"/></div>
         <div class="field" style="grid-column:span 2"><label>Mô tả</label><input id="orv_desc" value="${r.description||''}"/></div>
         ${_vatBlockHtml('orv_', 'orv_vnd', r)}
+        ${_tBlockHtml('orv_', 'orv_vnd', r, r.isPlan)}
       </div>`;
     openModal('Cập nhật doanh thu O&M', html, async()=>{
       const amt=parseFloat(gv('orv_amt'))||0, fx=parseFloat(gv('orv_fx'))||1;
@@ -9644,6 +9809,7 @@ function openOmRevForm(r={}) {
         amount:amt, currency:gv('orv_cur'), fxRate:fx, amountVnd:Math.round(amt*fx),
         description:gv('orv_desc'), isPlan,
         ..._vatReadPayload('orv_'),
+        ..._tReadPayload('orv_'),
         createdAt:r.createdAt||new Date().toISOString()};
       if (!payload.contractId||!payload.amount){toast('Điền đủ thông tin (*)','warn');return;}
       showLoading();try{await api('saveOmRevEntry',payload);toast('Đã lưu','ok');closeModal();renderOmRevenue();}catch(e){toast('Lỗi','err');}hideLoading();
@@ -9679,6 +9845,13 @@ function openOmRevForm(r={}) {
           <option value="0.10" selected>10%</option>
         </select>
         <span style="font-size:10px;color:var(--text3)">VAT KHÔNG vào doanh thu/P/L, sẽ cộng vào Phải thu</span>
+      </div>
+      <div class="field" style="grid-column:span 2;background:#F5F3FF;border:1px solid var(--purple);border-radius:6px;padding:8px 10px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0;font-size:13px">
+          <input type="checkbox" id="orv_t_check_h" checked style="width:16px;height:16px"/>
+          <span style="font-weight:600;color:var(--purple)">💰 Trích quỹ T cho TẤT CẢ dòng (tỷ lệ năm ${S.year}: <strong>${_getTRate(S.year)}%</strong>)</span>
+        </label>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px">${_getTRate(S.year)===0?'⚠ Chưa cấu hình tỷ lệ — vào trang "Quỹ lương dự án" để set':'Bỏ tick nếu DT đợt này không trích quỹ'}</div>
       </div>
     </div>
 
@@ -9738,6 +9911,8 @@ function openOmRevForm(r={}) {
     }
     if (lines.length === 0) { toast('Nhập ít nhất 1 dòng đầu mục có số tiền','warn'); return; }
 
+    const withTAccrual = document.getElementById('orv_t_check_h')?.checked === true;
+
     showLoading();
     try {
       for (const ln of lines) {
@@ -9750,6 +9925,8 @@ function openOmRevForm(r={}) {
           // VAT chung header → áp cho từng dòng
           vatRate,
           vatAmountVnd: Math.round(amtVnd * vatRate),
+          // T accrual: tick header áp cho tất cả dòng
+          withTAccrual,
           createdAt: new Date().toISOString(),
         };
         await api('saveOmRevEntry', payload);
@@ -9829,6 +10006,7 @@ function omRevCompVnd(){
   if(document.getElementById('orv_vnd'))document.getElementById('orv_vnd').value=Math.round(a*fx);
   // Recalc VAT theo rate đang chọn
   if(document.getElementById('orv_vat_rate')) _vatRecalc('orv_','orv_vnd');
+  if(document.getElementById('orv_t_check')) _tRecalc('orv_','orv_vnd');
 }
 async function deleteOmRevEntry(id){if(!confirm('Xoá?'))return;try{await api('deleteOmRevEntry',{id});toast('Đã xoá','ok');renderOmRevenue();}catch(e){toast('Lỗi','err');}}
 
@@ -10016,8 +10194,38 @@ async function renderPayrollFund() {
       <div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Sổ Quỹ Lương</div>
       <div style="font-size:13px;line-height:1.7">
         Quỹ <strong>chung toàn công ty</strong>, kế thừa qua các năm. Số dư cuối năm trước = số dư đầu năm sau.<br>
-        <strong>Trích quỹ (T):</strong> tự tính theo % DT năm hiện tại (cấu hình ở Khoản mục) hoặc nhập thủ công các năm cũ.<br>
+        <strong>Trích quỹ (T):</strong> tự tính theo tỷ lệ chung × DT khi user tick "Trích quỹ T" trên form Doanh thu.<br>
         <strong>Chi quỹ (Q):</strong> ghi nhận khi chi thực tế (chọn nguồn chi "Chi từ quỹ lương" trên bút toán).
+      </div>
+    </div>
+
+    <!-- ─── Cấu hình tỷ lệ trích T ─── -->
+    <div class="card mb16" style="background:#FFFBEB;border:2px solid var(--amber)">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px">
+        <h3 style="margin:0;font-size:13px;color:var(--amber)">⚙️ Tỷ lệ trích quỹ T (chung toàn công ty)</h3>
+      </div>
+      <div class="card-body" style="padding:12px 14px">
+        <div class="form-grid cols2" style="gap:12px;margin:0">
+          <div class="field" style="margin:0">
+            <label style="font-size:11px">Tỷ lệ trích cho năm <strong>${S.year}</strong> (%)</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="number" id="t_rate" value="${_getTRate(S.year)}" step="0.1" min="0" max="100" placeholder="VD: 2.0" style="font-weight:600;color:var(--amber);max-width:140px"/>
+              <button class="btn btn-primary btn-sm" onclick="_saveTRate()">💾 Lưu</button>
+            </div>
+            <span style="font-size:11px;color:var(--text3)">Áp dụng cho TẤT CẢ DT của 4 module (Vessel/O&M/GA/SM) khi user tick "Trích quỹ T" trên form DT.</span>
+          </div>
+          <div class="field" style="margin:0">
+            <label style="font-size:11px">📋 Lịch sử tỷ lệ theo năm</label>
+            <div style="font-family:var(--mono);font-size:12px;display:flex;flex-wrap:wrap;gap:6px;padding:6px 0">
+              ${(() => {
+                const allRates = _getAllTRates();
+                const years = Object.keys(allRates).sort((a,b)=>parseInt(b)-parseInt(a));
+                if (years.length === 0) return '<span style="color:var(--text3);font-style:italic">Chưa có dữ liệu — set tỷ lệ năm hiện tại để bắt đầu</span>';
+                return years.map(y => `<span class="badge ${parseInt(y)===S.year?'badge-amber':'badge-gray'}" style="font-size:11px">${y}: ${allRates[y]}%${parseInt(y)===S.year?' ← hiện tại':''}</span>`).join('');
+              })()}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -16239,6 +16447,7 @@ function openSmRevForm(e={}) {
       <div class="field"><label>Tỷ giá → VNĐ</label><input type="number" id="smrev_fx" value="${defaultFx}" oninput="smRevCompVnd()"/></div>
       <div class="field"><label>Số tiền VNĐ</label><input type="number" id="smrev_vnd" value="${e.amountVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--green)"/></div>
       ${_vatBlockHtml('smrev_', 'smrev_vnd', e)}
+      ${_tBlockHtml('smrev_', 'smrev_vnd', e, false)}
     </div>`;
 
   openModal(e.id?'Cập nhật doanh thu QT':'Nhập doanh thu phí quản lý tàu', html, async() => {
@@ -16257,6 +16466,7 @@ function openSmRevForm(e={}) {
       amountVnd: amtVnd,
       description: gv('smrev_desc'),
       ..._vatReadPayload('smrev_'),
+      ..._tReadPayload('smrev_'),
       createdAt: e.createdAt||new Date().toISOString()
     };
     if (!payload.contractId || !payload.amount) { toast('Điền đủ HĐ và số tiền', 'warn'); return; }
@@ -16295,6 +16505,7 @@ function smRevCompVnd() {
   if (out) out.value = vnd;
   // Recalc VAT theo rate đang chọn
   if (document.getElementById('smrev_vat_rate')) _vatRecalc('smrev_','smrev_vnd');
+  if (document.getElementById('smrev_t_check')) _tRecalc('smrev_','smrev_vnd');
 }
 
 // Auto sinh 12 tháng doanh thu QT năm hiện tại
@@ -17267,9 +17478,10 @@ function openGaRevEntryForm(e={}) {
       <div class="field required" style="grid-column:span 2"><label>Đầu mục doanh thu</label><select id="grv_cat">${catOpts}</select></div>
       <div class="field required"><label>Ngày</label><input type="date" id="grv_date" value="${e.entryDate||today()}"/></div>
       <div class="field"><label>Tháng</label><input type="month" id="grv_month" value="${e.month||today().slice(0,7)}"/></div>
-      <div class="field required"><label>Số tiền (VNĐ)</label><input type="number" id="grv_amt" value="${e.amount||''}" oninput="if(document.getElementById('grv_vat_rate'))_vatRecalc('grv_','grv_amt')"/></div>
+      <div class="field required"><label>Số tiền (VNĐ)</label><input type="number" id="grv_amt" value="${e.amount||''}" oninput="if(document.getElementById('grv_vat_rate'))_vatRecalc('grv_','grv_amt');if(document.getElementById('grv_t_check'))_tRecalc('grv_','grv_amt')"/></div>
       <div class="field" style="grid-column:span 1"><label>Mô tả</label><input id="grv_desc" value="${e.description||''}"/></div>
       ${_vatBlockHtml('grv_', 'grv_amt', e)}
+      ${_tBlockHtml('grv_', 'grv_amt', e, false)}
     </div>`;
     openModal('Cập nhật DT phụ trợ', html, async()=>{
       const amt=parseFloat(gv('grv_amt'))||0;
@@ -17277,6 +17489,7 @@ function openGaRevEntryForm(e={}) {
         amount:amt, currency:'VND', fxRate:1, amountVnd:amt,
         description:gv('grv_desc'),
         ..._vatReadPayload('grv_'),
+        ..._tReadPayload('grv_'),
         createdAt:e.createdAt||new Date().toISOString()};
       if(!payload.categoryId||!payload.amount){toast('Điền đủ thông tin','warn');return;}
       await api('saveGaRevEntry',payload);toast('Đã lưu','ok');closeModal();gaSwitch('rev');
