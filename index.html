@@ -3144,6 +3144,75 @@ function fmtDate(s){ if(!s) return '—'; return new Date(s).toLocaleDateString(
 function fmtDT(s)  { if(!s) return '—'; return new Date(s).toLocaleString('vi-VN',{dateStyle:'short',timeStyle:'short'}); }
 
 // ═══════════════════════════════════════════════════════
+// VAT/GTGT BLOCK HELPER cho 4 form Doanh thu
+// ═══════════════════════════════════════════════════════
+//
+// Sinh HTML cho block VAT (% + số tiền VAT + tổng phải thu).
+// prefix: tiền tố ID input (vd 'rev_' → rev_vat_rate, rev_vat_amt, rev_total_with_vat)
+// amountInputId: ID input số tiền chưa VAT (để listen thay đổi)
+// e: object data có thể chứa vatRate, vatAmountVnd
+// hideOnVndOnly: nếu true, ẩn block VAT khi đồng tiền không phải VND (chưa support)
+function _vatBlockHtml(prefix, amountInputId, e = {}) {
+  const vatRate = e.vatRate !== undefined ? parseFloat(e.vatRate) : 0;
+  const vatAmt = parseFloat(e.vatAmountVnd) || 0;
+  const baseAmt = parseFloat(e.amountVnd) || 0;
+  const totalWithVat = baseAmt + vatAmt;
+  const rateOpts = [0, 0.05, 0.08, 0.10].map(r =>
+    `<option value="${r}"${r===vatRate?' selected':''}>${(r*100).toFixed(0)}%</option>`
+  ).join('');
+  return `
+    <div style="grid-column:span 2;background:#FFFBEB;border:1px solid var(--amber);border-radius:6px;padding:10px 12px;margin-top:4px">
+      <div style="font-size:11px;font-weight:600;color:var(--amber);margin-bottom:6px;display:flex;align-items:center;gap:6px">
+        💼 VAT/Thuế GTGT
+        <span style="font-weight:400;color:var(--text3);font-size:10px">— KHÔNG vào doanh thu/P/L, CỘNG vào Phải thu</span>
+      </div>
+      <div class="form-grid cols2" style="gap:8px;margin:0">
+        <div class="field" style="margin:0">
+          <label style="font-size:11px">% VAT</label>
+          <select id="${prefix}vat_rate" onchange="_vatRecalc('${prefix}','${amountInputId}')">${rateOpts}</select>
+        </div>
+        <div class="field" style="margin:0">
+          <label style="font-size:11px">Tiền VAT (VNĐ) — sửa được</label>
+          <input type="number" id="${prefix}vat_amt" value="${vatAmt}" min="0" step="1000" oninput="_vatRecalcTotal('${prefix}','${amountInputId}')"/>
+        </div>
+        <div class="field" style="margin:0;grid-column:span 2">
+          <label style="font-size:11px">Tổng phải thu (DT chưa VAT + VAT) — readonly</label>
+          <input type="number" id="${prefix}total_with_vat" value="${totalWithVat}" readonly style="background:var(--bg);font-weight:700;color:var(--teal)"/>
+        </div>
+      </div>
+    </div>`;
+}
+
+// Recalc số tiền VAT khi đổi % rate hoặc đổi số tiền chưa VAT
+function _vatRecalc(prefix, amountInputId) {
+  const rate = parseFloat(document.getElementById(prefix+'vat_rate')?.value) || 0;
+  const amt = document.getElementById(amountInputId);
+  if (!amt) return;
+  const base = parseFloat(amt.value) || 0;
+  const vatEl = document.getElementById(prefix+'vat_amt');
+  if (vatEl) vatEl.value = Math.round(base * rate);
+  _vatRecalcTotal(prefix, amountInputId);
+}
+
+// Recalc tổng phải thu (auto khi đổi VAT amount)
+function _vatRecalcTotal(prefix, amountInputId) {
+  const amt = document.getElementById(amountInputId);
+  if (!amt) return;
+  const base = parseFloat(amt.value) || 0;
+  const vat = parseFloat(document.getElementById(prefix+'vat_amt')?.value) || 0;
+  const totalEl = document.getElementById(prefix+'total_with_vat');
+  if (totalEl) totalEl.value = base + vat;
+}
+
+// Đọc giá trị VAT từ form, trả về object để gắn vào payload
+function _vatReadPayload(prefix) {
+  return {
+    vatRate: parseFloat(document.getElementById(prefix+'vat_rate')?.value) || 0,
+    vatAmountVnd: parseFloat(document.getElementById(prefix+'vat_amt')?.value) || 0,
+  };
+}
+
+// ═══════════════════════════════════════════════════════
 // FORMULA INPUT — Tự tính khi user nhập "=15000+25000" (giống Excel)
 // Áp dụng cho tất cả input type=number qua event delegation.
 // ═══════════════════════════════════════════════════════
@@ -5036,6 +5105,7 @@ function openRevForm(e={}) {
         <div class="field"><label>Số tiền VNĐ</label><input type="number" id="rev_vnd" value="${e.amountVnd||''}" readonly style="background:var(--gray1)"/></div>
         <div class="field"><label>Số hợp đồng / HĐ</label><input id="rev_inv" value="${e.invoiceNo||''}"/></div>
         <div class="field" style="grid-column:span 2"><label>Mô tả</label><input id="rev_desc" value="${e.description||''}"/></div>
+        ${_vatBlockHtml('rev_', 'rev_vnd', e)}
       </div>`;
     openModal('Cập nhật doanh thu', html, async()=>{
       const amt=parseFloat(gv('rev_amt'))||0;
@@ -5055,6 +5125,7 @@ function openRevForm(e={}) {
         amount:amt, currency:gv('rev_cur'), fxRate:fx, amountVnd:Math.round(amt*fx),
         description:gv('rev_desc'), invoiceNo:gv('rev_inv'),
         isPlan,
+        ..._vatReadPayload('rev_'),  // vatRate, vatAmountVnd
         createdAt:e.createdAt||new Date().toISOString(),
       };
       if(!payload.vesselId||!payload.amount){toast('Điền đủ thông tin','warn');return;}
@@ -5065,7 +5136,13 @@ function openRevForm(e={}) {
     });
     setTimeout(()=>{
       loadRevProjectOpts(e.projectId);
-      const compVnd=()=>{const a=parseFloat(document.getElementById('rev_amt')?.value)||0;const fx=parseFloat(document.getElementById('rev_fx')?.value)||1;if(document.getElementById('rev_vnd'))document.getElementById('rev_vnd').value=Math.round(a*fx);};
+      const compVnd=()=>{
+        const a=parseFloat(document.getElementById('rev_amt')?.value)||0;
+        const fx=parseFloat(document.getElementById('rev_fx')?.value)||1;
+        if(document.getElementById('rev_vnd'))document.getElementById('rev_vnd').value=Math.round(a*fx);
+        // Recalc VAT theo rate hiện tại
+        _vatRecalc('rev_', 'rev_vnd');
+      };
       document.getElementById('rev_amt')?.addEventListener('input',compVnd);
       document.getElementById('rev_fx')?.addEventListener('input',compVnd);
       revTogglePlan();
@@ -9474,6 +9551,7 @@ function openOmRevForm(r={}) {
         <div class="field"><label>Tỷ giá</label><input type="number" id="orv_fx" value="${r.fxRate||1}" oninput="omRevCompVnd()"/></div>
         <div class="field"><label>Số tiền VNĐ</label><input type="number" id="orv_vnd" value="${r.amountVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--teal)"/></div>
         <div class="field" style="grid-column:span 2"><label>Mô tả</label><input id="orv_desc" value="${r.description||''}"/></div>
+        ${_vatBlockHtml('orv_', 'orv_vnd', r)}
       </div>`;
     openModal('Cập nhật doanh thu O&M', html, async()=>{
       const amt=parseFloat(gv('orv_amt'))||0, fx=parseFloat(gv('orv_fx'))||1;
@@ -9492,11 +9570,12 @@ function openOmRevForm(r={}) {
         entryDate, month, year:yearVal,
         amount:amt, currency:gv('orv_cur'), fxRate:fx, amountVnd:Math.round(amt*fx),
         description:gv('orv_desc'), isPlan,
+        ..._vatReadPayload('orv_'),
         createdAt:r.createdAt||new Date().toISOString()};
       if (!payload.contractId||!payload.amount){toast('Điền đủ thông tin (*)','warn');return;}
       showLoading();try{await api('saveOmRevEntry',payload);toast('Đã lưu','ok');closeModal();renderOmRevenue();}catch(e){toast('Lỗi','err');}hideLoading();
     });
-    setTimeout(()=>omRevTogglePlan(), 30);
+    setTimeout(()=>{omRevTogglePlan(); _vatRecalc('orv_','orv_vnd');}, 30);
     return;
   }
 
@@ -9661,6 +9740,8 @@ function omRevCompVnd(){
   const a=parseFloat(document.getElementById('orv_amt')?.value)||0;
   const fx=parseFloat(document.getElementById('orv_fx')?.value)||1;
   if(document.getElementById('orv_vnd'))document.getElementById('orv_vnd').value=Math.round(a*fx);
+  // Recalc VAT theo rate đang chọn
+  if(document.getElementById('orv_vat_rate')) _vatRecalc('orv_','orv_vnd');
 }
 async function deleteOmRevEntry(id){if(!confirm('Xoá?'))return;try{await api('deleteOmRevEntry',{id});toast('Đã xoá','ok');renderOmRevenue();}catch(e){toast('Lỗi','err');}}
 
@@ -12152,7 +12233,10 @@ async function _buildReceivablesList() {
       objLabel: vMap[r.vesselId] || '—',
       projectLabel: proj.name || '(Phát sinh ngoài HĐ)',
       entryDate: r.entryDate,
-      amountVnd: parseFloat(r.amountVnd) || 0,
+      amountVnd: (parseFloat(r.amountVnd) || 0) + (parseFloat(r.vatAmountVnd) || 0),  // Phải thu = DT + VAT
+      revenueAmountVnd: parseFloat(r.amountVnd) || 0,  // Doanh thu chưa VAT (cho tham chiếu)
+      vatAmountVnd: parseFloat(r.vatAmountVnd) || 0,
+      vatRate: parseFloat(r.vatRate) || 0,
       currency: r.currency,
       amount: r.amount,
       invoiceNo: r.invoiceNo || '',
@@ -12177,7 +12261,10 @@ async function _buildReceivablesList() {
       objLabel: ctr.contractNo || ctr.contractName || '—',
       projectLabel: ctr.contractName || '—',
       entryDate: r.entryDate,
-      amountVnd: parseFloat(r.amountVnd) || 0,
+      amountVnd: (parseFloat(r.amountVnd) || 0) + (parseFloat(r.vatAmountVnd) || 0),  // Phải thu = DT + VAT
+      revenueAmountVnd: parseFloat(r.amountVnd) || 0,  // Doanh thu chưa VAT (cho tham chiếu)
+      vatAmountVnd: parseFloat(r.vatAmountVnd) || 0,
+      vatRate: parseFloat(r.vatRate) || 0,
       currency: r.currency,
       amount: r.amount,
       invoiceNo: '',
@@ -12201,7 +12288,10 @@ async function _buildReceivablesList() {
       objLabel: 'G&A',
       projectLabel: '—',
       entryDate: r.entryDate,
-      amountVnd: parseFloat(r.amountVnd) || 0,
+      amountVnd: (parseFloat(r.amountVnd) || 0) + (parseFloat(r.vatAmountVnd) || 0),  // Phải thu = DT + VAT
+      revenueAmountVnd: parseFloat(r.amountVnd) || 0,  // Doanh thu chưa VAT (cho tham chiếu)
+      vatAmountVnd: parseFloat(r.vatAmountVnd) || 0,
+      vatRate: parseFloat(r.vatRate) || 0,
       currency: 'VND',
       amount: r.amount,
       invoiceNo: '',
@@ -12226,7 +12316,10 @@ async function _buildReceivablesList() {
       objLabel: ctr.vesselName || '—',
       projectLabel: ctr.contractNo || 'Phí QT',
       entryDate: r.entryDate,
-      amountVnd: parseFloat(r.amountVnd) || 0,
+      amountVnd: (parseFloat(r.amountVnd) || 0) + (parseFloat(r.vatAmountVnd) || 0),  // Phải thu = DT + VAT
+      revenueAmountVnd: parseFloat(r.amountVnd) || 0,  // Doanh thu chưa VAT (cho tham chiếu)
+      vatAmountVnd: parseFloat(r.vatAmountVnd) || 0,
+      vatRate: parseFloat(r.vatRate) || 0,
       currency: r.currency,
       amount: r.amount,
       invoiceNo: r.invoiceNo || '',
@@ -15539,6 +15632,7 @@ function openSmRevForm(e={}) {
       <div class="field"><label>Đồng tiền</label><select id="smrev_cur" onchange="smRevCompVnd()">${currencies}</select></div>
       <div class="field"><label>Tỷ giá → VNĐ</label><input type="number" id="smrev_fx" value="${defaultFx}" oninput="smRevCompVnd()"/></div>
       <div class="field"><label>Số tiền VNĐ</label><input type="number" id="smrev_vnd" value="${e.amountVnd||''}" readonly style="background:var(--gray1);font-weight:600;color:var(--green)"/></div>
+      ${_vatBlockHtml('smrev_', 'smrev_vnd', e)}
     </div>`;
 
   openModal(e.id?'Cập nhật doanh thu QT':'Nhập doanh thu phí quản lý tàu', html, async() => {
@@ -15556,6 +15650,7 @@ function openSmRevForm(e={}) {
       fxRate: fx,
       amountVnd: amtVnd,
       description: gv('smrev_desc'),
+      ..._vatReadPayload('smrev_'),
       createdAt: e.createdAt||new Date().toISOString()
     };
     if (!payload.contractId || !payload.amount) { toast('Điền đủ HĐ và số tiền', 'warn'); return; }
@@ -15592,6 +15687,8 @@ function smRevCompVnd() {
   const vnd = (cur==='VND') ? a : Math.round(a*fx);
   const out = document.getElementById('smrev_vnd');
   if (out) out.value = vnd;
+  // Recalc VAT theo rate đang chọn
+  if (document.getElementById('smrev_vat_rate')) _vatRecalc('smrev_','smrev_vnd');
 }
 
 // Auto sinh 12 tháng doanh thu QT năm hiện tại
@@ -16545,17 +16642,21 @@ function openGaRevEntryForm(e={}) {
       <div class="field required" style="grid-column:span 2"><label>Đầu mục doanh thu</label><select id="grv_cat">${catOpts}</select></div>
       <div class="field required"><label>Ngày</label><input type="date" id="grv_date" value="${e.entryDate||today()}"/></div>
       <div class="field"><label>Tháng</label><input type="month" id="grv_month" value="${e.month||today().slice(0,7)}"/></div>
-      <div class="field required"><label>Số tiền (VNĐ)</label><input type="number" id="grv_amt" value="${e.amount||''}"/></div>
+      <div class="field required"><label>Số tiền (VNĐ)</label><input type="number" id="grv_amt" value="${e.amount||''}" oninput="if(document.getElementById('grv_vat_rate'))_vatRecalc('grv_','grv_amt')"/></div>
       <div class="field" style="grid-column:span 1"><label>Mô tả</label><input id="grv_desc" value="${e.description||''}"/></div>
+      ${_vatBlockHtml('grv_', 'grv_amt', e)}
     </div>`;
     openModal('Cập nhật DT phụ trợ', html, async()=>{
       const amt=parseFloat(gv('grv_amt'))||0;
       const payload={id:e.id, categoryId:gv('grv_cat'), entryDate:gv('grv_date'), month:gv('grv_month'),
         amount:amt, currency:'VND', fxRate:1, amountVnd:amt,
-        description:gv('grv_desc'), createdAt:e.createdAt||new Date().toISOString()};
+        description:gv('grv_desc'),
+        ..._vatReadPayload('grv_'),
+        createdAt:e.createdAt||new Date().toISOString()};
       if(!payload.categoryId||!payload.amount){toast('Điền đủ thông tin','warn');return;}
       await api('saveGaRevEntry',payload);toast('Đã lưu','ok');closeModal();gaSwitch('rev');
     });
+    setTimeout(()=>_vatRecalc('grv_','grv_amt'),50);
     return;
   }
 
