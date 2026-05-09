@@ -5170,6 +5170,15 @@ function openRevForm(e={}) {
       <div class="field required" id="rev_year_wrap" style="display:none"><label>Năm kế hoạch</label><select id="rev_year">${yearOpts.join('')}</select></div>
       <div class="field"><label>Đơn vị tiền tệ</label><select id="rev_cur" onchange="_revRecalcAllVnd()">${currOpts}</select></div>
       <div class="field"><label>Tỷ giá</label><input type="number" id="rev_fx" value="1" step="1" oninput="_revRecalcAllVnd()"/></div>
+      <div class="field"><label>% VAT (áp chung tất cả dòng)</label>
+        <select id="rev_vat_rate_h">
+          <option value="0">0%</option>
+          <option value="0.05">5%</option>
+          <option value="0.08">8%</option>
+          <option value="0.10" selected>10%</option>
+        </select>
+        <span style="font-size:10px;color:var(--text3)">VAT KHÔNG vào doanh thu/P/L, sẽ cộng vào Phải thu</span>
+      </div>
       <div class="field" style="grid-column:span 2"><label>Số hợp đồng / Số HĐ</label><input id="rev_inv" placeholder="Không bắt buộc — nếu nhập, các dòng sẽ chia sẻ chung mã invoice"/></div>
     </div>
 
@@ -5206,6 +5215,7 @@ function openRevForm(e={}) {
     const cur = gv('rev_cur') || 'VND';
     const fx  = parseFloat(gv('rev_fx')) || 1;
     const invoiceNo = gv('rev_inv') || '';
+    const vatRate = parseFloat(gv('rev_vat_rate_h')) || 0;
     let entryDate, yearVal;
     if (isPlan) {
       yearVal = parseInt(gv('rev_year')) || new Date().getFullYear();
@@ -5233,12 +5243,16 @@ function openRevForm(e={}) {
     try {
       // Lưu lần lượt từng dòng — mỗi dòng = 1 RevEntry
       for (const ln of lines) {
+        const amtVnd = Math.round(ln.amount * fx);
         const payload = {
           id: newId(), vesselId, projectId,
           categoryId: ln.categoryId, entryDate, year: yearVal,
-          amount: ln.amount, currency: cur, fxRate: fx, amountVnd: Math.round(ln.amount * fx),
+          amount: ln.amount, currency: cur, fxRate: fx, amountVnd: amtVnd,
           description: ln.description, invoiceNo,
           isPlan,
+          // VAT chung header → áp cho từng dòng
+          vatRate,
+          vatAmountVnd: Math.round(amtVnd * vatRate),
           createdAt: new Date().toISOString(),
         };
         await api('saveRevEntry', payload);
@@ -9598,6 +9612,15 @@ function openOmRevForm(r={}) {
       <div class="field required" id="orv_year_wrap" style="display:none;grid-column:span 2"><label>Năm kế hoạch</label><select id="orv_year">${yearOpts.join('')}</select></div>
       <div class="field"><label>Đồng tiền</label><select id="orv_cur" onchange="_omRevRecalcAllVnd()">${currencies}</select></div>
       <div class="field"><label>Tỷ giá</label><input type="number" id="orv_fx" value="1" oninput="_omRevRecalcAllVnd()"/></div>
+      <div class="field" style="grid-column:span 2"><label>% VAT (áp chung tất cả dòng)</label>
+        <select id="orv_vat_rate_h">
+          <option value="0">0%</option>
+          <option value="0.05">5%</option>
+          <option value="0.08">8%</option>
+          <option value="0.10" selected>10%</option>
+        </select>
+        <span style="font-size:10px;color:var(--text3)">VAT KHÔNG vào doanh thu/P/L, sẽ cộng vào Phải thu</span>
+      </div>
     </div>
 
     <div class="divider"></div>
@@ -9631,6 +9654,7 @@ function openOmRevForm(r={}) {
     const contractId = gv('orv_ctr');
     const cur = gv('orv_cur') || 'VND';
     const fx  = parseFloat(gv('orv_fx')) || 1;
+    const vatRate = parseFloat(gv('orv_vat_rate_h')) || 0;
     let entryDate, month, yearVal;
     if (isPlan) {
       yearVal = parseInt(gv('orv_year')) || new Date().getFullYear();
@@ -9658,11 +9682,15 @@ function openOmRevForm(r={}) {
     showLoading();
     try {
       for (const ln of lines) {
+        const amtVnd = Math.round(ln.amount * fx);
         const payload = {
           id: newId(), contractId, categoryId: ln.categoryId,
           entryDate, month, year: yearVal,
-          amount: ln.amount, currency: cur, fxRate: fx, amountVnd: Math.round(ln.amount * fx),
+          amount: ln.amount, currency: cur, fxRate: fx, amountVnd: amtVnd,
           description: ln.description, isPlan,
+          // VAT chung header → áp cho từng dòng
+          vatRate,
+          vatAmountVnd: Math.round(amtVnd * vatRate),
           createdAt: new Date().toISOString(),
         };
         await api('saveOmRevEntry', payload);
@@ -12351,21 +12379,46 @@ function _arStatus(item) {
       note: item.paymentNote || '',
     }];
   }
-  const paid = installments.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+
+  // CHỈ TÍNH các đợt đã đến/quá ngày (bỏ qua đợt còn ở tương lai → đó là dự kiến)
+  const todayDt = new Date(); todayDt.setHours(0,0,0,0);
+  const realizedIns = installments.filter(i => {
+    if (!i.date) return true;  // Không có ngày → tính
+    const d = new Date(i.date); d.setHours(0,0,0,0);
+    return d <= todayDt;        // Đã đến ngày hoặc trong quá khứ
+  });
+  const scheduledIns = installments.filter(i => {
+    if (!i.date) return false;
+    const d = new Date(i.date); d.setHours(0,0,0,0);
+    return d > todayDt;         // Tương lai → dự kiến
+  });
+
+  const paid = realizedIns.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+  const scheduled = scheduledIns.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
   const remaining = total - paid;
 
   // Status
   let status, label, color;
   if (paid === 0) {
-    // Chưa thu/trả gì
-    if (!item.dueDate) {
+    // Chưa thu/trả gì THỰC SỰ
+    if (scheduled > 0) {
+      // Có dự kiến trả tương lai
+      if (scheduled >= total) {
+        status = 'scheduled';
+        label = `📅 Dự kiến trả đủ`;
+        color = 'var(--blue)';
+      } else {
+        status = 'scheduled-partial';
+        label = `📅 Dự kiến trả ${Math.round(scheduled/total*100)}%`;
+        color = 'var(--blue)';
+      }
+    } else if (!item.dueDate) {
       status = 'pending'; label = '⏳ Chờ thu'; color = 'var(--text3)';
     } else {
-      const today = new Date(); today.setHours(0,0,0,0);
       const due = new Date(item.dueDate); due.setHours(0,0,0,0);
-      if (due < today) { status = 'overdue'; label = '⚠ Quá hạn'; color = 'var(--red)'; }
+      if (due < todayDt) { status = 'overdue'; label = '⚠ Quá hạn'; color = 'var(--red)'; }
       else {
-        const diff = Math.round((due - today) / 86400000);
+        const diff = Math.round((due - todayDt) / 86400000);
         if (diff <= 7) { status = 'due-soon'; label = `📅 ${diff} ngày`; color = 'var(--amber)'; }
         else { status = 'pending'; label = `📅 ${diff} ngày`; color = 'var(--text3)'; }
       }
@@ -12378,12 +12431,18 @@ function _arStatus(item) {
     color = 'var(--blue)';
     // Nếu hạn đã quá mà vẫn còn nợ → ưu tiên báo quá hạn
     if (item.dueDate) {
-      const today = new Date(); today.setHours(0,0,0,0);
       const due = new Date(item.dueDate); due.setHours(0,0,0,0);
-      if (due < today) {
+      if (due < todayDt) {
         status = 'overdue-partial';
         label = `⚠ Quá hạn (đã thu ${pct}%)`;
         color = 'var(--red)';
+      }
+    }
+    // Nếu đã có dự kiến trả thêm trong tương lai → label phong phú hơn
+    if (scheduled > 0 && status !== 'overdue-partial') {
+      const totalPlanned = paid + scheduled;
+      if (totalPlanned >= total) {
+        label = `🔵 Thu ${pct}% (+ dự kiến đủ)`;
       }
     }
   } else if (paid === total) {
@@ -12395,16 +12454,16 @@ function _arStatus(item) {
 
   // Backward compatibility: status code
   // Cũ: 'paid' | 'overdue' | 'due-soon' | 'pending'
-  // Mới thêm: 'partial' | 'overdue-partial' | 'overpaid'
-  // Khi filter "unpaid" → giữ tất cả trừ paid (bao gồm partial, overdue-partial)
-  // Khi filter "overdue" → 'overdue' + 'overdue-partial'
-  return { paid, remaining, status, label, color };
+  // Mới thêm: 'partial' | 'overdue-partial' | 'overpaid' | 'scheduled' | 'scheduled-partial'
+  return { paid, scheduled, remaining, status, label, color };
 }
 
 // Helper: lọc theo filter mode (paid / unpaid / overdue / all)
 function _arMatchFilter(status, filter) {
   if (filter === 'all') return true;
   if (filter === 'paid') return status === 'paid';
+  // 'unpaid' = mọi thứ trừ "đã thu/trả đủ thực tế"
+  // 'scheduled', 'scheduled-partial' coi như chưa thu thực sự → vào unpaid
   if (filter === 'unpaid') return status !== 'paid' && status !== 'overpaid';
   if (filter === 'overdue') return status === 'overdue' || status === 'overdue-partial';
   return true;
@@ -12591,7 +12650,7 @@ async function renderReceivablesPayables() {
               ${filteredRecv.length === 0 ? `<tr><td colspan="9"><div class="empty-state">Không có khoản phải thu (lọc: ${_S_AR_FILTER}).</div></td></tr>` :
                 filteredRecv.slice().sort((a,b) => {
                   const sa = _arStatus(a), sb = _arStatus(b);
-                  const order = {overdue:0, 'overdue-partial':1, 'due-soon':2, pending:3, partial:4, paid:5, overpaid:6};
+                  const order = {overdue:0, 'overdue-partial':1, 'due-soon':2, pending:3, partial:4, 'scheduled-partial':5, scheduled:6, paid:7, overpaid:8};
                   if (order[sa.status] !== order[sb.status]) return order[sa.status] - order[sb.status];
                   return (a.dueDate||'').localeCompare(b.dueDate||'');
                 }).map(item => {
@@ -12644,7 +12703,7 @@ async function renderReceivablesPayables() {
               ${filteredPay.length === 0 ? `<tr><td colspan="9"><div class="empty-state">Không có khoản phải trả (lọc: ${_S_AR_FILTER}). <a href="#" onclick="openPayableForm();return false;">+ Thêm</a></div></td></tr>` :
                 filteredPay.slice().sort((a,b) => {
                   const sa = _arStatus(a), sb = _arStatus(b);
-                  const order = {overdue:0, 'overdue-partial':1, 'due-soon':2, pending:3, partial:4, paid:5, overpaid:6};
+                  const order = {overdue:0, 'overdue-partial':1, 'due-soon':2, pending:3, partial:4, 'scheduled-partial':5, scheduled:6, paid:7, overpaid:8};
                   if (order[sa.status] !== order[sb.status]) return order[sa.status] - order[sb.status];
                   return (a.dueDate||'').localeCompare(b.dueDate||'');
                 }).map(item => {
@@ -12656,7 +12715,7 @@ async function renderReceivablesPayables() {
                     <td><span class="badge badge-gray" style="font-size:10px">${moduleLabel}</span></td>
                     <td><strong>${item.supplier||'—'}</strong></td>
                     <td>${item.description||'—'}${item.invoiceNo?`<br><span class="text-muted" style="font-size:11px">${item.invoiceNo}</span>`:''}</td>
-                    <td class="mono">${fmtDate(item.createdAt)||'—'}</td>
+                    <td class="mono">${fmtDate(item.entryDate || item.createdAt)||'—'}</td>
                     <td class="num" style="font-weight:600">${fmtVnd(item.amountVnd)}</td>
                     <td class="mono">${item.dueDate ? fmtDate(item.dueDate) : '<span class="text-muted">—</span>'}</td>
                     <td class="num" style="font-size:12px">
@@ -13045,8 +13104,9 @@ async function openPayableForm(p={}) {
       <div class="field"><label>Hạn trả (dự kiến)</label>
         <input type="date" id="pay_due" value="${p.dueDate||''}"/>
       </div>
-      <div class="field"><label>Ngày trả xong</label>
-        <input type="date" id="pay_paid" value="${p.paidDate||''}"/>
+      <div class="field required"><label>Ngày phát sinh</label>
+        <input type="date" id="pay_entry" value="${p.entryDate || (p.id ? '' : today())}"/>
+        <span style="font-size:11px;color:var(--text3)">Ngày bút toán phát sinh thực tế (vd 31/12/2024 cho dư đầu kỳ)</span>
       </div>
       <div class="field"><label>Số HĐ / Hoá đơn</label>
         <input id="pay_inv" value="${p.invoiceNo||''}"/>
@@ -13062,6 +13122,7 @@ async function openPayableForm(p={}) {
     if (!supplier) { toast('Nhập tên NCC','warn'); return; }
     if (!amt) { toast('Nhập số tiền','warn'); return; }
     const fx = parseFloat(gv('pay_fx')) || 1;
+    const entryDate = gv('pay_entry') || today();
     const payload = {
       id: p.id || newId(),
       supplier, module: gv('pay_module'),
@@ -13069,10 +13130,13 @@ async function openPayableForm(p={}) {
       contractId: gv('pay_contract') || '',
       amount: amt, currency: gv('pay_cur'), fxRate: fx,
       amountVnd: Math.round(amt * fx),
+      entryDate,                                  // Ngày phát sinh bút toán (user nhập)
       dueDate: gv('pay_due') || '',
-      paidDate: gv('pay_paid') || '',
       invoiceNo: gv('pay_inv') || '',
       description: gv('pay_desc') || '',
+      // Giữ installments cũ nếu có (form không sửa installments — dùng modal riêng)
+      installments: Array.isArray(p.installments) ? p.installments : [],
+      paidDate: p.paidDate || '',                  // Legacy field — không show trong form mới nữa
       createdAt: p.createdAt || new Date().toISOString(),
     };
     try {
@@ -15743,6 +15807,7 @@ async function smRevAutoGen(contractId) {
   showLoading();
   try {
     for (const m of newMonths) {
+      const amtVnd = Math.round(fee * fx);
       const payload = {
         id: newId(),
         contractId,
@@ -15751,13 +15816,16 @@ async function smRevAutoGen(contractId) {
         amount: fee,
         currency: cur,
         fxRate: fx,
-        amountVnd: Math.round(fee * fx),
+        amountVnd: amtVnd,
         description: `Phí QT ${contract.vesselName} - tháng ${m}`,
+        // VAT mặc định 10% (user có thể sửa từng dòng sau)
+        vatRate: 0.10,
+        vatAmountVnd: Math.round(amtVnd * 0.10),
         createdAt: new Date().toISOString(),
       };
       await api('saveSmRevEntry', payload);
     }
-    toast(`Đã sinh ${newMonths.length} doanh thu hàng tháng`, 'ok');
+    toast(`Đã sinh ${newMonths.length} doanh thu hàng tháng (VAT mặc định 10%)`, 'ok');
     renderSmDashboard();
   } catch(err) {
     toast('Lỗi: '+err.message, 'err');
@@ -16330,6 +16398,21 @@ async function renderGa() {
   const netCorp   = totalRev - totalCost;
 
   document.getElementById('content').innerHTML = `
+    <!-- Action Bar trên cùng — luôn hiện 2 nút Nhập -->
+    <div class="flex items-center justify-between mb16" style="background:var(--gray1);border-radius:8px;padding:10px 14px;border:1px solid var(--border)">
+      <div style="font-size:12px;color:var(--text2)">
+        ⚡ <strong>Hoạt động chung năm ${S.year}</strong> — Quick action:
+      </div>
+      <div class="flex" style="gap:8px">
+        <button class="btn btn-outline btn-sm" onclick="openGaEntryForm()" title="Chi phí Hành chính/Văn phòng/Marketing/IT/Pháp lý/Tài chính">
+          💸 + Nhập chi phí G&amp;A
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="openGaRevEntryForm()" style="background:var(--green);border-color:var(--green)" title="DT phụ trợ: thuê văn phòng, điện NLMT, lãi tiền gửi...">
+          💰 + Nhập doanh thu phụ trợ
+        </button>
+      </div>
+    </div>
+
     <div class="kpi-grid cols3 mb16">
       <div class="kpi-card accent-red">
         <div class="kpi-label">Tổng chi phí Corporate ${S.year}</div>
@@ -16347,8 +16430,8 @@ async function renderGa() {
       </div>
     </div>
     <div class="tabs mb16">
-      <div class="tab active" id="gaTabCost" onclick="gaSwitch('cost')">💸 Chi phí</div>
-      <div class="tab" id="gaTabRev"  onclick="gaSwitch('rev')">💰 Doanh thu phụ trợ</div>
+      <div class="tab active" id="gaTabCost" onclick="gaSwitch('cost')">💸 Chi phí (${entries.length})</div>
+      <div class="tab" id="gaTabRev"  onclick="gaSwitch('rev')">💰 Doanh thu phụ trợ (${revEntries.length})</div>
       <div class="tab" id="gaTabFA"   onclick="gaSwitch('fa')">🏗 Tài sản cố định</div>
       <div class="tab" id="gaTabTax"  onclick="gaSwitch('tax')">📋 Điều chỉnh thuế</div>
     </div>
