@@ -1367,6 +1367,40 @@ function _undoUpdateBtn() {
 }
 
 // ═══════════════════════════════════════════════════════
+// DIAGNOSTIC: Kiểm tra nhanh data Investment + Vessel + Capex
+// Gọi: window.diagInvestments() trong DevTools Console
+// ═══════════════════════════════════════════════════════
+window.diagInvestments = function() {
+  const D = window.__DEMO_STORE__;
+  if (!D) { console.error('Chưa load DEMO data'); return; }
+  console.group('🔍 FELIX Diagnostic — Investment data');
+  console.log('Vessels (' + (D.vessels||[]).length + '):');
+  (D.vessels||[]).forEach(v => {
+    console.log('  •', v.name, '| recordAsInvestment=', v.recordAsInvestment, '| purchaseDate=', v.purchaseDate, '| purchaseCostVND=', v.purchaseCostVND);
+  });
+  console.log('');
+  console.log('Capex (' + (D.capex||[]).length + '):');
+  (D.capex||[]).forEach(c => {
+    console.log('  •', c.description||'(no desc)', '| vesselId=', c.vesselId, '| amountVnd=', c.amountVnd, '| _autoSource=', c._autoSource);
+  });
+  console.log('');
+  console.log('Investments (' + (D.investments||[]).length + '):');
+  (D.investments||[]).forEach(inv => {
+    console.log('  •', inv.name||'(no name)', '| scope=', inv.scope, '| vesselId=', inv.vesselId, '| investDate=', inv.investDate, '| amountVnd=', inv.amountVnd, '| years=', inv.years, '| method=', inv.method);
+  });
+  console.log('');
+  console.log('💡 Nếu Investment trống: form Tàu KHÔNG sync. Kiểm tra recordAsInvestment trên Vessel.');
+  console.log('💡 Nếu Investment có nhưng UI không hiện: kiểm tra _S_INV_YEAR / _S_INV_RANGE / _S_INV_SCOPE');
+  console.log('   _S_INV_YEAR =', _S_INV_YEAR, '| _S_INV_RANGE =', _S_INV_RANGE, '| _S_INV_SCOPE =', _S_INV_SCOPE);
+  console.groupEnd();
+  return {
+    vessels: D.vessels || [],
+    capex: D.capex || [],
+    investments: D.investments || [],
+  };
+};
+
+// ═══════════════════════════════════════════════════════
 // AES-256-GCM ENCRYPTION LAYER
 // Mã hoá blob trước khi sync lên cloud
 // ═══════════════════════════════════════════════════════
