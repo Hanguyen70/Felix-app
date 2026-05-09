@@ -1493,6 +1493,52 @@ window.diagPayrollT = function() {
 };
 
 // ═══════════════════════════════════════════════════════
+// DIAGNOSTIC: Kiểm tra kế hoạch DT O&M
+// Gọi: window.diagOmPlan() trong DevTools Console
+// ═══════════════════════════════════════════════════════
+window.diagOmPlan = function() {
+  const yr = (typeof S !== 'undefined') ? S.year : new Date().getFullYear();
+  const allRevs = (window.OM_DEMO?.omRevEntries) || [];
+  const contracts = (window.OM_DEMO?.omContracts) || [];
+  console.group(`🔍 FELIX Diagnostic — Kế hoạch DT O&M cho năm ${yr}`);
+
+  console.log(`Tổng số bút toán DT O&M trong DB: ${allRevs.length}`);
+
+  const planEntries = allRevs.filter(r => r.isPlan === true || r.isPlan === 'true');
+  console.log(`Tổng kế hoạch (isPlan=true): ${planEntries.length}`);
+
+  const planForYear = planEntries.filter(r => {
+    const matchByDate = (r.entryDate||'').startsWith(String(yr));
+    const matchByYear = String(r.year||'') === String(yr);
+    return matchByDate || matchByYear;
+  });
+  console.log(`Kế hoạch cho năm ${yr} (match by entryDate hoặc year field): ${planForYear.length}`);
+
+  if (planForYear.length === 0 && planEntries.length > 0) {
+    console.warn('⚠ Có kế hoạch trong DB nhưng KHÔNG match năm hiện tại!');
+    console.log('Chi tiết các kế hoạch hiện có:');
+    planEntries.slice(0,10).forEach(r => {
+      const ctr = contracts.find(c=>c.id===r.contractId);
+      console.log(`  • [${r.contractId}] ${ctr?.name||'?'} | entryDate=${r.entryDate} | year=${r.year} | amountVnd=${r.amountVnd} | isPlan=${r.isPlan}`);
+    });
+  } else if (planForYear.length > 0) {
+    console.log('Chi tiết kế hoạch năm hiện tại:');
+    planForYear.forEach(r => {
+      const ctr = contracts.find(c=>c.id===r.contractId);
+      console.log(`  • [${r.contractId}] ${ctr?.name||'?'} | entryDate=${r.entryDate} | year=${r.year} | amountVnd=${r.amountVnd}`);
+    });
+  } else {
+    console.log('💡 Chưa có kế hoạch nào trong DB. Vào trang DT O&M → "+ Nhập kế hoạch" để tạo.');
+  }
+
+  console.log('');
+  console.log('💡 Lưu ý: Trang "Kế hoạch O&M" lấy data theo S.year:', yr);
+  console.log('   Nếu bạn nhập kế hoạch cho năm khác, đổi năm ở thanh điều hướng trên.');
+  console.groupEnd();
+  return { allRevs, planEntries, planForYear };
+};
+
+// ═══════════════════════════════════════════════════════
 // AES-256-GCM ENCRYPTION LAYER
 // Mã hoá blob trước khi sync lên cloud
 // ═══════════════════════════════════════════════════════
@@ -2429,7 +2475,17 @@ function _demoDataCore(action, p, DEMO) {
     case 'getOmCostEntries': return OM_DEMO.omCostEntries.filter(e=>(!p.contractId||e.contractId===p.contractId)&&(!p.year||e.entryDate?.startsWith(p.year)));
     case 'saveOmCostEntry':  { const i=OM_DEMO.omCostEntries.findIndex(e=>e.id===p.id); i>=0?OM_DEMO.omCostEntries[i]=p:OM_DEMO.omCostEntries.push({...p,id:p.id||newId()}); return p; }
     case 'deleteOmCostEntry':{ const i=OM_DEMO.omCostEntries.findIndex(e=>e.id===p.id); if(i>=0)OM_DEMO.omCostEntries.splice(i,1); return {deleted:true}; }
-    case 'getOmRevEntries':  return OM_DEMO.omRevEntries.filter(e=>(!p.contractId||e.contractId===p.contractId)&&(!p.year||e.entryDate?.startsWith(p.year)));
+    case 'getOmRevEntries':  return OM_DEMO.omRevEntries.filter(e => {
+      if (p.contractId && e.contractId !== p.contractId) return false;
+      if (p.year) {
+        // Match nếu entryDate.startsWith(year) HOẶC year field === year
+        const yrStr = String(p.year);
+        const matchByDate = e.entryDate?.startsWith(yrStr);
+        const matchByYear = String(e.year || '') === yrStr;
+        if (!matchByDate && !matchByYear) return false;
+      }
+      return true;
+    });
     case 'saveOmRevEntry':   { const i=OM_DEMO.omRevEntries.findIndex(e=>e.id===p.id); i>=0?OM_DEMO.omRevEntries[i]=p:OM_DEMO.omRevEntries.push({...p,id:p.id||newId()}); return p; }
     case 'deleteOmRevEntry': { const i=OM_DEMO.omRevEntries.findIndex(e=>e.id===p.id); if(i>=0)OM_DEMO.omRevEntries.splice(i,1); return {deleted:true}; }
     // ─── KHO VẬT TƯ — Inventory entries (1 dòng = 1 tổ hợp tháng×đối tượng×loại) ───
@@ -9362,19 +9418,20 @@ async function deleteOmContract(id) {
 }
 
 // ── PAGE: O&M Chi phí ────────────────────────────────────
-// Filter state cho trang Chi phí O&M
-let _S_OMCOSTS_FILTER = { month:'', group:'', contractId:'', type:'' };
+// Filter state cho trang Chi phí O&M (giữ trong session)
+let _S_OMCOSTS_FILTER = { year:'', month:'', group:'', contractId:'', type:'' };
 function _resetOmCostsFilter() {
-  _S_OMCOSTS_FILTER = { month:'', group:'', contractId:'', type:'' };
+  _S_OMCOSTS_FILTER = { year:'', month:'', group:'', contractId:'', type:'' };
+  renderOmCosts();
 }
 
 async function renderOmCosts() {
   showLoading();
-  let contracts=[], entries=[];
+  let contracts=[], allEntries=[];
   try {
-    [contracts, entries] = await Promise.all([
+    [contracts, allEntries] = await Promise.all([
       api('getOmContracts',{}),
-      api('getOmCostEntries',{year:S.year}),
+      api('getOmCostEntries',{}),  // BỎ filter year — lấy tất cả, lọc ở frontend
     ]);
   } catch(e){ toast('Lỗi','err'); }
   hideLoading();
@@ -9385,8 +9442,12 @@ async function renderOmCosts() {
 
   // ─── APPLY FILTER ───
   const f = _S_OMCOSTS_FILTER;
-  const filteredEntries = entries.filter(e => {
+  const filteredEntries = allEntries.filter(e => {
     const cat = getCat(e.categoryId);
+    if (f.year) {
+      const y = (e.entryDate||'').slice(0,4);
+      if (y !== f.year) return false;
+    }
     if (f.month) {
       const m = e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0;
       if (String(m) !== String(f.month)) return false;
@@ -9402,7 +9463,7 @@ async function renderOmCosts() {
   });
 
   const total = filteredEntries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-  const totalAll = entries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const totalAll = allEntries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
 
   // Group totals (theo data đã lọc)
   const grpTotals={};
@@ -9410,12 +9471,15 @@ async function renderOmCosts() {
   const grpLabels={'A':'Chuyên gia','B':'Bảo hiểm','C':'Logistics','D':'CPQL','E':'PTSC QN','F':'KTX / Khác'};
 
   // ─── BUILD FILTER OPTIONS ───
-  const monthsAvail = [...new Set(entries.map(e => e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0).filter(m=>m>0))].sort((a,b)=>a-b);
-  const groupsAvail = [...new Set(entries.map(e => getCat(e.categoryId).group).filter(Boolean))].sort();
-  const contractIdsInUse = [...new Set(entries.map(e => e.contractId).filter(Boolean))];
-  const typesAvail = [...new Set(entries.map(e => e.type).filter(Boolean))].sort();
+  const yearsAvail = [...new Set(allEntries.map(e => (e.entryDate||'').slice(0,4)).filter(y=>y && y.length===4))].sort((a,b)=>b.localeCompare(a));
+  const monthsAvail = [...new Set(allEntries.map(e => e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0).filter(m=>m>0))].sort((a,b)=>a-b);
+  const groupsAvail = [...new Set(allEntries.map(e => getCat(e.categoryId).group).filter(Boolean))].sort();
+  const contractIdsInUse = [...new Set(allEntries.map(e => e.contractId).filter(Boolean))];
+  const typesAvail = [...new Set(allEntries.map(e => e.type).filter(Boolean))].sort();
   const omTypeLabel = {onhire:'Onhire', offhire:'Offhire', commercial:'Commercial', allocated:'Phân bổ', recurring:'Định kỳ'};
 
+  const yearOpts = `<option value="">Tất cả năm</option>` +
+    yearsAvail.map(y => `<option value="${y}"${f.year===y?' selected':''}>${y}</option>`).join('');
   const monthOpts = `<option value="">Tất cả tháng</option>` +
     monthsAvail.map(m => `<option value="${m}"${String(f.month)===String(m)?' selected':''}>Tháng ${String(m).padStart(2,'0')}</option>`).join('');
   const groupOpts = `<option value="">Tất cả nhóm</option>` +
@@ -9426,10 +9490,10 @@ async function renderOmCosts() {
   const typeOpts = `<option value="">Tất cả loại</option>` +
     typesAvail.map(t => `<option value="${t}"${f.type===t?' selected':''}>${omTypeLabel[t]||t}</option>`).join('');
 
-  const hasAnyFilter = !!(f.month || f.group || f.contractId || f.type);
+  const hasAnyFilter = !!(f.year || f.month || f.group || f.contractId || f.type);
   const filterStatus = hasAnyFilter
-    ? `Hiển thị <strong>${filteredEntries.length}</strong> / ${entries.length} bút toán · Tổng: <strong>${fmtB(total)}</strong> / ${fmtB(totalAll)}`
-    : `${filteredEntries.length} bút toán • Tổng: <strong>${fmtB(total)}</strong>`;
+    ? `Hiển thị <strong>${filteredEntries.length}</strong> / ${allEntries.length} bút toán · Tổng: <strong>${fmtB(total)}</strong> / ${fmtB(totalAll)}`
+    : `${filteredEntries.length} bút toán (tất cả các năm) • Tổng: <strong>${fmtB(total)}</strong>`;
 
   document.getElementById('content').innerHTML = `
     <div class="flex items-center justify-between mb12">
@@ -9448,11 +9512,12 @@ async function renderOmCosts() {
     <div class="card mb16" style="background:var(--gray1);border:1px solid var(--border)">
       <div style="padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <div style="font-size:12px;font-weight:600;color:var(--text2)">🔍 Lọc:</div>
+        <select onchange="_S_OMCOSTS_FILTER.year=this.value;renderOmCosts()" style="min-width:100px;font-size:12px">${yearOpts}</select>
         <select onchange="_S_OMCOSTS_FILTER.month=this.value;renderOmCosts()" style="min-width:120px;font-size:12px">${monthOpts}</select>
         <select onchange="_S_OMCOSTS_FILTER.group=this.value;renderOmCosts()" style="min-width:170px;font-size:12px">${groupOpts}</select>
         <select onchange="_S_OMCOSTS_FILTER.contractId=this.value;renderOmCosts()" style="min-width:200px;font-size:12px">${contractOpts}</select>
         <select onchange="_S_OMCOSTS_FILTER.type=this.value;renderOmCosts()" style="min-width:120px;font-size:12px">${typeOpts}</select>
-        ${hasAnyFilter ? `<button class="btn btn-ghost btn-xs" onclick="_resetOmCostsFilter();renderOmCosts()" style="margin-left:auto" title="Bỏ tất cả lọc">🔄 Reset</button>` : ''}
+        ${hasAnyFilter ? `<button class="btn btn-ghost btn-xs" onclick="_resetOmCostsFilter()" style="margin-left:auto" title="Bỏ tất cả lọc">🔄 Reset</button>` : ''}
       </div>
     </div>
 
@@ -14805,35 +14870,64 @@ async function renderTaxReport() {
 // ── PAGE: Kế hoạch & Tiến độ O&M ────────────────────────
 async function renderOmPlan() {
   showLoading();
-  let contracts=[], plans=[], revs=[], costs=[];
+  let contracts=[], allRevs=[], costs=[], legacyPlans=[];
   try {
-    [contracts, revs, costs] = await Promise.all([
+    [contracts, allRevs, costs, legacyPlans] = await Promise.all([
       api('getOmContracts',{}),
-      api('getOmRevEntries',{year:S.year}),
+      api('getOmRevEntries',{year:S.year}),  // Lấy cả thực thu + kế hoạch năm hiện tại
       api('getOmCostEntries',{year:S.year}),
+      api('getOmPlans',{year:S.year}).catch(()=>[]),  // Plans cũ (collection riêng)
     ]);
-    // Load plans for each contract
-    plans = OM_DEMO.omPlans || [];
   } catch(e){ toast('Lỗi','err'); }
   hideLoading();
 
+  // Tách thực thu vs kế hoạch (cách mới)
+  const revs = allRevs.filter(r => !r.isPlan && r.isPlan !== 'true');     // Thực tế
+  const planEntries = allRevs.filter(r => r.isPlan === true || r.isPlan === 'true');  // Kế hoạch (mới)
+
   // ── Tổng hợp theo từng hợp đồng ──
   const contractRows = contracts.map(c => {
-    const plan = plans.find(p=>p.contractId===c.id && String(p.year)===String(S.year)) || {};
-
     // Thực tế
-    const actRevEntries = revs.filter(r=>r.contractId===c.id&&!r.isPlan&&r.isPlan!=='true');
+    const actRevEntries = revs.filter(r=>r.contractId===c.id);
     const actCostEntries= costs.filter(e=>e.contractId===c.id);
     const actRev  = actRevEntries.reduce((s,r)=>s+(parseFloat(r.amountVnd)||0),0);
     const actCost = actCostEntries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
     const actMargin = actRev - actCost;
     const actMarginPct = actRev ? actMargin/actRev*100 : 0;
 
-    // Kế hoạch
-    const planRev  = parseFloat(plan.planRevenue)||0;
-    const planCost = parseFloat(plan.planCost)||0;
-    const planMarginPct = parseFloat(plan.planMarginPct)||0;
+    // Kế hoạch — TỔNG HỢP TỪ 2 NGUỒN:
+    //  (a) omRevEntries có isPlan=true (cách mới — nhập từ form Doanh thu O&M)
+    //  (b) omPlans (cách cũ — nhập từ nút "Cập nhật KH")
+    const planRevEntries = planEntries.filter(r => r.contractId === c.id);
+    const planRevFromEntries = planRevEntries.reduce((s,r) => s+(parseFloat(r.amountVnd)||0), 0);
+
+    // Cách cũ: omPlans có monthlyData hoặc planRev tổng
+    const legacyPlan = (legacyPlans || []).find(p => p.contractId === c.id) || {};
+    let planRevFromLegacy = 0;
+    let planCostFromLegacy = 0;
+    if (legacyPlan.id) {
+      // Có plan cũ → tính tổng kế hoạch năm
+      if (legacyPlan.mode === 'monthly' && legacyPlan.monthlyData) {
+        // Lấy các tháng thuộc năm S.year
+        Object.entries(legacyPlan.monthlyData).forEach(([ym, data]) => {
+          if (ym.startsWith(String(S.year))) {
+            planRevFromLegacy += parseFloat(data.rev || 0) * (parseFloat(legacyPlan.fxRate) || 1);
+            planCostFromLegacy += parseFloat(data.cost || 0) * (parseFloat(legacyPlan.fxRate) || 1);
+          }
+        });
+      } else if (legacyPlan.totalRev) {
+        // Plan tổng / 12 × số tháng năm hiện tại trong contract
+        planRevFromLegacy = parseFloat(legacyPlan.totalRev) * (parseFloat(legacyPlan.fxRate) || 1);
+        planCostFromLegacy = parseFloat(legacyPlan.totalCost || 0) * (parseFloat(legacyPlan.fxRate) || 1);
+      }
+    }
+
+    // Tổng kế hoạch = ưu tiên cách mới, fallback cách cũ
+    const planRev = planRevFromEntries > 0 ? planRevFromEntries : planRevFromLegacy;
+    const planCost = planCostFromLegacy;  // Cost chỉ có ở plan cũ
+    const planSource = planRevFromEntries > 0 ? 'new' : (planRevFromLegacy > 0 ? 'legacy' : 'none');
     const planMargin = planRev - planCost;
+    const planMarginPct = planRev ? planMargin/planRev*100 : 0;
 
     // Tiến độ hợp đồng
     const startDate = new Date(c.startDate||'2024-01-01');
@@ -14857,11 +14951,19 @@ async function renderOmPlan() {
       const mStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
       const mRev = actRevEntries.filter(r=>r.month===mStr).reduce((s,r)=>s+(parseFloat(r.amountVnd)||0),0);
       const mCost= actCostEntries.filter(e=>e.month===mStr).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-      months.push({mStr, planRev:plan.monthlyPlanRev||0, planCost:plan.monthlyPlanCost||0, actRev:mRev, actCost:mCost});
+      // Plan tháng từ omPlans cũ
+      let planRevM = 0, planCostM = 0;
+      if (legacyPlan.mode === 'monthly' && legacyPlan.monthlyData?.[mStr]) {
+        const d2 = legacyPlan.monthlyData[mStr];
+        const fx = parseFloat(legacyPlan.fxRate) || 1;
+        planRevM = parseFloat(d2.rev || 0) * fx;
+        planCostM = parseFloat(d2.cost || 0) * fx;
+      }
+      months.push({mStr, planRev: planRevM, planCost: planCostM, actRev: mRev, actCost: mCost});
     }
 
-    return {c, plan, actRev, actCost, actMargin, actMarginPct,
-            planRev, planCost, planMargin, planMarginPct,
+    return {c, plan: legacyPlan, actRev, actCost, actMargin, actMarginPct,
+            planRev, planCost, planMargin, planMarginPct, planSource,
             totalMonths, elapsedMonths, remainMonths, contractPct, revPct, variance, months};
   });
 
@@ -14876,11 +14978,18 @@ async function renderOmPlan() {
 
   // ── Render ──
   const contractCards = contractRows.map(row => {
-    const {c,actRev,actCost,actMargin,actMarginPct,planRev,planCost,planMargin,planMarginPct,
+    const {c,actRev,actCost,actMargin,actMarginPct,planRev,planCost,planMargin,planMarginPct,planSource,
            totalMonths,elapsedMonths,remainMonths,contractPct,revPct,variance,months,plan} = row;
 
     const revColor  = revPct>=100?'var(--green)':revPct>=80?'var(--teal)':revPct>=50?'var(--amber)':'var(--red)';
     const margColor = actMarginPct >= planMarginPct ? 'pos' : 'neg';
+
+    // Plan source badge
+    const planSourceBadge = planSource === 'new'
+      ? '<span class="badge badge-blue" style="font-size:9px" title="KH từ form Doanh thu O&M">📝 KH chi tiết</span>'
+      : planSource === 'legacy'
+      ? '<span class="badge badge-amber" style="font-size:9px" title="KH từ form Cập nhật KH (cũ)">📋 KH tổng</span>'
+      : '<span class="badge badge-gray" style="font-size:9px">⚠ Chưa có KH</span>';
 
     // Monthly chart data (last 6 months with data)
     const mWithData = months.filter(m=>m.actRev>0||m.actCost>0).slice(-6);
@@ -14896,6 +15005,7 @@ async function renderOmPlan() {
         </div>
         <div class="flex gap8 items-center">
           ${omStatusBadge(c.status)}
+          ${planSourceBadge}
           <button class="btn btn-outline btn-xs" onclick="openOmPlanForm('${c.id}')">✏️ Cập nhật KH</button>
         </div>
       </div>
