@@ -1539,6 +1539,85 @@ window.diagOmPlan = function() {
 };
 
 // ═══════════════════════════════════════════════════════
+// DIAGNOSTIC: Phát hiện và xoá bút toán Chi phí O&M trùng lặp
+// Gọi: window.dedupOmCosts() — chỉ liệt kê
+//      window.dedupOmCosts(true) — xoá thật (giữ 1 chuỗi/cặp)
+// ═══════════════════════════════════════════════════════
+window.dedupOmCosts = async function(doDelete = false) {
+  const all = (window.OM_DEMO?.omCostEntries) || [];
+  console.group(`🔍 FELIX Diagnostic — Tìm bút toán Chi phí O&M trùng (${all.length} entries)`);
+
+  // Group key: contractId + categoryId + entryDate + amountVnd
+  const groups = {};
+  all.forEach(e => {
+    const key = `${e.contractId||''}|${e.categoryId||''}|${e.entryDate||''}|${Math.round(parseFloat(e.amountVnd)||0)}`;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(e);
+  });
+
+  // Tìm các nhóm có >1 entry
+  const dupGroups = Object.entries(groups).filter(([k,arr]) => arr.length > 1);
+
+  if (dupGroups.length === 0) {
+    console.log('✓ Không có bút toán trùng');
+    console.groupEnd();
+    return { duplicates: [], deleted: 0 };
+  }
+
+  console.log(`⚠ Phát hiện ${dupGroups.length} nhóm trùng (mỗi nhóm có ≥2 entries giống nhau):\n`);
+  let totalDup = 0;
+  const toDelete = [];
+
+  dupGroups.forEach(([key, entries]) => {
+    const [cid, catId, date, amt] = key.split('|');
+    console.log(`📌 Nhóm: HĐ=${cid} | Cat=${catId} | Ngày=${date} | Số tiền=${parseFloat(amt).toLocaleString('vi-VN')} ₫`);
+    entries.forEach((e, i) => {
+      const isAlloc = e.allocMonths > 1;
+      const allocInfo = isAlloc ? ` [📅 ${e.allocIndex}/${e.allocMonths} src=${e.allocSource}]` : ' [đơn lẻ]';
+      const keep = i === 0 ? ' ✓ GIỮ' : ' ✗ SẼ XOÁ';
+      console.log(`   ${i+1}. id=${e.id}${allocInfo}${keep}`);
+      if (i > 0) toDelete.push(e);
+    });
+    totalDup += entries.length - 1;
+    console.log('');
+  });
+
+  console.log(`Tổng số bút toán trùng cần xoá: ${totalDup}`);
+
+  if (!doDelete) {
+    console.log('💡 Để XOÁ thật: gọi window.dedupOmCosts(true)');
+    console.log('💡 Lưu ý: Nếu trùng là chuỗi phân bổ → tốt nhất xoá toàn chuỗi qua nút 🗑 trong UI');
+    console.groupEnd();
+    return { duplicates: dupGroups, deleted: 0, toDelete };
+  }
+
+  // ── XOÁ ──
+  if (!confirm(`⚠ Xác nhận XOÁ ${totalDup} bút toán trùng?\n\nGiữ lại 1 entry đầu trong mỗi nhóm.\nThao tác KHÔNG THỂ HOÀN TÁC.`)) {
+    console.log('✗ Đã huỷ');
+    console.groupEnd();
+    return { duplicates: dupGroups, deleted: 0 };
+  }
+
+  let deleted = 0;
+  for (const e of toDelete) {
+    try {
+      await api('deleteOmCostEntry', {id: e.id});
+      deleted++;
+    } catch(err) {
+      console.warn(`Lỗi xoá ${e.id}:`, err.message);
+    }
+  }
+  console.log(`✓ Đã xoá ${deleted}/${totalDup} bút toán trùng`);
+  console.groupEnd();
+
+  // Re-render nếu đang ở trang chi phí
+  if (typeof renderOmCosts === 'function' && S?.page === 'om-costs') {
+    renderOmCosts();
+  }
+  return { duplicates: dupGroups, deleted, toDelete };
+};
+
+// ═══════════════════════════════════════════════════════
 // AES-256-GCM ENCRYPTION LAYER
 // Mã hoá blob trước khi sync lên cloud
 // ═══════════════════════════════════════════════════════
@@ -10136,6 +10215,42 @@ function openOmCostForm(e={}) {
       toast('Điền đủ thông tin (*)','warn'); return;
     }
 
+    // ── Cảnh báo trùng (pre-save check) ──
+    // Tìm các bút toán đã có với cùng (contractId + categoryId + entryDate + amountVnd)
+    // Bỏ qua chính entry đang edit + các entry trong chuỗi cũ (sẽ xoá lúc save)
+    const findDuplicates = (targetDate, targetAmt) => {
+      return (OM_DEMO.omCostEntries || []).filter(x => {
+        if (e.id && x.id === e.id) return false;  // Bỏ chính entry đang edit
+        if (e.allocSource && x.allocSource === e.allocSource) return false;  // Bỏ chuỗi cũ
+        return x.contractId === basePayload.contractId
+          && x.categoryId === basePayload.categoryId
+          && x.entryDate === targetDate
+          && Math.abs((parseFloat(x.amountVnd)||0) - targetAmt) < 1;
+      });
+    };
+
+    // Pre-check duplicate
+    if (allocChecked && allocMonths >= 2) {
+      // Phân bổ: kiểm tra dòng đầu tiên có trùng không
+      const monthlyAmount = Math.floor(baseAmount / allocMonths);
+      const [sy, sm] = allocStartMonth.split('-').map(n=>parseInt(n));
+      const firstDate = `${sy}-${String(sm).padStart(2,'0')}-01`;
+      const dupes = findDuplicates(firstDate, monthlyAmount);
+      if (dupes.length > 0) {
+        if (!confirm(`⚠ Đã có ${dupes.length} bút toán TRÙNG với chuỗi phân bổ này (cùng HĐ + khoản mục + ngày + số tiền/tháng).\n\nVẫn tạo chuỗi phân bổ này không?\n(Nên Cancel rồi xoá data trùng cũ trước khi save)`)) {
+          return;
+        }
+      }
+    } else {
+      // Thường: kiểm tra trùng đơn
+      const dupes = findDuplicates(baseDate, baseAmount);
+      if (dupes.length > 0) {
+        if (!confirm(`⚠ Đã có ${dupes.length} bút toán TRÙNG (cùng HĐ + khoản mục + ngày + số tiền).\n\nVẫn save không? (Cancel để huỷ)`)) {
+          return;
+        }
+      }
+    }
+
     showLoading();
     try {
       if (allocChecked && allocMonths >= 2) {
@@ -10145,14 +10260,22 @@ function openOmCostForm(e={}) {
         const monthlyAmount = Math.floor(baseAmount / allocMonths);
         const remainder = baseAmount - monthlyAmount * allocMonths;  // Cộng vào tháng cuối
 
-        // Nếu đang edit chuỗi cũ → xoá hết các dòng cùng allocSource trước
-        if (e.id && (e.allocSource || (e.allocMonths > 1))) {
-          const existingSrc = e.allocSource || e.id;
-          const oldEntries = (OM_DEMO.omCostEntries||[]).filter(x =>
-            x.allocSource === existingSrc || x.id === existingSrc
-          );
-          for (const old of oldEntries) {
-            await api('deleteOmCostEntry', {id: old.id});
+        // ── XOÁ DATA CŨ NẾU CÓ ──
+        // Case 1: Edit entry trong chuỗi cũ → xoá hết chuỗi
+        // Case 2: Edit entry CHƯA phân bổ (gốc đơn lẻ) + giờ tick phân bổ → xoá entry gốc
+        if (e.id) {
+          if (e.allocSource || e.allocMonths > 1) {
+            // Case 1: xoá cả chuỗi cũ
+            const existingSrc = e.allocSource || e.id;
+            const oldEntries = (OM_DEMO.omCostEntries||[]).filter(x =>
+              x.allocSource === existingSrc || x.id === existingSrc
+            );
+            for (const old of oldEntries) {
+              await api('deleteOmCostEntry', {id: old.id});
+            }
+          } else {
+            // Case 2: chỉ xoá entry gốc đơn lẻ (đang convert sang phân bổ)
+            await api('deleteOmCostEntry', {id: e.id});
           }
         }
 
