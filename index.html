@@ -1960,6 +1960,182 @@ window.dedupOmAllocChains = async function(doDelete = false) {
 };
 
 // ═══════════════════════════════════════════════════════
+// MASTER CLEANUP: Dọn TẤT CẢ vấn đề phân bổ trong Chi phí O&M
+// Xử lý 2 case:
+//  Case A: Entry GỐC còn sót khi đã có chuỗi phân bổ (số tiền = N × số tiền của chuỗi con)
+//  Case B: 2+ chuỗi phân bổ trùng (cùng HĐ + cat + start month + monthly amount)
+//
+// Gọi: window.cleanOmAllocMess() — chỉ liệt kê (DRY RUN)
+//      window.cleanOmAllocMess(true) — xoá thật
+// ═══════════════════════════════════════════════════════
+window.cleanOmAllocMess = async function(doDelete = false) {
+  const all = (window.OM_DEMO?.omCostEntries) || [];
+  console.group(`🔍 FELIX MASTER CLEANUP — ${all.length} entries Chi phí O&M`);
+
+  // ═══ PHẦN 1: Phát hiện entry GỐC còn sót khi đã có chuỗi ═══
+  // Nguyên tắc: Nếu có chuỗi phân bổ với (HĐ + cat + monthlyAmount = M, allocMonths = N)
+  //            VÀ có entry đơn lẻ với cùng (HĐ + cat) số tiền = M × N
+  //            → Entry đơn lẻ đó là GỐC còn sót, cần xoá
+
+  const orphanOriginals = [];
+
+  // Build map: chuỗi theo (HĐ + cat) → list của { allocSource, monthlyAmount, allocMonths, totalAmount }
+  const chainsByContractCat = {};
+  all.forEach(e => {
+    if (!e.allocSource) return;
+    const key = `${e.contractId}|${e.categoryId}`;
+    if (!chainsByContractCat[key]) chainsByContractCat[key] = {};
+    if (!chainsByContractCat[key][e.allocSource]) {
+      chainsByContractCat[key][e.allocSource] = {
+        allocSource: e.allocSource,
+        monthlyAmount: Math.round(parseFloat(e.amountVnd)||0),
+        allocMonths: e.allocMonths || 0,
+        entries: [],
+      };
+    }
+    chainsByContractCat[key][e.allocSource].entries.push(e);
+  });
+
+  // Tìm entry đơn lẻ (không có allocSource) khớp với tổng của 1 chuỗi
+  all.forEach(e => {
+    if (e.allocSource) return;  // Đã trong chuỗi
+    if (e.allocMonths > 1) return;  // Đã là entry phân bổ (legacy?)
+    const key = `${e.contractId}|${e.categoryId}`;
+    const chains = chainsByContractCat[key];
+    if (!chains) return;
+
+    const eAmt = Math.round(parseFloat(e.amountVnd)||0);
+    Object.values(chains).forEach(c => {
+      const expectedTotal = c.monthlyAmount * c.allocMonths;
+      // Cho phép sai số ±100 đ do làm tròn
+      if (Math.abs(eAmt - expectedTotal) <= 100) {
+        orphanOriginals.push({
+          entry: e,
+          matchedChain: c,
+        });
+      }
+    });
+  });
+
+  // ═══ PHẦN 2: Phát hiện CHUỖI TRÙNG ═══
+  const chainList = [];
+  Object.values(chainsByContractCat).forEach(chainsMap => {
+    Object.values(chainsMap).forEach(c => {
+      chainList.push({
+        ...c,
+        contractId: c.entries[0].contractId,
+        categoryId: c.entries[0].categoryId,
+        allocStartMonth: c.entries[0].allocStartMonth || '',
+      });
+    });
+  });
+
+  const groupKey = c => `${c.contractId}|${c.categoryId}|${c.allocStartMonth}|${c.monthlyAmount}`;
+  const groupedChains = {};
+  chainList.forEach(c => {
+    const k = groupKey(c);
+    if (!groupedChains[k]) groupedChains[k] = [];
+    groupedChains[k].push(c);
+  });
+  const dupChainGroups = Object.entries(groupedChains).filter(([k, arr]) => arr.length > 1);
+
+  // ═══ BÁO CÁO ═══
+  console.log(`\n📊 KẾT QUẢ:\n`);
+  console.log(`  Case A — Entry GỐC còn sót khi đã có chuỗi: ${orphanOriginals.length}`);
+  console.log(`  Case B — Chuỗi phân bổ TRÙNG: ${dupChainGroups.length} nhóm\n`);
+
+  // Chi tiết Case A
+  if (orphanOriginals.length > 0) {
+    console.log(`📌 CASE A — Entry gốc còn sót (sẽ xoá):`);
+    orphanOriginals.forEach((o, i) => {
+      const e = o.entry;
+      const c = o.matchedChain;
+      console.log(`  ${i+1}. id=${e.id} | HĐ=${e.contractId} | Cat=${e.categoryId} | Số tiền=${(parseFloat(e.amountVnd)||0).toLocaleString('vi-VN')}₫`);
+      console.log(`     → Trùng với chuỗi: src=${c.allocSource} (${c.monthlyAmount.toLocaleString('vi-VN')}₫ × ${c.allocMonths} tháng)`);
+    });
+    console.log('');
+  }
+
+  // Chi tiết Case B
+  let totalDupChainsToDelete = 0;
+  let totalDupEntriesToDelete = 0;
+  const dupChainsToDelete = [];
+
+  if (dupChainGroups.length > 0) {
+    console.log(`📌 CASE B — Chuỗi phân bổ trùng (giữ 1 chuỗi/nhóm):`);
+    dupChainGroups.forEach(([key, chainArr]) => {
+      const [cid, catId, startMonth, monthlyAmt] = key.split('|');
+      console.log(`  Nhóm: HĐ=${cid} | Cat=${catId} | Bắt đầu=${startMonth} | Mỗi tháng=${parseInt(monthlyAmt).toLocaleString('vi-VN')}₫`);
+      chainArr.forEach((c, i) => {
+        const keep = i === 0 ? '✓ GIỮ' : '✗ XOÁ';
+        console.log(`    ${i+1}. allocSource=${c.allocSource} (${c.entries.length} entries)  ${keep}`);
+        if (i > 0) {
+          dupChainsToDelete.push(c);
+          totalDupChainsToDelete++;
+          totalDupEntriesToDelete += c.entries.length;
+        }
+      });
+    });
+    console.log('');
+  }
+
+  const totalEntriesToDelete = orphanOriginals.length + totalDupEntriesToDelete;
+
+  if (totalEntriesToDelete === 0) {
+    console.log('✓ Data đã sạch — không có vấn đề phân bổ.');
+    console.groupEnd();
+    return { orphanOriginals: [], dupChains: [], deleted: 0 };
+  }
+
+  console.log(`\n🗑 TỔNG CỘNG SẼ XOÁ: ${totalEntriesToDelete} entries`);
+  console.log(`   - Case A (gốc sót): ${orphanOriginals.length} entries`);
+  console.log(`   - Case B (chuỗi trùng): ${totalDupEntriesToDelete} entries (${totalDupChainsToDelete} chuỗi)`);
+
+  if (!doDelete) {
+    console.log('\n💡 ĐÂY LÀ DRY RUN — CHƯA XOÁ. Để xoá thật, gọi: window.cleanOmAllocMess(true)');
+    console.groupEnd();
+    return { orphanOriginals, dupChains: dupChainsToDelete, deleted: 0 };
+  }
+
+  // ═══ XOÁ THẬT ═══
+  if (!confirm(`⚠ Xác nhận XOÁ ${totalEntriesToDelete} entries?\n\n• ${orphanOriginals.length} entry gốc còn sót (Case A)\n• ${totalDupEntriesToDelete} entries thuộc ${totalDupChainsToDelete} chuỗi trùng (Case B)\n\nKHÔNG THỂ HOÀN TÁC.`)) {
+    console.log('✗ Đã huỷ');
+    console.groupEnd();
+    return { orphanOriginals, dupChains: dupChainsToDelete, deleted: 0 };
+  }
+
+  let deleted = 0;
+  // Xoá Case A
+  for (const o of orphanOriginals) {
+    try {
+      await api('deleteOmCostEntry', {id: o.entry.id});
+      deleted++;
+    } catch(err) {
+      console.warn(`Lỗi xoá entry gốc ${o.entry.id}:`, err.message);
+    }
+  }
+  // Xoá Case B
+  for (const c of dupChainsToDelete) {
+    for (const e of c.entries) {
+      try {
+        await api('deleteOmCostEntry', {id: e.id});
+        deleted++;
+      } catch(err) {
+        console.warn(`Lỗi xoá ${e.id}:`, err.message);
+      }
+    }
+  }
+  console.log(`\n✓ Đã xoá ${deleted}/${totalEntriesToDelete} entries`);
+  console.groupEnd();
+
+  // Re-render
+  if (typeof renderOmCosts === 'function') {
+    renderOmCosts();
+  }
+  return { orphanOriginals, dupChains: dupChainsToDelete, deleted };
+};
+
+// ═══════════════════════════════════════════════════════
 // AES-256-GCM ENCRYPTION LAYER
 // Mã hoá blob trước khi sync lên cloud
 // ═══════════════════════════════════════════════════════
