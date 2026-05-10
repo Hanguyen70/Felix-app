@@ -2136,6 +2136,118 @@ window.cleanOmAllocMess = async function(doDelete = false) {
 };
 
 // ═══════════════════════════════════════════════════════
+// DEBUG: In tất cả Chi phí O&M trong 1 ngày cụ thể
+// Gọi: window.debugOmCosts('2026-01-01')
+//      window.debugOmCosts('2026-01-01', 'om001')  // Lọc theo HĐ
+// ═══════════════════════════════════════════════════════
+window.debugOmCosts = function(dateStr, contractId) {
+  const all = (window.OM_DEMO?.omCostEntries) || [];
+  const filtered = all.filter(e => {
+    if (dateStr && e.entryDate !== dateStr) return false;
+    if (contractId && e.contractId !== contractId) return false;
+    return true;
+  });
+  console.group(`🔍 Chi phí O&M ${dateStr ? 'ngày ' + dateStr : ''} ${contractId ? '| HĐ ' + contractId : ''} — ${filtered.length} entries`);
+
+  filtered.forEach((e, i) => {
+    const isAlloc = e.allocMonths > 1;
+    const allocInfo = isAlloc
+      ? `[📅 ${e.allocIndex}/${e.allocMonths} src=${e.allocSource}]`
+      : (e.allocSource ? `[allocSource=${e.allocSource} BUT no allocMonths]` : '[ĐƠN LẺ]');
+    console.log(`${i+1}. id=${e.id}`);
+    console.log(`   Cat=${e.categoryId} | Số tiền=${(parseFloat(e.amountVnd)||0).toLocaleString('vi-VN')}₫`);
+    console.log(`   ${allocInfo}`);
+    console.log(`   Description: ${e.description||'—'}`);
+  });
+
+  console.groupEnd();
+  return filtered;
+};
+
+// ═══════════════════════════════════════════════════════
+// FORCE DELETE: Xoá 1 entry theo ID (không hỏi)
+// Gọi: window.forceDeleteOmEntry('id_abc123')
+// ═══════════════════════════════════════════════════════
+window.forceDeleteOmEntry = async function(id) {
+  if (!id) { console.error('Cần ID'); return false; }
+  try {
+    await api('deleteOmCostEntry', {id});
+    console.log(`✓ Đã xoá ${id}`);
+    if (typeof renderOmCosts === 'function') renderOmCosts();
+    return true;
+  } catch(e) {
+    console.error(`Lỗi xoá ${id}:`, e.message);
+    return false;
+  }
+};
+
+// ═══════════════════════════════════════════════════════
+// NUKE BY CRITERIA: Xoá TẤT CẢ entries thoả filter
+// Gọi: window.nukeOmCosts({ entryDate:'2026-01-01', noAllocSource: true })
+//      → Xoá tất cả entry ngày 1/1/2026 KHÔNG có allocSource (tức là entry gốc)
+// Filters:
+//   entryDate: '2026-01-01'
+//   contractId: 'om001'
+//   categoryId: 'of11'
+//   noAllocSource: true   → chỉ entry KHÔNG có allocSource (entry đơn lẻ/gốc)
+//   hasAllocSource: true  → chỉ entry có allocSource (chuỗi)
+//   amountVndMin: 100000000   → tối thiểu 100tr
+//   amountVndMax: ...
+// ═══════════════════════════════════════════════════════
+window.nukeOmCosts = async function(filters = {}, doDelete = false) {
+  const all = (window.OM_DEMO?.omCostEntries) || [];
+  const filtered = all.filter(e => {
+    if (filters.entryDate && e.entryDate !== filters.entryDate) return false;
+    if (filters.contractId && e.contractId !== filters.contractId) return false;
+    if (filters.categoryId && e.categoryId !== filters.categoryId) return false;
+    if (filters.noAllocSource && e.allocSource) return false;
+    if (filters.hasAllocSource && !e.allocSource) return false;
+    if (filters.amountVndMin && (parseFloat(e.amountVnd)||0) < filters.amountVndMin) return false;
+    if (filters.amountVndMax && (parseFloat(e.amountVnd)||0) > filters.amountVndMax) return false;
+    return true;
+  });
+
+  console.group(`🔥 NUKE — Filter: ${JSON.stringify(filters)} — Tìm thấy ${filtered.length} entries`);
+  filtered.forEach((e, i) => {
+    const allocInfo = e.allocSource ? `[chuỗi src=${e.allocSource}]` : '[ĐƠN LẺ]';
+    console.log(`${i+1}. id=${e.id} | ${e.entryDate} | Cat=${e.categoryId} | ${(parseFloat(e.amountVnd)||0).toLocaleString('vi-VN')}₫ ${allocInfo}`);
+  });
+
+  if (filtered.length === 0) {
+    console.log('Không có gì để xoá');
+    console.groupEnd();
+    return { deleted: 0 };
+  }
+
+  if (!doDelete) {
+    console.log('\n💡 DRY RUN. Để xoá thật: window.nukeOmCosts({...}, true)');
+    console.groupEnd();
+    return { found: filtered, deleted: 0 };
+  }
+
+  if (!confirm(`⚠ Xoá ${filtered.length} entries? KHÔNG THỂ HOÀN TÁC.`)) {
+    console.log('✗ Đã huỷ');
+    console.groupEnd();
+    return { found: filtered, deleted: 0 };
+  }
+
+  let deleted = 0;
+  for (const e of filtered) {
+    try {
+      await api('deleteOmCostEntry', {id: e.id});
+      deleted++;
+    } catch(err) {
+      console.warn(`Lỗi xoá ${e.id}:`, err.message);
+    }
+  }
+  console.log(`✓ Đã xoá ${deleted}/${filtered.length}`);
+  console.groupEnd();
+
+  if (typeof renderOmCosts === 'function') renderOmCosts();
+  return { found: filtered, deleted };
+};
+
+// ═══════════════════════════════════════════════════════
 // AES-256-GCM ENCRYPTION LAYER
 // Mã hoá blob trước khi sync lên cloud
 // ═══════════════════════════════════════════════════════
