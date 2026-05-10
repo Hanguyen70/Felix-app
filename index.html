@@ -6414,7 +6414,7 @@ async function renderReportProject(preselectedId) {
         <div class="flex gap12 items-center">
           <div class="field flex-1" style="flex:2">
             <label>Chọn dự án</label>
-            <select id="sel_proj">${projOpts}</select>
+            <select id="sel_proj" onchange="loadProjectReport()">${projOpts}</select>
           </div>
           <button class="btn btn-primary" style="align-self:flex-end" onclick="loadProjectReport()">Xem báo cáo</button>
         </div>
@@ -9139,6 +9139,20 @@ var OM_DEMO = {
     {id:'op23',group:'P',groupLabel:'Thuê ngoài / Pass-through',category:'P2',categoryLabel:'Dịch vụ thuê ngoài',name:'Subcontract dịch vụ kỹ thuật',unit:'job',currency:'VND'},
     {id:'op24',group:'P',groupLabel:'Thuê ngoài / Pass-through',category:'P2',categoryLabel:'Dịch vụ thuê ngoài',name:'Dịch vụ bảo dưỡng thuê ngoài',unit:'job',currency:'VND'},
     {id:'op25',group:'P',groupLabel:'Thuê ngoài / Pass-through',category:'P3',categoryLabel:'Vật tư khác',name:'Vật tư tiêu hao dự án O&M',unit:'lot',currency:'VND'},
+
+    // F — Phân bổ (chi phí trả trước, dùng nhiều tháng)
+    {id:'of11',group:'F',groupLabel:'Phân bổ',category:'F1',categoryLabel:'Bảo hiểm',name:'BH Trách nhiệm nghề nghiệp (PI) — phân bổ',unit:'năm',currency:'USD'},
+    {id:'of12',group:'F',groupLabel:'Phân bổ',category:'F1',categoryLabel:'Bảo hiểm',name:'BH Trách nhiệm công cộng — phân bổ',unit:'năm',currency:'USD'},
+    {id:'of13',group:'F',groupLabel:'Phân bổ',category:'F1',categoryLabel:'Bảo hiểm',name:'BH Sức khoẻ chuyên gia — phân bổ',unit:'năm',currency:'USD'},
+    {id:'of14',group:'F',groupLabel:'Phân bổ',category:'F1',categoryLabel:'Bảo hiểm',name:'BH Tai nạn / Workers Comp — phân bổ',unit:'năm',currency:'USD'},
+    {id:'of21',group:'F',groupLabel:'Phân bổ',category:'F2',categoryLabel:'Thiết bị & Máy tính',name:'Máy tính / laptop chuyên gia',unit:'cái',currency:'VND'},
+    {id:'of22',group:'F',groupLabel:'Phân bổ',category:'F2',categoryLabel:'Thiết bị & Máy tính',name:'Thiết bị đo / kiểm tra (calibration kit)',unit:'cái',currency:'VND'},
+    {id:'of23',group:'F',groupLabel:'Phân bổ',category:'F2',categoryLabel:'Thiết bị & Máy tính',name:'Đồ bảo hộ lao động (PPE) dài hạn',unit:'lot',currency:'VND'},
+    {id:'of31',group:'F',groupLabel:'Phân bổ',category:'F3',categoryLabel:'Phần mềm & Licence',name:'Licence phần mềm chuyên ngành (năm)',unit:'năm',currency:'USD'},
+    {id:'of32',group:'F',groupLabel:'Phân bổ',category:'F3',categoryLabel:'Phần mềm & Licence',name:'Phần mềm văn phòng / cloud (năm)',unit:'năm',currency:'VND'},
+    {id:'of41',group:'F',groupLabel:'Phân bổ',category:'F4',categoryLabel:'Thuê dài hạn',name:'Thuê văn phòng dự án (trả trước nhiều tháng)',unit:'kỳ',currency:'VND'},
+    {id:'of42',group:'F',groupLabel:'Phân bổ',category:'F4',categoryLabel:'Thuê dài hạn',name:'Thuê căn hộ chuyên gia (trả trước)',unit:'kỳ',currency:'VND'},
+
     // L — Chi phí khác (KHÔNG tính vào BCTC)
     {id:'ol21',group:'L',groupLabel:'Chi phí khác (ngoài BCTC)',category:'L1',categoryLabel:'Chi phí nội bộ',name:'Chi phí nội bộ không hạch toán',unit:'lần',currency:'VND'},
     {id:'ol22',group:'L',groupLabel:'Chi phí khác (ngoài BCTC)',category:'L1',categoryLabel:'Chi phí nội bộ',name:'Hỗ trợ nội bộ từ phòng ban khác',unit:'tháng',currency:'VND'},
@@ -9538,17 +9552,21 @@ async function renderOmCosts() {
                   : cat.group==='L'
                   ? `<span class="badge badge-excluded" style="font-size:10px">⊘ L</span>`
                   : `<span class="badge ${grpColors[cat.group]||'badge-gray'}" style="font-size:10px">${cat.group}. ${cat.groupLabel||''}</span>`;
+                // Badge phân bổ: nếu trong chuỗi alloc
+                const allocBadge = (e.allocMonths > 1 && e.allocIndex)
+                  ? `<span class="badge badge-purple" style="font-size:9px;margin-left:4px" title="Bút toán này thuộc chuỗi phân bổ ${e.allocMonths} tháng. Tổng gốc: ${fmtVnd(e.allocOriginalAmountVnd||0)}">📅 ${e.allocIndex}/${e.allocMonths}</span>`
+                  : '';
                 return `<tr class="${rowCls}">
                   <td class="mono">${fmtDate(e.entryDate)}</td>
                   <td style="font-size:12px">${ctrName(e.contractId)}</td>
-                  <td>${grpBadge}</td>
+                  <td>${grpBadge}${allocBadge}</td>
                   <td style="font-size:11px;color:var(--text3)">${cat.categoryLabel||''}</td>
                   <td style="font-size:12px"><strong>${cat.name||e.categoryId}</strong></td>
                   <td class="num">${fmtVnd(e.amountVnd)}</td>
                   <td style="font-size:12px">${e.description||'—'}</td>
                   <td class="row-actions">
-                    <button class="btn btn-ghost btn-xs" onclick="openOmCostForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">✏️</button>
-                    <button class="btn btn-ghost btn-xs" onclick="deleteOmCostEntry('${e.id}')">🗑</button>
+                    <button class="btn btn-ghost btn-xs" onclick="openOmCostForm(${JSON.stringify(e).replace(/"/g,'&quot;')})" title="Sửa">✏️</button>
+                    <button class="btn btn-ghost btn-xs" onclick="deleteOmCostEntry('${e.id}')" title="${e.allocSource||e.allocMonths>1?'Xoá (sẽ hỏi xoá cả chuỗi)':'Xoá'}">🗑</button>
                   </td>
                 </tr>`;
               }).join('') : `<tr><td colspan="8"><div class="empty-state">${hasAnyFilter ? 'Không có bút toán nào khớp với bộ lọc.' : 'Chưa có bút toán chi phí O&M nào.'}</div></td></tr>`}
@@ -9629,6 +9647,34 @@ function openOmCostForm(e={}) {
         <select id="oce_asset"><option value="">— Đang tải danh sách tài sản... —</option></select>
         <span style="font-size:11px;color:var(--text3)">Số tiền sẽ cộng vào giá trị tài sản này.</span>
       </div>
+    </div>
+
+    <!-- ── KHỐI PHÂN BỔ THEO THÁNG (tùy chọn — bật bằng checkbox) ── -->
+    <div style="background:#F5F3FF;border:1px solid var(--purple);border-radius:var(--radius);padding:12px;margin:10px 0">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+        <input type="checkbox" id="oce_alloc_check" ${e.allocMonths > 1 ? 'checked' : ''} onchange="onOmAllocToggle()" style="width:16px;height:16px"/>
+        <span style="font-weight:600;color:var(--purple)">📅 Phân bổ qua nhiều tháng</span>
+        <span style="font-size:11px;color:var(--text3);font-weight:400">— vd: Bảo hiểm 12 tháng, Máy tính 24 tháng, Phần mềm năm</span>
+      </label>
+      <div id="oce_alloc_fields" style="${e.allocMonths > 1 ? '' : 'display:none'};margin-top:12px">
+        <div class="form-grid cols2">
+          <div class="field" style="margin:0">
+            <label>Số tháng phân bổ</label>
+            <input type="number" id="oce_alloc_months" value="${e.allocMonths||12}" min="2" max="60" step="1" oninput="recalcOmAllocPreview()"/>
+            <span style="font-size:10px;color:var(--text3)">Tổng số tiền sẽ chia đều cho N tháng (2-60)</span>
+          </div>
+          <div class="field" style="margin:0">
+            <label>Tháng bắt đầu phân bổ</label>
+            <input type="month" id="oce_alloc_start" value="${e.allocStartMonth || (e.entryDate||today()).slice(0,7)}" onchange="recalcOmAllocPreview()"/>
+            <span style="font-size:10px;color:var(--text3)">Default = tháng của ngày phát sinh</span>
+          </div>
+          <div class="field" style="grid-column:span 2;margin:0">
+            <div id="oce_alloc_preview" style="background:#fff;border:1px dashed var(--purple);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--text2)">
+              <em>Nhập số tiền và tháng bắt đầu để xem preview.</em>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>`;
 
   openModal(e.id?'Cập nhật chi phí O&M':'Nhập chi phí O&M', html, async()=>{
@@ -9642,18 +9688,110 @@ function openOmCostForm(e={}) {
       toast('Vui lòng chọn tài sản nhận capitalize','warn');
       return;
     }
-    const payload={id:e.id||newId(), contractId:gv('oce_ctr'), categoryId:catId,
-      entryDate:gv('oce_date'), month:gv('oce_month'),
-      amount:amt, currency:gv('oce_cur'), fxRate:fx, amountVnd:Math.round(amt*fx),
-      description:gv('oce_desc'), accountType: acctType,
+
+    // Phân bổ theo tháng: tick + có giá trị hợp lệ?
+    const allocChecked = document.getElementById('oce_alloc_check')?.checked === true;
+    const allocMonths = allocChecked ? Math.max(1, Math.min(60, parseInt(gv('oce_alloc_months'))||0)) : 1;
+    const allocStartMonth = allocChecked ? gv('oce_alloc_start') : '';
+
+    if (allocChecked && allocMonths < 2) {
+      toast('Phân bổ phải từ 2 tháng trở lên','warn'); return;
+    }
+    if (allocChecked && !allocStartMonth) {
+      toast('Chọn tháng bắt đầu phân bổ','warn'); return;
+    }
+    // Edit mode: nếu đang edit 1 dòng trong chuỗi đã phân bổ → cảnh báo
+    if (e.id && (e.allocSource || e.allocMonths > 1) && !allocChecked) {
+      if (!confirm('Bút toán này đang trong chuỗi phân bổ. Bỏ tick sẽ chỉ ảnh hưởng dòng này, các dòng khác vẫn giữ nguyên. Tiếp tục?')) return;
+    }
+
+    const baseAmount = Math.round(amt*fx);
+    const baseDate = gv('oce_date');
+    const baseDesc = gv('oce_desc') || cat?.name || '';
+
+    const basePayload = {
+      contractId: gv('oce_ctr'), categoryId: catId,
+      month: gv('oce_month'),
+      amount: amt, currency: gv('oce_cur'), fxRate: fx,
+      accountType: acctType,
       capitalizedToAssetId,
-      createdAt:e.createdAt||new Date().toISOString()};
-    if (!payload.contractId||!payload.categoryId||!payload.amount){toast('Điền đủ thông tin (*)','warn');return;}
-    showLoading();try{await api('saveOmCostEntry',payload);toast('Đã lưu','ok');closeModal();renderOmCosts();}catch(e){toast('Lỗi','err');}hideLoading();
+      createdAt: e.createdAt || new Date().toISOString(),
+    };
+    if (!basePayload.contractId || !basePayload.categoryId || !amt) {
+      toast('Điền đủ thông tin (*)','warn'); return;
+    }
+
+    showLoading();
+    try {
+      if (allocChecked && allocMonths >= 2) {
+        // CHẾ ĐỘ PHÂN BỔ: tạo N bút toán con
+        // Nếu đang edit 1 dòng trong chuỗi cũ → giữ allocSource cũ; nếu mới hoàn toàn → dùng id mới làm source
+        const allocSource = e.allocSource || (e.id && e.allocMonths > 1 ? e.id : newId());
+        const monthlyAmount = Math.floor(baseAmount / allocMonths);
+        const remainder = baseAmount - monthlyAmount * allocMonths;  // Cộng vào tháng cuối
+
+        // Nếu đang edit chuỗi cũ → xoá hết các dòng cùng allocSource trước
+        if (e.id && (e.allocSource || (e.allocMonths > 1))) {
+          const existingSrc = e.allocSource || e.id;
+          const oldEntries = (OM_DEMO.omCostEntries||[]).filter(x =>
+            x.allocSource === existingSrc || x.id === existingSrc
+          );
+          for (const old of oldEntries) {
+            await api('deleteOmCostEntry', {id: old.id});
+          }
+        }
+
+        // Parse start month
+        const [sy, sm] = allocStartMonth.split('-').map(n=>parseInt(n));
+        for (let i = 0; i < allocMonths; i++) {
+          const d = new Date(sy, sm-1+i, 1);
+          const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+          const thisAmt = (i === allocMonths-1) ? (monthlyAmount + remainder) : monthlyAmount;
+          const childPayload = {
+            ...basePayload,
+            id: newId(),
+            entryDate: `${ym}-01`,
+            month: ym,
+            amountVnd: thisAmt,
+            description: `${baseDesc} (${i+1}/${allocMonths})`,
+            // Phân bổ metadata
+            allocSource,
+            allocMonths,
+            allocIndex: i+1,
+            allocStartMonth,
+            allocOriginalAmountVnd: baseAmount,  // Tổng gốc (để biết khoản gốc)
+          };
+          await api('saveOmCostEntry', childPayload);
+        }
+        toast(`Đã tạo ${allocMonths} bút toán phân bổ ✓`, 'ok');
+      } else {
+        // CHẾ ĐỘ THƯỜNG: 1 bút toán
+        const payload = {
+          ...basePayload,
+          id: e.id || newId(),
+          entryDate: baseDate,
+          amountVnd: baseAmount,
+          description: baseDesc,
+        };
+        await api('saveOmCostEntry', payload);
+        toast('Đã lưu', 'ok');
+      }
+      closeModal();
+      renderOmCosts();
+    } catch(err) {
+      toast('Lỗi: '+err.message, 'err');
+    }
+    hideLoading();
   }, 'lg');
 
   // Load asset list for Capitalize dropdown
-  setTimeout(() => loadOmAssetOpts(e.capitalizedToAssetId), 50);
+  setTimeout(() => {
+    loadOmAssetOpts(e.capitalizedToAssetId);
+    // Init preview phân bổ nếu đang tick (edit mode)
+    if (document.getElementById('oce_alloc_check')?.checked) {
+      recalcOmAllocPreview();
+    }
+  }, 50);
 }
 
 // Toggle field tài sản khi đổi Nguồn chi trong OM
@@ -9661,6 +9799,56 @@ function onOmAcctTypeChange() {
   const acc = gv('oce_acc');
   const field = document.getElementById('oce_asset_field');
   if (field) field.style.display = (acc === 'Capitalize') ? '' : 'none';
+}
+
+// ─── PHÂN BỔ THEO THÁNG cho Chi phí O&M ───
+// Toggle khối phân bổ + recalc preview
+function onOmAllocToggle() {
+  const checked = document.getElementById('oce_alloc_check')?.checked;
+  const fields = document.getElementById('oce_alloc_fields');
+  if (fields) fields.style.display = checked ? '' : 'none';
+  if (checked) {
+    // Auto-set start month theo entryDate nếu chưa có
+    const startEl = document.getElementById('oce_alloc_start');
+    if (startEl && !startEl.value) {
+      const date = gv('oce_date') || today();
+      startEl.value = date.slice(0,7);
+    }
+    recalcOmAllocPreview();
+  }
+}
+
+// Render preview phân bổ
+function recalcOmAllocPreview() {
+  const preview = document.getElementById('oce_alloc_preview');
+  if (!preview) return;
+  if (!document.getElementById('oce_alloc_check')?.checked) return;
+
+  const amt = parseFloat(gv('oce_amt')) || 0;
+  const fx = parseFloat(gv('oce_fx')) || 1;
+  const amtVnd = Math.round(amt * fx);
+  const months = parseInt(gv('oce_alloc_months')) || 0;
+  const startMonth = gv('oce_alloc_start');
+
+  if (!amtVnd || months < 2 || !startMonth) {
+    preview.innerHTML = '<em>Nhập số tiền (≥1) và ≥2 tháng để xem preview.</em>';
+    return;
+  }
+  const monthly = Math.floor(amtVnd / months);
+  const remainder = amtVnd - monthly * months;
+
+  // Tính tháng cuối
+  const [sy, sm] = startMonth.split('-').map(n=>parseInt(n));
+  const endDate = new Date(sy, sm-1+months-1, 1);
+  const endStr = `${String(endDate.getMonth()+1).padStart(2,'0')}/${endDate.getFullYear()}`;
+  const startStr = `${String(sm).padStart(2,'0')}/${sy}`;
+
+  preview.innerHTML = `
+    <div style="font-weight:600;color:var(--purple);margin-bottom:4px">📅 Sẽ tạo <strong>${months}</strong> bút toán phân bổ</div>
+    <div>Mỗi tháng: <strong>${fmtVnd(monthly)}</strong> ${remainder>0?`(tháng cuối: ${fmtVnd(monthly+remainder)})`:''}</div>
+    <div>Khoảng: <strong>${startStr}</strong> → <strong>${endStr}</strong></div>
+    <div style="font-size:10px;color:var(--text3);margin-top:4px">Tổng phân bổ: ${fmtVnd(amtVnd)} (= ${fmtVnd(monthly)} × ${months}${remainder>0?' + '+fmtVnd(remainder)+' tháng cuối':''})</div>
+  `;
 }
 
 // Load asset dropdown cho OM cost form (cùng 4 nguồn như Vessel)
@@ -9719,8 +9907,46 @@ function omCompVnd(){
   const a=parseFloat(document.getElementById('oce_amt')?.value)||0;
   const fx=parseFloat(document.getElementById('oce_fx')?.value)||1;
   if(document.getElementById('oce_vnd'))document.getElementById('oce_vnd').value=Math.round(a*fx);
+  // Recalc preview phân bổ nếu đang tick
+  if (document.getElementById('oce_alloc_check')?.checked) recalcOmAllocPreview();
 }
-async function deleteOmCostEntry(id){if(!confirm('Xoá?'))return;try{await api('deleteOmCostEntry',{id});toast('Đã xoá','ok');renderOmCosts();}catch(e){toast('Lỗi','err');}}
+async function deleteOmCostEntry(id){
+  const all = (OM_DEMO.omCostEntries||[]);
+  const target = all.find(x=>x.id===id);
+  if (!target) return;
+
+  // Nếu thuộc chuỗi phân bổ → hỏi xoá cả chuỗi
+  const allocSrc = target.allocSource || (target.allocMonths>1 ? target.id : null);
+  if (allocSrc) {
+    const chain = all.filter(x => x.allocSource === allocSrc || x.id === allocSrc);
+    if (chain.length > 1) {
+      const choice = confirm(`Bút toán này thuộc chuỗi phân bổ ${chain.length} tháng (tổng gốc: ${fmtVnd(target.allocOriginalAmountVnd||0)}).\n\nOK = Xoá CẢ CHUỖI ${chain.length} dòng\nCancel = Chỉ xoá riêng dòng này`);
+      try {
+        if (choice) {
+          // Xoá cả chuỗi
+          for (const it of chain) {
+            await api('deleteOmCostEntry', {id: it.id});
+          }
+          toast(`Đã xoá ${chain.length} dòng phân bổ`,'ok');
+        } else {
+          // Chỉ xoá 1
+          await api('deleteOmCostEntry', {id});
+          toast('Đã xoá 1 dòng (chuỗi vẫn còn)','ok');
+        }
+        renderOmCosts();
+      } catch(e) { toast('Lỗi','err'); }
+      return;
+    }
+  }
+
+  // Không phải chuỗi → xoá thường
+  if (!confirm('Xoá?')) return;
+  try {
+    await api('deleteOmCostEntry', {id});
+    toast('Đã xoá','ok');
+    renderOmCosts();
+  } catch(e) { toast('Lỗi','err'); }
+}
 
 // ── PAGE: O&M Doanh thu ──────────────────────────────────
 // State filter cho DT O&M (giữ trong session)
@@ -15699,7 +15925,7 @@ async function renderOmContractReport() {
       <div class="card-body">
         <div class="flex gap12 items-center">
           <div class="field flex-1" style="flex:2"><label>Chọn hợp đồng O&M</label>
-            <select id="om_sel_ctr">${ctrOpts}</select></div>
+            <select id="om_sel_ctr" onchange="loadOmReport()">${ctrOpts}</select></div>
           <button class="btn btn-primary" style="align-self:flex-end" onclick="loadOmReport()">Xem báo cáo</button>
         </div>
       </div>
