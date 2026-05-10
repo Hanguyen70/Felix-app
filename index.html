@@ -937,32 +937,257 @@ const LS_KEY = 'felix_demo_store_v1';
 // __DEMO_STORE__ giữ DEMO chính giữa các lần gọi demoData()
 window.__DEMO_STORE__ = null;
 
-function _lsSaveAll() {
-  try {
-    const blob = {
-      DEMO: window.__DEMO_STORE__ || null,
-      SM_DEMO: (typeof SM_DEMO !== 'undefined') ? SM_DEMO : null,
-      GA_DEMO: (typeof GA_DEMO !== 'undefined') ? GA_DEMO : null,
-      OM_DEMO: (typeof OM_DEMO !== 'undefined') ? OM_DEMO : null,
-      _ts: Date.now()
+// ════════════════════════════════════════════════════════════════
+// INDEXEDDB STORAGE LAYER (felix_db_v1) — gỡ trần 5-10MB localStorage
+// ────────────────────────────────────────────────────────────────
+// Pattern: IndexedDB là MASTER STORAGE; localStorage là RAM-like CACHE
+//   - Đọc: cache có sẵn → trả ngay (sync). Cache miss → IndexedDB → cache.
+//   - Ghi: cache trước (sync, để code cũ hoạt động ngay)
+//          + IndexedDB nền (async, fire-and-forget, là nguồn an toàn)
+//   - Khi localStorage QuotaExceeded: bỏ qua cache, IndexedDB vẫn lưu OK
+// ════════════════════════════════════════════════════════════════
+const IDB_NAME  = 'felix_db_v1';
+const IDB_STORE = 'main';
+const IDB_KEY   = 'felix_blob';
+let _idbInstance = null;
+let _idbBootLoaded = false;        // true sau khi đã prime cache từ IDB lúc boot
+let _lsQuotaExceeded = false;      // true khi localStorage báo full → bỏ cache
+
+function _idbOpen() {
+  if (_idbInstance) return Promise.resolve(_idbInstance);
+  return new Promise((resolve, reject) => {
+    let req;
+    try { req = indexedDB.open(IDB_NAME, 1); }
+    catch(e) { return reject(e); }
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE);
+      }
     };
-    localStorage.setItem(LS_KEY, JSON.stringify(blob));
-  } catch(e) { console.warn('[persist] save failed:', e); }
+    req.onsuccess = () => { _idbInstance = req.result; resolve(req.result); };
+    req.onerror   = () => reject(req.error);
+    req.onblocked = () => reject(new Error('IndexedDB blocked (close other tabs)'));
+  });
+}
+
+async function _idbPutBlob(blob) {
+  const db = await _idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(blob, IDB_KEY);
+    tx.oncomplete = () => resolve(true);
+    tx.onerror    = () => reject(tx.error);
+    tx.onabort    = () => reject(tx.error || new Error('IDB tx aborted'));
+  });
+}
+
+async function _idbGetBlob() {
+  const db = await _idbOpen();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(IDB_STORE).objectStore(IDB_STORE).get(IDB_KEY);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+async function _idbDeleteBlob() {
+  try {
+    const db = await _idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).delete(IDB_KEY);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror    = () => reject(tx.error);
+    });
+  } catch(_) { return false; }
+}
+
+// ═══════════════════════════════════════════════════════
+// DIAGNOSTIC: Kiểm tra trạng thái storage (LS + IDB)
+// Gọi: window.diagStorage() trong DevTools Console
+// ═══════════════════════════════════════════════════════
+window.diagStorage = async function() {
+  console.group('🔍 FELIX Storage Diagnostic');
+
+  // 1. localStorage
+  let lsBlob = null, lsSize = 0;
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    lsSize = raw ? raw.length : 0;
+    if (raw) lsBlob = JSON.parse(raw);
+  } catch(e) { console.error('LS parse error:', e); }
+
+  console.log('📦 localStorage cache:');
+  console.log('   Size:    ', (lsSize/1024).toFixed(1), 'KB');
+  console.log('   Has data:', !!lsBlob);
+  if (lsBlob) {
+    console.log('   _ts:     ', lsBlob._ts ? new Date(lsBlob._ts).toLocaleString('vi-VN') : '—');
+    console.log('   Vessels: ', lsBlob.DEMO?.vessels?.length || 0);
+    console.log('   Costs:   ', lsBlob.DEMO?.costEntries?.length || 0);
+    console.log('   Revs:    ', lsBlob.DEMO?.revEntries?.length || 0);
+  }
+
+  // 2. IndexedDB
+  let idbBlob = null, idbErr = null;
+  try { idbBlob = await _idbGetBlob(); }
+  catch(e) { idbErr = e.message; }
+
+  console.log('');
+  console.log('🗄  IndexedDB master:');
+  if (idbErr) console.log('   ERROR:   ', idbErr);
+  console.log('   Has data:', !!idbBlob);
+  if (idbBlob) {
+    console.log('   _ts:     ', idbBlob._ts ? new Date(idbBlob._ts).toLocaleString('vi-VN') : '—');
+    console.log('   Vessels: ', idbBlob.DEMO?.vessels?.length || 0);
+    console.log('   Costs:   ', idbBlob.DEMO?.costEntries?.length || 0);
+    console.log('   Revs:    ', idbBlob.DEMO?.revEntries?.length || 0);
+  }
+
+  // 3. window.__DEMO_STORE__ (RAM)
+  console.log('');
+  console.log('💾 window.__DEMO_STORE__ (RAM):');
+  console.log('   Has data:', !!window.__DEMO_STORE__);
+  if (window.__DEMO_STORE__) {
+    console.log('   Vessels: ', window.__DEMO_STORE__.vessels?.length || 0);
+    console.log('   Costs:   ', window.__DEMO_STORE__.costEntries?.length || 0);
+  }
+
+  // 4. Quota
+  console.log('');
+  console.log('📊 Storage quota:');
+  if (navigator.storage && navigator.storage.estimate) {
+    const est = await navigator.storage.estimate();
+    console.log('   Used:  ', (est.usage/1024/1024).toFixed(1), 'MB');
+    console.log('   Quota: ', (est.quota/1024/1024/1024).toFixed(1), 'GB');
+    console.log('   %:     ', ((est.usage/est.quota)*100).toFixed(3), '%');
+  } else {
+    console.log('   StorageManager API not available');
+  }
+
+  // 5. Flags
+  console.log('');
+  console.log('🚩 Flags:');
+  console.log('   _idbBootLoaded:    ', _idbBootLoaded);
+  console.log('   _lsQuotaExceeded:  ', _lsQuotaExceeded);
+  console.log('   IDB_BLOB_CACHE:    ', !!window.__IDB_BLOB_CACHE__);
+
+  // 6. Đề xuất
+  console.log('');
+  if (!lsBlob && !idbBlob && !window.__DEMO_STORE__) {
+    console.log('💡 KHÔNG CÓ DỮ LIỆU Ở BẤT KỲ ĐÂU. Đây là lần đầu mở app, hoặc đã reset.');
+  } else if (!lsBlob && idbBlob) {
+    console.log('💡 LS rỗng nhưng IDB có dữ liệu. Chạy: await _storageBootPrime(); updateLsStats();');
+  } else if (lsBlob && !idbBlob) {
+    console.log('💡 LS có nhưng IDB rỗng (chưa migrate). Chạy: await _idbPutBlob(_lsLoadAll());');
+  } else if (lsBlob && idbBlob) {
+    const lsTs = lsBlob._ts || 0, idbTs = idbBlob._ts || 0;
+    if (lsTs === idbTs) console.log('✓ LS và IDB đồng bộ.');
+    else if (lsTs > idbTs) console.log('⚠ LS mới hơn IDB ' + ((lsTs-idbTs)/1000).toFixed(0) + 's. Chạy: await _idbPutBlob(_lsLoadAll());');
+    else console.log('⚠ IDB mới hơn LS ' + ((idbTs-lsTs)/1000).toFixed(0) + 's. Chạy: await _storageBootPrime();');
+  }
+
+  console.groupEnd();
+  return { lsBlob, idbBlob, ramData: window.__DEMO_STORE__ };
+};
+
+// ── BOOT PRIMING: load IDB → đẩy vào localStorage cache (1 lần khi mở app) ──
+// Nếu IDB có dữ liệu mới hơn localStorage → ghi đè cache.
+// Nếu localStorage có mà IDB chưa có → migrate sang IDB.
+async function _storageBootPrime() {
+  if (_idbBootLoaded) return;
+  let idbBlob = null;
+  try { idbBlob = await _idbGetBlob(); }
+  catch(e) { console.warn('[storage] IDB read failed at boot:', e.message); }
+
+  let lsBlob = null;
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) lsBlob = JSON.parse(raw);
+  } catch(_){}
+
+  const idbTs = idbBlob?._ts || 0;
+  const lsTs  = lsBlob?._ts  || 0;
+
+  if (idbBlob && idbTs >= lsTs) {
+    // IDB là nguồn truth → đẩy về cache (nếu có chỗ)
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(idbBlob));
+      _lsQuotaExceeded = false;
+    } catch(e) {
+      _lsQuotaExceeded = true;
+      console.warn('[storage] localStorage cache full — sẽ chỉ dùng IDB:', e.message);
+      // Cache không chứa được — gắn tạm vào window để _lsLoadAll lấy
+      window.__IDB_BLOB_CACHE__ = idbBlob;
+    }
+  } else if (lsBlob && lsTs > idbTs) {
+    // localStorage mới hơn → migrate ngược lên IDB
+    try {
+      await _idbPutBlob(lsBlob);
+      console.log('[storage] Đã migrate localStorage → IndexedDB');
+    } catch(e) { console.warn('[storage] Migrate to IDB failed:', e.message); }
+  }
+  _idbBootLoaded = true;
+}
+
+// ── HELPER: build blob hiện tại từ window state ──
+function _buildCurrentBlob() {
+  return {
+    DEMO:    window.__DEMO_STORE__ || null,
+    SM_DEMO: (typeof SM_DEMO !== 'undefined') ? SM_DEMO : null,
+    GA_DEMO: (typeof GA_DEMO !== 'undefined') ? GA_DEMO : null,
+    OM_DEMO: (typeof OM_DEMO !== 'undefined') ? OM_DEMO : null,
+    _ts: Date.now()
+  };
+}
+
+// ── PUBLIC API: giữ nguyên chữ ký đồng bộ để code cũ không phải sửa ──
+function _lsSaveAll() {
+  const blob = _buildCurrentBlob();
+  // 1. Ghi cache localStorage (sync, để các tab khác/code đọc ngay được)
+  if (!_lsQuotaExceeded) {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(blob));
+    } catch(e) {
+      _lsQuotaExceeded = true;
+      console.warn('[persist] localStorage full — chuyển sang IDB-only:', e.message);
+    }
+  }
+  // Lưu vào window cache để _lsLoadAll trả về ngay được khi LS quota exceeded
+  if (_lsQuotaExceeded) window.__IDB_BLOB_CACHE__ = blob;
+
+  // 2. Ghi IndexedDB (async, fire-and-forget — đây là nguồn truth lâu dài)
+  _idbPutBlob(blob).catch(e => {
+    console.error('[persist] IndexedDB save FAILED:', e);
+  });
 }
 
 function _lsLoadAll() {
+  // Ưu tiên localStorage cache (sync, nhanh)
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return null;
-    const blob = JSON.parse(raw);
-    // ─── AUTO MIGRATION: cập nhật danh mục cũ khi schema thay đổi ───
-    if (blob && blob.DEMO) {
-      _migrateCostCatsSchema(blob.DEMO);
-      _migrateInvestmentsSchema(blob.DEMO);
-      _migrateInventoryCategoriesSchema(blob.DEMO);
+    if (raw) {
+      const blob = JSON.parse(raw);
+      if (blob && blob.DEMO) {
+        _migrateCostCatsSchema(blob.DEMO);
+        _migrateInvestmentsSchema(blob.DEMO);
+        _migrateInventoryCategoriesSchema(blob.DEMO);
+      }
+      return blob;
     }
-    return blob;
-  } catch(e) { console.warn('[persist] load failed:', e); return null; }
+  } catch(e) { console.warn('[persist] LS cache load failed:', e.message); }
+
+  // Cache miss/empty/quota: thử window cache (set khi LS full)
+  const wblob = window.__IDB_BLOB_CACHE__;
+  if (wblob) {
+    if (wblob.DEMO) {
+      _migrateCostCatsSchema(wblob.DEMO);
+      _migrateInvestmentsSchema(wblob.DEMO);
+      _migrateInventoryCategoriesSchema(wblob.DEMO);
+    }
+    return wblob;
+  }
+  return null;
 }
 
 // Migration: cập nhật danh mục costCats từ schema cũ sang mới (2026.05).
@@ -1967,8 +2192,10 @@ async function gasPullBlob() {
     blob = await cryptoDecrypt(blob, pw);
   }
 
-  // Ghi đè localStorage
-  localStorage.setItem(LS_KEY, JSON.stringify(blob));
+  // Ghi đè cả localStorage (cache) lẫn IndexedDB (master) để cùng đồng bộ
+  try { localStorage.setItem(LS_KEY, JSON.stringify(blob)); _lsQuotaExceeded=false; }
+  catch(e){ _lsQuotaExceeded=true; window.__IDB_BLOB_CACHE__ = blob; }
+  try { await _idbPutBlob(blob); } catch(e){ console.warn('[gasPull] IDB write failed:', e.message); }
   localStorage.setItem(SYNC_KEYS.lastGasSync, String(Date.now()));
   return json.data;
 }
@@ -2044,7 +2271,10 @@ async function ghPullBlob() {
     blob = await cryptoDecrypt(blob, pw);
   }
 
-  localStorage.setItem(LS_KEY, JSON.stringify(blob));
+  // Ghi đè cả localStorage (cache) lẫn IndexedDB (master)
+  try { localStorage.setItem(LS_KEY, JSON.stringify(blob)); _lsQuotaExceeded=false; }
+  catch(e){ _lsQuotaExceeded=true; window.__IDB_BLOB_CACHE__ = blob; }
+  try { await _idbPutBlob(blob); } catch(e){ console.warn('[ghPull] IDB write failed:', e.message); }
   localStorage.setItem(SYNC_KEYS.lastGhSync, String(Date.now()));
   return blob;
 }
@@ -2717,53 +2947,34 @@ function buildDemoDashboard(D, p) {
     const daysInYear = isLeap ? 366 : 365;
     let onhireDays = 0;
     (D.projects||[]).filter(prj => prj.vesselId === v.id).forEach(prj => {
-      // Hỗ trợ cả schema mới (onhireAt/offhireAt) và cũ (startDate/endDate)
-      const startStr = prj.onhireAt || prj.startDate;
-      const endStr   = prj.offhireAt || prj.endDate;
-      if (!startStr) return;
-      const ps = new Date(startStr);
-      const pe = endStr ? new Date(endStr) : new Date();
+      if (!prj.startDate) return;
+      const ps = new Date(prj.startDate);
+      const pe = prj.endDate ? new Date(prj.endDate) : new Date();
       // Chỉ tính nếu dự án chạm vào năm này
       const yStart = new Date(year, 0, 1);
       const yEnd = new Date(year, 11, 31, 23, 59, 59);
       if (pe < yStart || ps > yEnd) return;
-      // Ưu tiên transitDays/mobDemobDays/standbyDays/onfieldDays nếu có
-      const detailDays = (parseFloat(prj.transitDays)||0) + (parseFloat(prj.mobDemobDays)||0)
-                       + (parseFloat(prj.standbyDays)||0) + (parseFloat(prj.onfieldDays)||0);
-      if (detailDays > 0) {
-        onhireDays += detailDays;
-      } else {
-        // Fallback: tính từ onhireAt/offhireAt giao thoa với năm
-        const s = ps < yStart ? yStart : ps;
-        const e = pe > yEnd ? yEnd : pe;
-        const diff = (e - s) / 86400000;  // milliseconds → days
-        if (diff > 0) onhireDays += diff;
-      }
+      const days = (parseFloat(prj.transitDays)||0) + (parseFloat(prj.mobDemobDays)||0)
+                 + (parseFloat(prj.standbyDays)||0) + (parseFloat(prj.onfieldDays)||0);
+      onhireDays += days;
     });
     onhireDays = Math.min(onhireDays, daysInYear);
     const utilPct = daysInYear ? onhireDays / daysInYear * 100 : 0;
 
     // Đếm số dự án trong năm
     const projectCount = (D.projects||[]).filter(prj => {
-      if (prj.vesselId !== v.id) return false;
-      const startStr = prj.onhireAt || prj.startDate;
-      const endStr   = prj.offhireAt || prj.endDate;
-      if (!startStr) return false;
-      const ps = new Date(startStr);
-      const pe = endStr ? new Date(endStr) : new Date();
+      if (prj.vesselId !== v.id || !prj.startDate) return false;
+      const ps = new Date(prj.startDate);
+      const pe = prj.endDate ? new Date(prj.endDate) : new Date();
       const yStart = new Date(year, 0, 1);
       const yEnd = new Date(year, 11, 31, 23, 59, 59);
       return !(pe < yStart || ps > yEnd);
     }).length;
 
     return {
-      id: v.id, vesselId: v.id, name: v.name, vesselName: v.name, imo: v.imo,
+      id: v.id, name: v.name, imo: v.imo,
       totalRevVnd, totalCostVnd, totalMarginVnd, marginPct: +marginPct.toFixed(1),
-      onhireDays: +onhireDays.toFixed(1),
-      utilizedDays: +onhireDays.toFixed(1),
-      offhireDays: +(daysInYear - onhireDays).toFixed(1),
-      utilPct: +utilPct.toFixed(1),
-      utilisationPct: +utilPct.toFixed(1),
+      onhireDays: +onhireDays.toFixed(1), utilPct: +utilPct.toFixed(1),
       projectCount,
     };
   });
@@ -2774,11 +2985,10 @@ function buildDemoDashboard(D, p) {
     totalCostVnd: acc.totalCostVnd + v.totalCostVnd,
     totalMarginVnd: acc.totalMarginVnd + v.totalMarginVnd,
     onhireDays: acc.onhireDays + v.onhireDays,
-    utilizedDays: acc.utilizedDays + v.utilizedDays,
     projectCount: acc.projectCount + v.projectCount,
-  }), { totalRevVnd: 0, totalCostVnd: 0, totalMarginVnd: 0, onhireDays: 0, utilizedDays: 0, projectCount: 0 });
+  }), { totalRevVnd: 0, totalCostVnd: 0, totalMarginVnd: 0, onhireDays: 0, projectCount: 0 });
 
-  return { year, daysInYear, vessels, totals };
+  return { year, vessels, totals };
 }
 function buildDemoProject(D, p) {
   const proj = D.projects.find(x=>x.id===p.projectId);
@@ -8236,6 +8446,7 @@ async function renderSettings() {
             <input type="file" accept=".json,application/json" style="display:none" onchange="importLocalBackup(event)"/>
           </label>
           <button class="btn btn-outline btn-sm" onclick="exportCsvBundle()">📊 Xuất CSV (zip-like)</button>
+          <button class="btn btn-outline btn-sm" onclick="exportSqliteSnapshot()" title="File .sqlite mở được bằng DB Browser, Excel, Power BI">🗄 Xuất SQLite snapshot</button>
           <button class="btn btn-outline btn-sm" onclick="resetLocalData()" style="color:var(--red);border-color:var(--red)">🗑 Xoá toàn bộ dữ liệu</button>
         </div>
       </div>
@@ -8472,17 +8683,44 @@ function wipeAllData() {
     return;
   }
 
-  // Xoá storage chính (tất cả data trong 1 key)
+  // Xoá storage chính (tất cả data trong 1 key) — cả localStorage cache lẫn IndexedDB master
   localStorage.removeItem(LS_KEY);
+  _idbDeleteBlob().catch(()=>{});
+  window.__IDB_BLOB_CACHE__ = null;
   toast('Đã xoá tất cả. Vui lòng tải lại trang.', 'ok');
   setTimeout(() => location.reload(), 1500);
 }
 
-function updateLsStats(){
+async function updateLsStats(){
   const el = document.getElementById('ls-stats');
   if (!el) return;
-  const blob = _lsLoadAll();
-  if (!blob) { el.innerHTML = '<span style="color:var(--amber)">⚠ Chưa có dữ liệu lưu trong trình duyệt</span>'; return; }
+
+  // ── Bước 1: Thử LS cache trước (nhanh) ──
+  let blob = _lsLoadAll();
+
+  // ── Bước 2: LS cache rỗng → thử IDB master (lần đầu boot, hoặc LS đã clear) ──
+  if (!blob) {
+    try {
+      const idbBlob = await _idbGetBlob();
+      if (idbBlob) {
+        blob = idbBlob;
+        // Prime lại LS cache cho lần sau
+        try { localStorage.setItem(LS_KEY, JSON.stringify(idbBlob)); _lsQuotaExceeded=false; }
+        catch(_){ _lsQuotaExceeded=true; window.__IDB_BLOB_CACHE__ = idbBlob; }
+      }
+    } catch(e) { console.warn('[updateLsStats] IDB read failed:', e.message); }
+  }
+
+  if (!blob) {
+    el.innerHTML = `
+      <span style="color:var(--amber)">⚠ Chưa có dữ liệu lưu trong trình duyệt</span>
+      <div style="font-size:11px;color:var(--ink4);margin-top:6px">
+        Nếu đây là lỗi (anh đã có dữ liệu trước đó), thử mở DevTools (F12) → Console và gõ:
+        <code style="background:var(--bg);padding:2px 4px;border-radius:3px">await _storageBootPrime(); updateLsStats();</code>
+      </div>`;
+    return;
+  }
+
   const counts = [];
   if (blob.DEMO){
     counts.push(`Tàu: ${(blob.DEMO.vessels||[]).length}`);
@@ -8503,7 +8741,28 @@ function updateLsStats(){
   }
   const sizeKB = (new Blob([JSON.stringify(blob)]).size/1024).toFixed(1);
   const lastSave = blob._ts ? new Date(blob._ts).toLocaleString('vi-VN') : '—';
-  el.innerHTML = `<div style="margin-bottom:6px"><strong>Lần lưu cuối:</strong> ${lastSave} • <strong>Dung lượng:</strong> ${sizeKB} KB</div><div>${counts.join(' • ')}</div>`;
+
+  // Dòng lưu trữ: cache (LS) vs master (IDB)
+  const storageInfo = _lsQuotaExceeded
+    ? '<span style="color:var(--amber)">⚠ Cache localStorage đầy → đang dùng IndexedDB (master)</span>'
+    : '<span style="color:var(--green)">✓ IndexedDB master + localStorage cache</span>';
+
+  el.innerHTML = `
+    <div style="margin-bottom:6px"><strong>Lần lưu cuối:</strong> ${lastSave} • <strong>Dung lượng:</strong> ${sizeKB} KB</div>
+    <div style="margin-bottom:6px">${counts.join(' • ')}</div>
+    <div style="font-size:11px;color:var(--ink4);margin-top:6px">${storageInfo} • <span id="idb-quota-info">…</span></div>
+  `;
+
+  // Async fetch quota info (StorageManager API)
+  if (navigator.storage && navigator.storage.estimate) {
+    navigator.storage.estimate().then(est => {
+      const usedMB  = (est.usage/1024/1024).toFixed(1);
+      const quotaGB = (est.quota/1024/1024/1024).toFixed(1);
+      const pct     = ((est.usage/est.quota)*100).toFixed(2);
+      const elQ = document.getElementById('idb-quota-info');
+      if (elQ) elQ.textContent = `Đã dùng ${usedMB} MB / ~${quotaGB} GB cho phép (${pct}%)`;
+    }).catch(()=>{});
+  }
 }
 
 function exportLocalBackup(){
@@ -8521,12 +8780,16 @@ function exportLocalBackup(){
 function importLocalBackup(ev){
   const f = ev.target.files?.[0]; if(!f) return;
   const r = new FileReader();
-  r.onload = e => {
+  r.onload = async e => {
     try{
       const obj = JSON.parse(e.target.result);
       if (!obj || (typeof obj!=='object')) throw new Error('File không hợp lệ');
       if (!confirm('Khôi phục dữ liệu từ file này? Dữ liệu hiện tại sẽ bị ghi đè.')) return;
-      localStorage.setItem(LS_KEY, JSON.stringify(obj));
+      // Ghi cả localStorage (cache) lẫn IndexedDB (master)
+      try { localStorage.setItem(LS_KEY, JSON.stringify(obj)); _lsQuotaExceeded=false; }
+      catch(_){ _lsQuotaExceeded=true; window.__IDB_BLOB_CACHE__ = obj; }
+      try { await _idbPutBlob(obj); }
+      catch(err){ console.warn('[import] IDB write failed:', err.message); }
       toast('Đã khôi phục — đang tải lại trang...','ok');
       setTimeout(()=>location.reload(), 800);
     }catch(err){
@@ -8536,10 +8799,137 @@ function importLocalBackup(ev){
   r.readAsText(f);
 }
 
+// ════════════════════════════════════════════════════════════════
+// SQLITE SNAPSHOT EXPORT — backup readable bằng DB Browser, Excel, Power BI
+// Lazy-load sql.js từ CDN (chỉ khi user bấm), không tăng bundle size mặc định
+// ════════════════════════════════════════════════════════════════
+async function _loadSqlJs() {
+  if (window.SQL) return window.SQL;
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js';
+    s.onload = async () => {
+      try {
+        // initSqlJs là global do file UMD của sql.js
+        window.SQL = await initSqlJs({
+          locateFile: f => `https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/${f}`
+        });
+        resolve(window.SQL);
+      } catch(e) { reject(e); }
+    };
+    s.onerror = () => reject(new Error('Không tải được sql.js — kiểm tra mạng'));
+    document.head.appendChild(s);
+  });
+}
+
+async function exportSqliteSnapshot() {
+  const blob = _lsLoadAll();
+  if (!blob) { toast('Chưa có dữ liệu để xuất','warn'); return; }
+
+  toast('Đang tải sql.js & xuất SQLite…','info');
+  try {
+    const SQL = await _loadSqlJs();
+    const db = new SQL.Database();
+
+    // ── Tạo schema ──
+    db.run(`
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE vessels (id TEXT PRIMARY KEY, data TEXT);
+      CREATE TABLE projects (id TEXT PRIMARY KEY, vessel_id TEXT, year INTEGER, name TEXT, data TEXT);
+      CREATE TABLE cost_entries (id TEXT PRIMARY KEY, vessel_id TEXT, project_id TEXT, date TEXT, year INTEGER, "group" TEXT, category TEXT, amount REAL, currency TEXT, fx REAL, description TEXT, data TEXT);
+      CREATE TABLE rev_entries (id TEXT PRIMARY KEY, vessel_id TEXT, project_id TEXT, date TEXT, year INTEGER, amount REAL, currency TEXT, fx REAL, description TEXT, data TEXT);
+      CREATE TABLE capex (id TEXT PRIMARY KEY, vessel_id TEXT, name TEXT, amount REAL, year INTEGER, data TEXT);
+      CREATE TABLE cost_cats (id TEXT PRIMARY KEY, "group" TEXT, group_label TEXT, category TEXT, category_label TEXT, name TEXT, unit TEXT, currency TEXT, active INTEGER, data TEXT);
+      CREATE TABLE rev_cats (id TEXT PRIMARY KEY, name TEXT, data TEXT);
+      CREATE TABLE fx_rates (id TEXT PRIMARY KEY, year INTEGER, currency TEXT, rate REAL, data TEXT);
+      CREATE TABLE annual_plan (id TEXT PRIMARY KEY, vessel_id TEXT, year INTEGER, data TEXT);
+      CREATE TABLE sm_contracts (id TEXT PRIMARY KEY, name TEXT, data TEXT);
+      CREATE TABLE sm_passthrough (id TEXT PRIMARY KEY, contract_id TEXT, date TEXT, amount REAL, data TEXT);
+      CREATE TABLE sm_costs (id TEXT PRIMARY KEY, contract_id TEXT, date TEXT, amount REAL, data TEXT);
+      CREATE TABLE om_contracts (id TEXT PRIMARY KEY, name TEXT, data TEXT);
+      CREATE TABLE om_costs (id TEXT PRIMARY KEY, contract_id TEXT, date TEXT, year INTEGER, amount REAL, data TEXT);
+      CREATE TABLE om_revenues (id TEXT PRIMARY KEY, contract_id TEXT, date TEXT, year INTEGER, amount REAL, data TEXT);
+      CREATE TABLE ga_entries (id TEXT PRIMARY KEY, year INTEGER, month INTEGER, amount REAL, data TEXT);
+      CREATE TABLE ga_revenues (id TEXT PRIMARY KEY, year INTEGER, amount REAL, data TEXT);
+      CREATE TABLE ga_tax_adj (id TEXT PRIMARY KEY, year INTEGER, data TEXT);
+      CREATE TABLE ga_fixed_assets (id TEXT PRIMARY KEY, name TEXT, amount REAL, data TEXT);
+      CREATE INDEX idx_costs_vessel_year ON cost_entries(vessel_id, year);
+      CREATE INDEX idx_revs_vessel_year  ON rev_entries(vessel_id, year);
+      CREATE INDEX idx_om_costs_year     ON om_costs(contract_id, year);
+      CREATE INDEX idx_om_revs_year      ON om_revenues(contract_id, year);
+      CREATE INDEX idx_ga_year_month     ON ga_entries(year, month);
+    `);
+
+    // ── Helper: insert array vào table ──
+    const insertRows = (table, rows, mapper) => {
+      if (!Array.isArray(rows) || rows.length === 0) return 0;
+      let n = 0;
+      for (const r of rows) {
+        try {
+          const cols = mapper(r);
+          const placeholders = cols.map(()=>'?').join(',');
+          db.run(`INSERT OR REPLACE INTO ${table} VALUES (${placeholders})`, cols);
+          n++;
+        } catch(e){ /* skip bad row */ }
+      }
+      return n;
+    };
+
+    // ── Insert data ──
+    const D = blob.DEMO || {};
+    const SM = blob.SM_DEMO || {};
+    const OM = blob.OM_DEMO || {};
+    const GA = blob.GA_DEMO || {};
+
+    db.run('INSERT INTO meta VALUES (?,?)', ['exported_at', new Date().toISOString()]);
+    db.run('INSERT INTO meta VALUES (?,?)', ['source', 'FELIX SQLite snapshot']);
+    if (blob._ts) db.run('INSERT INTO meta VALUES (?,?)', ['data_ts', String(blob._ts)]);
+
+    insertRows('vessels',     D.vessels,    v => [v.id||'', JSON.stringify(v)]);
+    insertRows('projects',    D.projects,   p => [p.id||'', p.vesselId||'', p.year||null, p.name||'', JSON.stringify(p)]);
+    insertRows('cost_entries', D.costEntries, c => [c.id||'', c.vesselId||'', c.projectId||'', c.date||'', c.year||null, c.group||'', c.category||'', c.amount||0, c.currency||'', c.fx||1, c.description||'', JSON.stringify(c)]);
+    insertRows('rev_entries',  D.revEntries,  r => [r.id||'', r.vesselId||'', r.projectId||'', r.date||'', r.year||null, r.amount||0, r.currency||'', r.fx||1, r.description||'', JSON.stringify(r)]);
+    insertRows('capex',        D.capex,      x => [x.id||'', x.vesselId||'', x.name||'', x.amount||0, x.year||null, JSON.stringify(x)]);
+    insertRows('cost_cats',    D.costCats,   c => [c.id||'', c.group||'', c.groupLabel||'', c.category||'', c.categoryLabel||'', c.name||'', c.unit||'', c.currency||'', c.active===false?0:1, JSON.stringify(c)]);
+    insertRows('rev_cats',     D.revCats,    c => [c.id||'', c.name||'', JSON.stringify(c)]);
+    insertRows('fx_rates',     D.fxRates,    f => [f.id||'', f.year||null, f.currency||'', f.rate||0, JSON.stringify(f)]);
+    insertRows('annual_plan',  D.annualPlan, p => [p.id||(p.vesselId+'_'+p.year)||'', p.vesselId||'', p.year||null, JSON.stringify(p)]);
+
+    insertRows('sm_contracts',   SM.contracts,          x => [x.id||'', x.name||'', JSON.stringify(x)]);
+    insertRows('sm_passthrough', SM.passthroughEntries, x => [x.id||'', x.contractId||'', x.date||'', x.amount||0, JSON.stringify(x)]);
+    insertRows('sm_costs',       SM.smCosts,            x => [x.id||'', x.contractId||'', x.date||'', x.amount||0, JSON.stringify(x)]);
+
+    insertRows('om_contracts', OM.contracts,      x => [x.id||'', x.name||'', JSON.stringify(x)]);
+    insertRows('om_costs',     OM.omCostEntries,  x => [x.id||'', x.contractId||'', x.date||'', x.year||null, x.amount||0, JSON.stringify(x)]);
+    insertRows('om_revenues',  OM.omRevEntries,   x => [x.id||'', x.contractId||'', x.date||'', x.year||null, x.amount||0, JSON.stringify(x)]);
+
+    insertRows('ga_entries',       GA.entries,        x => [x.id||'', x.year||null, x.month||null, x.amount||0, JSON.stringify(x)]);
+    insertRows('ga_revenues',      GA.revEntries,     x => [x.id||'', x.year||null, x.amount||0, JSON.stringify(x)]);
+    insertRows('ga_tax_adj',       GA.taxAdjustments, x => [x.id||'', x.year||null, JSON.stringify(x)]);
+    insertRows('ga_fixed_assets',  GA.fixedAssets,    x => [x.id||'', x.name||'', x.amount||0, JSON.stringify(x)]);
+
+    // ── Export & download ──
+    const buf = db.export();
+    db.close();
+    const fileBlob = new Blob([buf], { type: 'application/x-sqlite3' });
+    const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+    const fname = `felix-snapshot-${stamp}.sqlite`;
+    const url = URL.createObjectURL(fileBlob);
+    const a = document.createElement('a'); a.href = url; a.download = fname; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 1500);
+    toast('Đã xuất: '+fname+' — mở bằng DB Browser for SQLite','ok');
+  } catch(e) {
+    console.error('[sqlite-export]', e);
+    toast('Lỗi xuất SQLite: '+(e.message||'unknown'),'err');
+  }
+}
+
 function resetLocalData(){
   if (!confirm('XOÁ TOÀN BỘ dữ liệu offline trong trình duyệt? Hành động không thể hoàn tác.\n\nNên xuất file backup trước!')) return;
   if (!confirm('Xác nhận lần cuối: bạn muốn xoá hết dữ liệu?')) return;
   localStorage.removeItem(LS_KEY);
+  _idbDeleteBlob().catch(()=>{});
+  window.__IDB_BLOB_CACHE__ = null;
   toast('Đã xoá. Đang tải lại trang...','ok');
   setTimeout(()=>location.reload(), 800);
 }
@@ -21006,6 +21396,10 @@ async function foxyChangePw(){
 }
 
 async function bootFoxy(){
+  // ── Prime storage: load IndexedDB (master) → localStorage (cache) trước khi init ──
+  try { await _storageBootPrime(); }
+  catch(e){ console.warn('[boot] storage prime failed (non-fatal):', e?.message); }
+
   // ── Phát hiện iPhone/iPad ──
   const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
                 (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
