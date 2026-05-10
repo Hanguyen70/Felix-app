@@ -10408,12 +10408,18 @@ var OM_DEMO = {
     {id:'oa18',group:'A',groupLabel:'Chuyên gia',category:'A2',categoryLabel:'Đào tạo & Chứng chỉ',name:'Gia hạn chứng chỉ hành nghề',unit:'lần',currency:'VND'},
 
     // B — Bảo hiểm
-    {id:'ob11',group:'B',groupLabel:'Bảo hiểm',category:'B1',categoryLabel:'BH Trách nhiệm nghề nghiệp',name:'BHTN Nghề nghiệp (Professional Indemnity)',unit:'năm',currency:'USD'},
-    {id:'ob12',group:'B',groupLabel:'Bảo hiểm',category:'B2',categoryLabel:'BH Trách nhiệm công cộng',name:'BHTN Công cộng (Public Liability)',unit:'năm',currency:'USD'},
-    {id:'ob13',group:'B',groupLabel:'Bảo hiểm',category:'B3',categoryLabel:'BH Tai nạn NLĐ',name:'BHTN Người sử dụng lao động (Employer Liability)',unit:'năm',currency:'USD'},
-    {id:'ob14',group:'B',groupLabel:'Bảo hiểm',category:'B4',categoryLabel:'BH Sức khoẻ toàn cầu',name:'BH Sức khoẻ toàn cầu (International Health)',unit:'người/năm',currency:'USD'},
-    {id:'ob15',group:'B',groupLabel:'Bảo hiểm',category:'B5',categoryLabel:'BH Bồi thường NLĐ',name:'BH Bồi thường người lao động (Workers Comp)',unit:'năm',currency:'USD'},
-    {id:'ob16',group:'B',groupLabel:'Bảo hiểm',category:'B5',categoryLabel:'BH Bồi thường NLĐ',name:'BH Tai nạn cá nhân chuyên gia',unit:'người/năm',currency:'USD'},
+    // B1: Bảo hiểm chuyên gia (cho nhân sự dự án — vào BCTC bình thường)
+    {id:'ob11',group:'B',groupLabel:'Bảo hiểm',category:'B1',categoryLabel:'Bảo hiểm chuyên gia',name:'BHTN Nghề nghiệp (Professional Indemnity)',unit:'năm',currency:'USD'},
+    {id:'ob12',group:'B',groupLabel:'Bảo hiểm',category:'B1',categoryLabel:'Bảo hiểm chuyên gia',name:'BHTN Công cộng (Public Liability)',unit:'năm',currency:'USD'},
+    {id:'ob13',group:'B',groupLabel:'Bảo hiểm',category:'B1',categoryLabel:'Bảo hiểm chuyên gia',name:'BHTN Người sử dụng lao động (Employer Liability)',unit:'năm',currency:'USD'},
+    {id:'ob14',group:'B',groupLabel:'Bảo hiểm',category:'B1',categoryLabel:'Bảo hiểm chuyên gia',name:'BH Sức khoẻ toàn cầu (International Health)',unit:'người/năm',currency:'USD'},
+    {id:'ob15',group:'B',groupLabel:'Bảo hiểm',category:'B1',categoryLabel:'Bảo hiểm chuyên gia',name:'BH Bồi thường người lao động (Workers Comp)',unit:'năm',currency:'USD'},
+    {id:'ob16',group:'B',groupLabel:'Bảo hiểm',category:'B1',categoryLabel:'Bảo hiểm chuyên gia',name:'BH Tai nạn cá nhân chuyên gia',unit:'người/năm',currency:'USD'},
+
+    // B2: Bảo hiểm khác (BH chung công ty — thường chi từ quỹ Q, không vào BCTC)
+    {id:'ob21',group:'B',groupLabel:'Bảo hiểm',category:'B2',categoryLabel:'Bảo hiểm khác',name:'BH PVI chăm sóc sức khoẻ nhân sự',unit:'năm',currency:'VND'},
+    {id:'ob22',group:'B',groupLabel:'Bảo hiểm',category:'B2',categoryLabel:'Bảo hiểm khác',name:'BH y tế bổ sung văn phòng',unit:'năm',currency:'VND'},
+    {id:'ob23',group:'B',groupLabel:'Bảo hiểm',category:'B2',categoryLabel:'Bảo hiểm khác',name:'BH tai nạn 24/24 nhân viên',unit:'năm',currency:'VND'},
 
     // C — Logistics
     {id:'oc11',group:'C',groupLabel:'Logistics',category:'C1',categoryLabel:'Di chuyển',name:'Vé máy bay quốc tế / nội địa',unit:'chuyến',currency:'VND'},
