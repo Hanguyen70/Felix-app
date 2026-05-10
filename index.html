@@ -3307,6 +3307,120 @@ function fmtDT(s)  { if(!s) return '—'; return new Date(s).toLocaleString('vi-
 // amountInputId: ID input số tiền chưa VAT (để listen thay đổi)
 // e: object data có thể chứa vatRate, vatAmountVnd
 // hideOnVndOnly: nếu true, ẩn block VAT khi đồng tiền không phải VND (chưa support)
+// ═══════════════════════════════════════════════════════
+// EXPLAIN HELPER — Icon ℹ️ + Modal giải thích cách tính
+// ═══════════════════════════════════════════════════════
+//
+// Sinh icon ℹ️ click → mở modal với:
+//   - Tiêu đề
+//   - Công thức (nếu có)
+//   - Cụ thể (số liệu áp dụng)
+//   - Bảng bút toán thành phần (nếu có)
+//
+// Cách dùng:
+//   Trong template:
+//     <div>10,818,150 đ/ngày ${_explainIcon('idKey1')}</div>
+//
+//   Trước khi render, gán data:
+//     _explainData['idKey1'] = {
+//       title: 'Daily F (phân bổ)',
+//       formula: 'F-cost × Số ngày dự án / Tổng ngày phân bổ',
+//       compute: '= 65 tỷ × 30 / 180 = 10.83 tr/ngày',
+//       description: 'Phân bổ chi phí trả trước (BH, máy tính...) vào ngày dự án.',
+//       breakdown: [{name:'BH P&I', total:24e9, days:365, share:1.97e6}, ...],
+//       breakdownCols: [
+//         {key:'name', label:'Khoản mục'},
+//         {key:'total', label:'Tổng', num:true, fmt:fmtVnd},
+//         ...
+//       ],
+//     };
+window._explainData = window._explainData || {};
+
+function _explainIcon(key) {
+  return `<button type="button" onclick="_showExplain('${key}')" title="Xem cách tính" style="background:none;border:none;cursor:pointer;padding:0 4px;font-size:13px;opacity:.5;vertical-align:middle" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.5'">ℹ️</button>`;
+}
+
+function _showExplain(key) {
+  const d = window._explainData[key];
+  if (!d) {
+    toast('Chưa có dữ liệu giải thích cho mục này','warn');
+    return;
+  }
+
+  let html = '';
+
+  // Mô tả nghiệp vụ
+  if (d.description) {
+    html += `<div style="background:#F0F9FF;border-left:4px solid var(--blue);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--text2)">
+      💡 ${d.description}
+    </div>`;
+  }
+
+  // Công thức
+  if (d.formula) {
+    html += `<div style="margin-bottom:8px"><strong style="font-size:12px;color:var(--text2)">📐 Công thức:</strong></div>
+    <div style="background:#FFFBEB;border:1px solid var(--amber);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:13px;font-weight:600;color:var(--amber);margin-bottom:12px">
+      ${d.formula}
+    </div>`;
+  }
+
+  // Cụ thể (số áp dụng)
+  if (d.compute) {
+    html += `<div style="margin-bottom:8px"><strong style="font-size:12px;color:var(--text2)">🧮 Cụ thể:</strong></div>
+    <div style="background:#F0FDF4;border:1px solid var(--green);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:12px;white-space:pre-line">${d.compute}</div>`;
+  }
+
+  // Bảng breakdown (bút toán thành phần)
+  if (Array.isArray(d.breakdown) && d.breakdown.length > 0) {
+    const cols = d.breakdownCols || [];
+    html += `<div style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+      <strong style="font-size:12px;color:var(--text2)">📋 Bút toán thành phần${d.breakdownNote?` <span style="font-weight:400;color:var(--text3)">(${d.breakdownNote})</span>`:''}:</strong>
+      <span style="font-size:11px;color:var(--text3)">${d.breakdown.length} dòng</span>
+    </div>
+    <div class="tbl-wrap">
+      <table style="font-size:12px">
+        <thead><tr>
+          ${cols.map(c => `<th class="${c.num?'num':''}" style="${c.width?`width:${c.width}`:''}">${c.label}</th>`).join('')}
+        </tr></thead>
+        <tbody>`;
+    d.breakdown.forEach(row => {
+      html += '<tr>';
+      cols.forEach(c => {
+        let val = row[c.key];
+        if (c.fmt) val = c.fmt(val);
+        else if (val === null || val === undefined) val = '—';
+        html += `<td class="${c.num?'num':''}" style="${c.style||''}">${val}</td>`;
+      });
+      html += '</tr>';
+    });
+    if (d.breakdownTotal) {
+      html += `<tr style="background:var(--gray1);font-weight:700;border-top:2px solid var(--border)">`;
+      cols.forEach((c, i) => {
+        if (i === 0) {
+          html += `<td><strong>Tổng cộng (${d.breakdown.length})</strong></td>`;
+        } else if (d.breakdownTotal[c.key] !== undefined) {
+          let val = d.breakdownTotal[c.key];
+          if (c.fmt) val = c.fmt(val);
+          html += `<td class="${c.num?'num':''}"><strong>${val}</strong></td>`;
+        } else {
+          html += '<td></td>';
+        }
+      });
+      html += '</tr>';
+    }
+    html += `</tbody></table></div>`;
+  }
+
+  // Lưu ý cuối
+  if (d.note) {
+    html += `<div style="background:var(--gray1);border-radius:6px;padding:10px 12px;margin-top:12px;font-size:11px;color:var(--text3);font-style:italic">
+      ${d.note}
+    </div>`;
+  }
+
+  openModal(d.title || 'Cách tính', html, null, d.size || 'lg');
+}
+
 function _vatBlockHtml(prefix, amountInputId, e = {}) {
   const vatRate = e.vatRate !== undefined ? parseFloat(e.vatRate) : 0;
   const vatAmt = parseFloat(e.vatAmountVnd) || 0;
@@ -6439,6 +6553,163 @@ async function loadProjectReport() {
   const s = data.summary;
   const p = data.project;
 
+  // ═══ BUILD EXPLAIN DATA ═══
+  // Lấy các bút toán liên quan để hiển thị trong drill-down
+  const projDays = parseFloat(s.projectDays) || 0;
+  const totalCost = parseFloat(s.totalProjectCostVnd) || 0;
+  const totalRev = parseFloat(s.totalRevVnd) || 0;
+
+  // 1. Số ngày dự án
+  window._explainData['pr_days'] = {
+    title: 'Cách tính: Số ngày dự án',
+    description: 'Số ngày tàu được tính phục vụ dự án này — tổng các loại ngày (Transit, Mob/Demob, Standby, Onfield).',
+    formula: 'Transit + Mob/Demob + Standby + Onfield',
+    compute: `= ${fmtDays(p.transitDays)} + ${fmtDays(p.mobDemobDays)} + ${fmtDays(p.standbyDays)} + ${fmtDays(p.onfieldDays)}\n= ${fmtDays(projDays)}`,
+    note: 'Ngày dự án dùng làm mẫu số cho tất cả các Daily rate.',
+  };
+
+  // 2. Doanh thu
+  if (Array.isArray(data.revEntries) && data.revEntries.length > 0) {
+    window._explainData['pr_rev'] = {
+      title: 'Cách tính: Doanh thu dự án',
+      description: 'Tổng doanh thu thực thu của dự án (chưa VAT). VAT cộng riêng vào Phải thu, không vào doanh thu.',
+      compute: `Tổng cộng: ${fmtVnd(totalRev)}`,
+      breakdown: data.revEntries.map(r => ({
+        date: fmtDate(r.entryDate),
+        cat: r.categoryName || r.categoryId || '—',
+        invoiceNo: r.invoiceNo || '—',
+        amount: parseFloat(r.amountVnd) || 0,
+        description: r.description || '—',
+      })),
+      breakdownCols: [
+        {key:'date', label:'Ngày', width:'90px'},
+        {key:'cat', label:'Đầu mục'},
+        {key:'invoiceNo', label:'Số HĐ', width:'120px'},
+        {key:'description', label:'Mô tả'},
+        {key:'amount', label:'Số tiền VNĐ', num:true, fmt:fmtVnd, width:'130px'},
+      ],
+      breakdownTotal: { amount: totalRev },
+    };
+  } else {
+    window._explainData['pr_rev'] = {
+      title: 'Doanh thu dự án',
+      description: 'Tổng doanh thu thực thu của dự án.',
+      compute: `Tổng cộng: ${fmtVnd(totalRev)}`,
+      note: 'Chưa có bút toán doanh thu cho dự án này.',
+    };
+  }
+
+  // 3. Tổng chi phí dự án — drill-down theo nhóm
+  const costBreakdown = [];
+  (data.catBreakdown||[]).forEach(g => {
+    (g.items||[]).forEach(it => {
+      costBreakdown.push({
+        group: g.groupLabel || g.group,
+        cat: it.name,
+        amount: parseFloat(it.total) || 0,
+        pct: totalCost ? (it.total/totalCost*100) : 0,
+      });
+    });
+  });
+  window._explainData['pr_cost'] = {
+    title: 'Cách tính: Tổng chi phí dự án',
+    description: 'Tổng tất cả chi phí phân bổ vào dự án (sau khi đã loại trừ Q-từ quỹ, Capitalize, L-không vào BCTC). Bao gồm cả trích T và F phân bổ theo ngày.',
+    compute: `Tổng cộng: ${fmtVnd(totalCost)}` +
+      (s.totalAccrualT>0 ? `\n  + Trích T (${fmtB(s.totalAccrualT)})` : '') +
+      (s.fAllocatedVnd>0 ? `\n  + F phân bổ (${fmtB(s.fAllocatedVnd)})` : ''),
+    breakdown: costBreakdown,
+    breakdownCols: [
+      {key:'group', label:'Nhóm', width:'140px'},
+      {key:'cat', label:'Khoản mục'},
+      {key:'amount', label:'Số tiền VNĐ', num:true, fmt:fmtVnd, width:'130px'},
+      {key:'pct', label:'%', num:true, fmt:v=>pct(v), width:'70px'},
+    ],
+    breakdownTotal: { amount: totalCost, pct: 100 },
+    note: 'Click để mở rộng cách phân bổ F trong "Daily F (phân bổ vào dự án)" bên dưới.',
+  };
+
+  // 4. Margin
+  const marginVnd = parseFloat(s.projectMarginVnd) || 0;
+  const marginPct = parseFloat(s.projectMarginPct) || 0;
+  window._explainData['pr_margin'] = {
+    title: 'Cách tính: Margin dự án (sau trích T)',
+    description: 'Lợi nhuận gộp dự án sau khi trừ tất cả chi phí (kể cả Trích quỹ T). Là chỉ tiêu hiệu quả thực tế của dự án.',
+    formula: 'Margin = Doanh thu - Tổng chi phí dự án\nMargin% = Margin / Doanh thu × 100',
+    compute: `Margin VNĐ = ${fmtVnd(totalRev)} − ${fmtVnd(totalCost)}\n           = ${fmtVnd(marginVnd)}\n\nMargin% = ${fmtVnd(marginVnd)} / ${fmtVnd(totalRev)} × 100\n        = ${pct(marginPct)}`,
+    note: marginVnd < 0 ? '⚠ Margin âm — dự án đang lỗ.' : marginPct < 10 ? '⚠ Margin <10% — cần xem xét hiệu quả.' : '',
+  };
+
+  // 5. Daily revenue rate
+  window._explainData['pr_drr'] = {
+    title: 'Cách tính: Daily revenue rate',
+    description: 'Doanh thu trung bình mỗi ngày dự án.',
+    formula: 'Doanh thu / Số ngày dự án',
+    compute: `= ${fmtVnd(totalRev)} / ${fmtDays(projDays)}\n= ${fmtVnd(s.dailyRevRate)} /ngày`,
+  };
+
+  // 6. Daily opex (A+B)
+  const opexTotal = (s.dailyOpexCost || 0) * projDays;
+  window._explainData['pr_dopex'] = {
+    title: 'Cách tính: Daily opex (A+B)',
+    description: 'Chi phí vận hành tàu trung bình mỗi ngày — bao gồm Nhóm A (Lương thuyền viên, Phụ cấp) + Nhóm B (Bảo dưỡng, Bảo hiểm tàu).',
+    formula: '(Tổng A + Tổng B) / Số ngày dự án',
+    compute: `= ${fmtVnd(opexTotal)} / ${fmtDays(projDays)}\n= ${fmtVnd(s.dailyOpexCost)} /ngày`,
+  };
+
+  // 7. Daily fuel (C)
+  const fuelTotal = (s.dailyFuelCost || 0) * projDays;
+  window._explainData['pr_dfuel'] = {
+    title: 'Cách tính: Daily fuel cost (C)',
+    description: 'Chi phí nhiên liệu trung bình mỗi ngày — Nhóm C (Dầu DO/HFO, Lub).',
+    formula: 'Tổng C / Số ngày dự án',
+    compute: `= ${fmtVnd(fuelTotal)} / ${fmtDays(projDays)}\n= ${fmtVnd(s.dailyFuelCost)} /ngày`,
+  };
+
+  // 8. Daily F (phân bổ vào dự án)
+  if (s.dailyOffhireCost) {
+    window._explainData['pr_df'] = {
+      title: 'Cách tính: Daily F (phân bổ vào dự án)',
+      description: 'Chi phí Nhóm F (chi phí trả trước, dùng nhiều ngày — bảo hiểm, máy tính, phần mềm) được phân bổ theo TỶ LỆ NGÀY DỰ ÁN trong tổng số ngày phân bổ của khoản F.',
+      formula: 'Σ (F-cost × Số ngày dự án trùng / Tổng ngày phân bổ của F-cost đó)',
+      compute: `Tổng F phân bổ vào dự án này: ${fmtVnd(s.fAllocatedVnd)}\nDaily F = ${fmtVnd(s.fAllocatedVnd)} / ${fmtDays(projDays)}\n        = ${fmtVnd(s.dailyOffhireCost)} /ngày`,
+      breakdown: (data.fAllocatedDetails || []).map(f => ({
+        name: f.name || '—',
+        totalVnd: parseFloat(f.totalVnd) || 0,
+        allocDays: parseFloat(f.allocDays) || 0,
+        sharedDays: parseFloat(f.sharedDays) || 0,
+        sharedVnd: parseFloat(f.sharedVnd) || 0,
+      })),
+      breakdownCols: [
+        {key:'name', label:'Khoản F'},
+        {key:'totalVnd', label:'Tổng F', num:true, fmt:fmtVnd, width:'120px'},
+        {key:'allocDays', label:'Ngày phân bổ', num:true, fmt:fmtDays, width:'100px'},
+        {key:'sharedDays', label:'Ngày dự án', num:true, fmt:fmtDays, width:'100px'},
+        {key:'sharedVnd', label:'F áp vào DA', num:true, fmt:fmtVnd, width:'120px'},
+      ],
+      note: 'Vd: BH P&I 24 tỷ phân bổ 365 ngày → daily 65.7 tr; dự án dùng 30 ngày → áp 65.7×30 = 1.97 tỷ.',
+    };
+  }
+
+  // 9. Daily total project cost
+  window._explainData['pr_dtotal'] = {
+    title: 'Cách tính: Daily total project cost',
+    description: 'Tổng chi phí trung bình mỗi ngày dự án — bao gồm tất cả opex (A+B), fuel (C), F phân bổ.',
+    formula: 'Tổng chi phí dự án / Số ngày dự án',
+    compute: `= ${fmtVnd(totalCost)} / ${fmtDays(projDays)}\n= ${fmtVnd(s.dailyTotalCost)} /ngày`,
+    note: 'Là cơ sở tính giá thuê tối thiểu — daily rate cho thuê phải > daily total project cost mới có lãi.',
+  };
+
+  // 10. Trích T (nếu có)
+  if (s.totalAccrualT > 0) {
+    window._explainData['pr_taccr'] = {
+      title: 'Cách tính: Trích quỹ lương dự án (T)',
+      description: 'Phần doanh thu trích vào quỹ lương dự án — sẽ chi cho ban quản lý dự án sau, không phải lương thuyền viên thường.',
+      formula: 'Doanh thu × Tỷ lệ T% (chung toàn công ty cho năm hiện tại)',
+      compute: `= ${fmtVnd(totalRev)} × ${(s.tRate || 0)}%\n= ${fmtVnd(s.totalAccrualT)}`,
+      note: 'Tỷ lệ T set chung tại trang "Quỹ lương dự án (T/Q)". Mỗi bút toán DT có thể bật/tắt trích T riêng.',
+    };
+  }
+
   const catRows = (data.catBreakdown||[]).map(g=>`
     <tr style="background:var(--gray1)">
       <td colspan="2"><strong>${g.groupLabel||g.group}</strong></td>
@@ -6451,16 +6722,22 @@ async function loadProjectReport() {
   document.getElementById('proj-report-content').innerHTML = `
     <div class="section-title">${p.name} — ${p.client||''} — ${p.contractNo||''}</div>
     <div class="kpi-grid cols4 mb16">
-      <div class="kpi-card accent-blue"><div class="kpi-label">Số ngày dự án</div><div class="kpi-value">${fmtDays(s.projectDays)}</div></div>
-      <div class="kpi-card accent-teal"><div class="kpi-label">Doanh thu</div><div class="kpi-value">${fmtB(s.totalRevVnd)}</div></div>
+      <div class="kpi-card accent-blue">
+        <div class="kpi-label">Số ngày dự án ${_explainIcon('pr_days')}</div>
+        <div class="kpi-value">${fmtDays(s.projectDays)}</div>
+      </div>
+      <div class="kpi-card accent-teal">
+        <div class="kpi-label">Doanh thu ${_explainIcon('pr_rev')}</div>
+        <div class="kpi-value">${fmtB(s.totalRevVnd)}</div>
+      </div>
       <div class="kpi-card accent-amber">
-        <div class="kpi-label">Tổng chi phí dự án</div>
+        <div class="kpi-label">Tổng chi phí dự án ${_explainIcon('pr_cost')}</div>
         <div class="kpi-value">${fmtB(s.totalProjectCostVnd)}</div>
-        ${s.totalAccrualT>0?`<div class="kpi-sub" style="color:var(--amber)">Bao gồm trích T: ${fmtB(s.totalAccrualT)}</div>`:''}
-        ${s.fAllocatedVnd>0?`<div class="kpi-sub" style="color:var(--amber)">Bao gồm F phân bổ: ${fmtB(s.fAllocatedVnd)}</div>`:''}
+        ${s.totalAccrualT>0?`<div class="kpi-sub" style="color:var(--amber)">Bao gồm trích T: ${fmtB(s.totalAccrualT)} ${_explainIcon('pr_taccr')}</div>`:''}
+        ${s.fAllocatedVnd>0?`<div class="kpi-sub" style="color:var(--amber)">Bao gồm F phân bổ: ${fmtB(s.fAllocatedVnd)} ${_explainIcon('pr_df')}</div>`:''}
       </div>
       <div class="kpi-card ${s.projectMarginPct>0?'accent-green':'accent-red'}">
-        <div class="kpi-label">Margin dự án (sau trích T)</div>
+        <div class="kpi-label">Margin dự án (sau trích T) ${_explainIcon('pr_margin')}</div>
         <div class="kpi-value ${s.projectMarginPct>0?'kpi-positive':'kpi-negative'}">${pct(s.projectMarginPct)}</div>
         <div class="kpi-sub">${fmtB(s.projectMarginVnd)}</div>
       </div>
@@ -6471,17 +6748,17 @@ async function loadProjectReport() {
         <div class="card-body">
           <table>
             <tbody>
-              <tr><td>Daily revenue rate</td><td class="num">${fmtVnd(s.dailyRevRate)}/ngày</td></tr>
-              <tr><td>Daily opex cost (A+B)</td><td class="num">${fmtVnd(s.dailyOpexCost)}/ngày</td></tr>
-              <tr><td>Daily fuel cost (C)</td><td class="num">${fmtVnd(s.dailyFuelCost)}/ngày</td></tr>
-              ${s.dailyOffhireCost ? `<tr style="background:#FFFBF0"><td>Daily F (phân bổ vào dự án)</td><td class="num" style="color:var(--amber)">${fmtVnd(s.dailyOffhireCost)}/ngày</td></tr>` : ''}
-              <tr><td>Daily total project cost</td><td class="num"><strong>${fmtVnd(s.dailyTotalCost)}/ngày</strong></td></tr>
+              <tr><td>Daily revenue rate ${_explainIcon('pr_drr')}</td><td class="num">${fmtVnd(s.dailyRevRate)}/ngày</td></tr>
+              <tr><td>Daily opex cost (A+B) ${_explainIcon('pr_dopex')}</td><td class="num">${fmtVnd(s.dailyOpexCost)}/ngày</td></tr>
+              <tr><td>Daily fuel cost (C) ${_explainIcon('pr_dfuel')}</td><td class="num">${fmtVnd(s.dailyFuelCost)}/ngày</td></tr>
+              ${s.dailyOffhireCost ? `<tr style="background:#FFFBF0"><td>Daily F (phân bổ vào dự án) ${_explainIcon('pr_df')}</td><td class="num" style="color:var(--amber)">${fmtVnd(s.dailyOffhireCost)}/ngày</td></tr>` : ''}
+              <tr><td>Daily total project cost ${_explainIcon('pr_dtotal')}</td><td class="num"><strong>${fmtVnd(s.dailyTotalCost)}/ngày</strong></td></tr>
             </tbody>
           </table>
         </div>
       </div>
       <div class="card">
-        <div class="card-header"><h3>Chi tiết chi phí</h3></div>
+        <div class="card-header"><h3>Chi tiết chi phí ${_explainIcon('pr_cost')}</h3></div>
         <div class="card-body no-pad">
           <table>
             <thead><tr><th>Nhóm</th><th>Khoản mục</th><th class="num">Số tiền</th><th class="num">%</th></tr></thead>
@@ -6491,7 +6768,7 @@ async function loadProjectReport() {
       </div>
     </div>
     <div class="card">
-      <div class="card-header"><h3>Thời gian chi tiết</h3></div>
+      <div class="card-header"><h3>Thời gian chi tiết ${_explainIcon('pr_days')}</h3></div>
       <div class="card-body">
         <div class="form-grid cols4">
           <div class="kpi-card"><div class="kpi-label">Transit time</div><div class="kpi-value small">${fmtDays(p.transitDays)}</div></div>
@@ -6520,6 +6797,76 @@ async function renderReportAnnual() {
   const s = data;
   const marginColor = s.margin.annualMarginPct>0?'accent-green':'accent-red';
 
+  // ═══ EXPLAIN DATA ═══
+  const yr = s.year;
+  const totalRev = parseFloat(s.revenue.totalRevVnd) || 0;
+  const totalCost = parseFloat(s.costs.totalAnnualCost) || 0;
+  const onhireDays = parseFloat(s.days.onhireDays) || 0;
+  const daysInYear = parseFloat(s.days.daysInYear) || 365;
+
+  window._explainData['ar_rev'] = {
+    title: 'Cách tính: Tổng doanh thu năm',
+    description: `Tổng doanh thu thực thu của tàu trong năm ${yr} (chưa VAT).`,
+    formula: 'Σ Doanh thu các dự án trong năm',
+    compute: `Tổng cộng: ${fmtVnd(totalRev)}`,
+    breakdown: (s.projectMargins||[]).map(p => ({
+      name: p.name,
+      client: p.client||'—',
+      days: parseFloat(p.days)||0,
+      rev: parseFloat(p.revVnd)||0,
+    })),
+    breakdownCols: [
+      {key:'name', label:'Dự án'},
+      {key:'client', label:'Khách hàng'},
+      {key:'days', label:'Ngày', num:true, fmt:fmtDays, width:'80px'},
+      {key:'rev', label:'Doanh thu', num:true, fmt:fmtVnd, width:'130px'},
+    ],
+    breakdownTotal: { rev: totalRev },
+  };
+
+  window._explainData['ar_cost'] = {
+    title: 'Cách tính: Tổng chi phí năm',
+    description: `Tổng chi phí phân bổ cho tàu trong năm ${yr}, bao gồm các nhóm: A (lương), B (bảo dưỡng/BH), C (nhiên liệu), D (CPQL), F (phân bổ).`,
+    formula: 'Σ Chi phí các nhóm — sau loại Q/Capitalize/L/I',
+    compute: `Tổng cộng: ${fmtVnd(totalCost)}`,
+    breakdown: (s.catBreakdown||[]).map(g => ({
+      group: g.groupLabel || g.group,
+      total: parseFloat(g.total) || 0,
+      pct: totalCost ? (g.total/totalCost*100) : 0,
+    })),
+    breakdownCols: [
+      {key:'group', label:'Nhóm chi phí'},
+      {key:'total', label:'Số tiền', num:true, fmt:fmtVnd, width:'130px'},
+      {key:'pct', label:'%', num:true, fmt:v=>pct(v), width:'80px'},
+    ],
+    breakdownTotal: { total: totalCost, pct: 100 },
+  };
+
+  window._explainData['ar_margin'] = {
+    title: 'Cách tính: Margin năm',
+    description: 'Lợi nhuận gộp tàu năm sau khi trừ tất cả chi phí. Là chỉ tiêu hiệu quả thực tế của tàu trong năm.',
+    formula: 'Margin = Doanh thu - Chi phí\nMargin% = Margin / Doanh thu × 100',
+    compute: `Margin VNĐ = ${fmtVnd(totalRev)} − ${fmtVnd(totalCost)}\n           = ${fmtVnd(s.margin.annualMarginVnd)}\n\nMargin% = ${fmtVnd(s.margin.annualMarginVnd)} / ${fmtVnd(totalRev)} × 100\n        = ${pct(s.margin.annualMarginPct)}`,
+    note: s.margin.annualMarginVnd < 0 ? '⚠ Margin âm — tàu đang lỗ năm nay.' : '',
+  };
+
+  window._explainData['ar_onhire'] = {
+    title: 'Cách tính: Onhire days & Utilisation',
+    description: 'Số ngày tàu được dùng phục vụ dự án (đã ký HĐ) trong năm, là cơ sở tính tỷ lệ khai thác (utilisation).',
+    formula: 'Σ Số ngày các dự án năm hiện tại\nUtilisation% = Onhire days / Số ngày trong năm × 100',
+    compute: `Onhire = ${fmtDays(onhireDays)}\nUtilisation = ${fmtDays(onhireDays)} / ${fmtDays(daysInYear)} × 100\n           = ${pct(daysInYear?onhireDays/daysInYear*100:0)}`,
+    breakdown: (s.projectMargins||[]).map(p => ({
+      name: p.name,
+      days: parseFloat(p.days)||0,
+    })),
+    breakdownCols: [
+      {key:'name', label:'Dự án'},
+      {key:'days', label:'Ngày', num:true, fmt:fmtDays, width:'100px'},
+    ],
+    breakdownTotal: { days: onhireDays },
+    note: 'Off-hire days = ngày trong năm - ngày dự án (chưa được ký HĐ).',
+  };
+
   const projRows = (s.projectMargins||[]).map(p=>`
     <tr>
       <td>${p.name}</td><td>${p.client||'—'}</td>
@@ -6538,15 +6885,15 @@ async function renderReportAnnual() {
   document.getElementById('content').innerHTML = `
     <div class="section-title">${data.vessel?.name} — Năm ${s.year}</div>
     <div class="kpi-grid cols4 mb16">
-      <div class="kpi-card accent-teal"><div class="kpi-label">Tổng doanh thu</div><div class="kpi-value">${fmtB(s.revenue.totalRevVnd)}</div></div>
-      <div class="kpi-card accent-amber"><div class="kpi-label">Tổng chi phí</div><div class="kpi-value">${fmtB(s.costs.totalAnnualCost)}</div></div>
+      <div class="kpi-card accent-teal"><div class="kpi-label">Tổng doanh thu ${_explainIcon('ar_rev')}</div><div class="kpi-value">${fmtB(s.revenue.totalRevVnd)}</div></div>
+      <div class="kpi-card accent-amber"><div class="kpi-label">Tổng chi phí ${_explainIcon('ar_cost')}</div><div class="kpi-value">${fmtB(s.costs.totalAnnualCost)}</div></div>
       <div class="kpi-card ${marginColor}">
-        <div class="kpi-label">Margin năm</div>
+        <div class="kpi-label">Margin năm ${_explainIcon('ar_margin')}</div>
         <div class="kpi-value ${s.margin.annualMarginPct>0?'kpi-positive':'kpi-negative'}">${pct(s.margin.annualMarginPct)}</div>
         <div class="kpi-sub">${fmtB(s.margin.annualMarginVnd)}</div>
       </div>
       <div class="kpi-card accent-blue">
-        <div class="kpi-label">Onhire days</div>
+        <div class="kpi-label">Onhire days ${_explainIcon('ar_onhire')}</div>
         <div class="kpi-value">${fmtDays(s.days.onhireDays)}</div>
         <div class="kpi-sub">${pct(s.days.daysInYear?s.days.onhireDays/s.days.daysInYear*100:0)} utilisation</div>
       </div>
@@ -8733,22 +9080,90 @@ async function renderCapexReport() {
     <div class="section-title">${vessel.name} — Phân tích Capex & Hoà vốn</div>
     <div class="kpi-grid cols4 mb16">
       <div class="kpi-card accent-red">
-        <div class="kpi-label">Tổng Capex tích luỹ</div>
+        <div class="kpi-label">Tổng Capex tích luỹ ${(()=>{
+          window._explainData['cx_total'] = {
+            title: 'Cách tính: Tổng Capex tích luỹ',
+            description: 'Tổng vốn đầu tư cho tàu — bao gồm giá mua ban đầu + các khoản đầu tư thêm trong quá trình vận hành.',
+            formula: 'Giá mua tàu (đã quy đổi VNĐ) + Σ Đầu tư thêm tích luỹ',
+            compute: `Giá mua tàu:          ${fmtVnd(data.purchaseCost)}${fxSubtitle?' ('+fxSubtitle+')':''}\n+ Đầu tư thêm:        ${fmtVnd(data.totalCapexEntries)}\n────────────────────────\nTổng Capex tích luỹ:  ${fmtVnd(data.totalCapexVnd)}`,
+            breakdown: (data.capexRows||[]).map(r => ({
+              year: r.year,
+              desc: r.description || '—',
+              amount: parseFloat(r.amountVnd) || 0,
+            })),
+            breakdownCols: [
+              {key:'year', label:'Năm', width:'80px'},
+              {key:'desc', label:'Mô tả'},
+              {key:'amount', label:'Số tiền VNĐ', num:true, fmt:fmtVnd, width:'130px'},
+            ],
+            breakdownTotal: { amount: data.totalCapexEntries },
+            breakdownNote: 'Đầu tư thêm sau khi mua',
+          };
+          return _explainIcon('cx_total');
+        })()}</div>
         <div class="kpi-value">${fmtVnd(data.totalCapexVnd)}</div>
         <div class="kpi-sub" style="font-size:11px">Mua + đầu tư thêm${fxSubtitle?'<br><span style="color:var(--text3);font-style:italic">'+fxSubtitle+'</span>':''}</div>
       </div>
       <div class="kpi-card accent-teal">
-        <div class="kpi-label">Margin tích luỹ</div>
+        <div class="kpi-label">Margin tích luỹ ${(()=>{
+          window._explainData['cx_margin'] = {
+            title: 'Cách tính: Margin tích luỹ (Lifetime)',
+            description: 'Tổng lợi nhuận gộp tàu kiếm được TỪ KHI MUA cho tới năm hiện tại. Cộng dồn margin năm này qua năm khác.',
+            formula: 'Σ Margin các năm = Σ (Doanh thu năm - Chi phí năm)',
+            compute: `Tổng margin tích luỹ: ${fmtVnd(data.cumulativeMargin)}`,
+            breakdown: (data.timeline||[]).map(t => ({
+              year: t.year,
+              rev: parseFloat(t.annualRev) || 0,
+              cost: parseFloat(t.annualCost) || 0,
+              margin: parseFloat(t.annualMargin) || 0,
+              cumMargin: parseFloat(t.cumulativeMargin) || 0,
+            })),
+            breakdownCols: [
+              {key:'year', label:'Năm', width:'70px'},
+              {key:'rev', label:'Doanh thu', num:true, fmt:fmtVnd, width:'130px'},
+              {key:'cost', label:'Chi phí', num:true, fmt:fmtVnd, width:'130px'},
+              {key:'margin', label:'Margin năm', num:true, fmt:fmtVnd, width:'130px'},
+              {key:'cumMargin', label:'Tích luỹ', num:true, fmt:fmtVnd, width:'130px'},
+            ],
+          };
+          return _explainIcon('cx_margin');
+        })()}</div>
         <div class="kpi-value kpi-positive">${fmtVnd(data.cumulativeMargin)}</div>
         <div class="kpi-sub" style="font-size:11px">Doanh thu - Chi phí (lifetime)</div>
       </div>
       <div class="kpi-card ${data.breakevenYear?'accent-green':'accent-amber'}">
-        <div class="kpi-label">Năm hoà vốn</div>
+        <div class="kpi-label">Năm hoà vốn ${(()=>{
+          window._explainData['cx_be'] = {
+            title: 'Cách tính: Năm hoà vốn',
+            description: 'Năm đầu tiên mà Margin tích luỹ ≥ Tổng Capex tích luỹ — tức tàu đã trả hết vốn đầu tư qua margin kinh doanh.',
+            formula: 'Năm hoà vốn = Năm đầu tiên có (Margin tích luỹ ≥ Tổng Capex)',
+            compute: data.breakevenYear
+              ? `✓ Năm hoà vốn: ${data.breakevenYear}\nMargin tích luỹ tại đó ≥ ${fmtVnd(data.totalCapexVnd)}`
+              : `⏳ Chưa hoà vốn\nMargin tích luỹ hiện tại: ${fmtVnd(data.cumulativeMargin)}\nCòn thiếu: ${fmtVnd(data.remainingToBreakeven)}`,
+            note: data.breakevenYear ? 'Sau hoà vốn, mọi margin đều là lợi nhuận thuần cho tàu.' : 'Để hoà vốn nhanh: tăng utilisation, đẩy daily rate, giảm chi phí.',
+          };
+          return _explainIcon('cx_be');
+        })()}</div>
         <div class="kpi-value">${data.breakevenYear||'Chưa đạt'}</div>
         <div class="kpi-sub" style="font-size:11px">${data.breakevenYear?'Margin tích luỹ ≥ Capex':'Cần thêm doanh thu'}</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">${data.remainingToBreakeven>0?'Còn thiếu để hoà vốn':'Lợi nhuận sau hoà vốn'}</div>
+        <div class="kpi-label">${data.remainingToBreakeven>0?'Còn thiếu để hoà vốn':'Lợi nhuận sau hoà vốn'} ${(()=>{
+          const surplus = data.cumulativeMargin - data.totalCapexVnd;
+          window._explainData['cx_remain'] = {
+            title: data.remainingToBreakeven>0 ? 'Cách tính: Còn thiếu để hoà vốn' : 'Cách tính: Lợi nhuận sau hoà vốn',
+            description: data.remainingToBreakeven>0
+              ? 'Số tiền margin còn cần kiếm nữa để hoà vốn đầu tư tàu.'
+              : 'Lợi nhuận thuần sau khi đã trả xong toàn bộ vốn đầu tư — tiền lãi thuần của tàu.',
+            formula: data.remainingToBreakeven>0
+              ? 'Còn thiếu = Tổng Capex - Margin tích luỹ'
+              : 'Lợi nhuận sau hoà vốn = Margin tích luỹ - Tổng Capex',
+            compute: data.remainingToBreakeven>0
+              ? `Tổng Capex:        ${fmtVnd(data.totalCapexVnd)}\n− Margin tích luỹ: ${fmtVnd(data.cumulativeMargin)}\n────────────────────\nCòn thiếu:         ${fmtVnd(data.remainingToBreakeven)}`
+              : `Margin tích luỹ:   ${fmtVnd(data.cumulativeMargin)}\n− Tổng Capex:      ${fmtVnd(data.totalCapexVnd)}\n────────────────────\nLợi nhuận thuần:   ${fmtVnd(surplus)}`,
+          };
+          return _explainIcon('cx_remain');
+        })()}</div>
         <div class="kpi-value ${data.remainingToBreakeven>0?'kpi-negative':'kpi-positive'}">${data.remainingToBreakeven>0?fmtVnd(data.remainingToBreakeven):fmtVnd(data.cumulativeMargin - data.totalCapexVnd)}</div>
         <div class="kpi-sub" style="font-size:11px">${data.remainingToBreakeven>0?'Còn cần margin':'Đã hoà vốn ✓'}</div>
       </div>
@@ -14633,22 +15048,59 @@ async function renderCashFlow() {
     <!-- KPI tổng -->
     <div class="kpi-grid cols4 mb16">
       <div class="kpi-card accent-teal">
-        <div class="kpi-label">Tổng tiền vào ${_S_CF_MONTHS}T</div>
+        <div class="kpi-label">Tổng tiền vào ${_S_CF_MONTHS}T ${(()=>{
+          window._explainData['cf_in'] = {
+            title: 'Cách tính: Tổng tiền vào (Inflow)',
+            description: `Tổng số tiền dự kiến THU VÀO trong ${_S_CF_MONTHS} tháng tới — từ Phải thu chưa thu của KH.`,
+            formula: 'Σ Phải thu chưa thu (theo dueDate hoặc scheduled installments) trong khung thời gian',
+            compute: `Tổng tiền vào ${_S_CF_MONTHS}T: ${fmtVnd(totalIn)}`,
+            note: 'Chỉ tính các khoản đã có lịch (dueDate hoặc installments). Khoản chưa có lịch không vào forecast — vào trang Phải thu để bổ sung lịch.',
+          };
+          return _explainIcon('cf_in');
+        })()}</div>
         <div class="kpi-value" style="color:var(--teal)">${fmtB(totalIn)}</div>
         <div class="kpi-sub">Phải thu dự kiến</div>
       </div>
       <div class="kpi-card accent-red">
-        <div class="kpi-label">Tổng tiền ra ${_S_CF_MONTHS}T</div>
+        <div class="kpi-label">Tổng tiền ra ${_S_CF_MONTHS}T ${(()=>{
+          window._explainData['cf_out'] = {
+            title: 'Cách tính: Tổng tiền ra (Outflow)',
+            description: `Tổng số tiền dự kiến CHI RA trong ${_S_CF_MONTHS} tháng tới — gồm Phải trả NCC + Chi cố định hàng tháng.`,
+            formula: 'Σ Phải trả chưa trả + (Chi cố định/tháng × Số tháng forecast)',
+            compute: `Phải trả NCC:    ${fmtVnd(totalOut)}\n+ Chi cố định:   ${fmtVnd(totalFixed)} (${fmtVnd(_S_CF_FIXED_MONTHLY)} × ${monthData.length})\n────────────────────\nTổng tiền ra:    ${fmtVnd(totalOut + totalFixed)}`,
+          };
+          return _explainIcon('cf_out');
+        })()}</div>
         <div class="kpi-value" style="color:var(--red)">${fmtB(totalOut + totalFixed)}</div>
         <div class="kpi-sub">${fmtB(totalOut)} AP + ${fmtB(totalFixed)} cố định</div>
       </div>
       <div class="kpi-card ${finalBalance >= 0 ? 'accent-green' : 'accent-red'}">
-        <div class="kpi-label">Số dư cuối ${monthData[monthData.length-1]?.label || ''}</div>
+        <div class="kpi-label">Số dư cuối ${monthData[monthData.length-1]?.label || ''} ${(()=>{
+          window._explainData['cf_balance'] = {
+            title: 'Cách tính: Số dư cuối kỳ forecast',
+            description: 'Số tiền dự kiến còn lại trong tài khoản sau khi forecast xong.',
+            formula: 'Số dư đầu kỳ + Tổng tiền vào - Tổng tiền ra',
+            compute: `Số dư đầu kỳ:    ${fmtVnd(_S_CF_OPENING_BALANCE)}\n+ Tổng tiền vào: ${fmtVnd(totalIn)}\n− Tổng tiền ra:  ${fmtVnd(totalOut + totalFixed)}\n────────────────────\nSố dư cuối kỳ:   ${fmtVnd(finalBalance)}`,
+            note: finalBalance < 0 ? '⚠ Số dư cuối kỳ âm — cần huy động vốn hoặc giãn trả.' : '✓ Số dư dương — thanh khoản tốt.',
+          };
+          return _explainIcon('cf_balance');
+        })()}</div>
         <div class="kpi-value" style="color:${finalBalance >= 0 ? 'var(--green)' : 'var(--red)'}">${finalBalance < 0 ? '−' : ''}${fmtB(Math.abs(finalBalance))}</div>
         <div class="kpi-sub">${finalBalance >= 0 ? '✓ Khả thi' : '⚠ Thiếu hụt'}</div>
       </div>
       <div class="kpi-card ${negativeMonths.length > 0 ? 'accent-red' : 'accent-blue'}">
-        <div class="kpi-label">Cảnh báo</div>
+        <div class="kpi-label">Cảnh báo ${(()=>{
+          window._explainData['cf_warn'] = {
+            title: 'Cách tính: Cảnh báo tháng âm',
+            description: 'Số tháng forecast có số dư cuối kỳ ÂM — tức tài khoản bị âm tiền tại tháng đó. Cần xử lý trước khi tới.',
+            formula: 'Đếm tháng có Số dư cuối kỳ < 0',
+            compute: negativeMonths.length > 0
+              ? `Có ${negativeMonths.length} tháng âm:\n${negativeMonths.map(m => `  • ${m.label}: ${fmtVnd(m.closingBal)}`).join('\n')}`
+              : '✓ Không có tháng âm — thanh khoản tốt cho cả forecast.',
+            note: negativeMonths.length > 0 ? 'Phương án xử lý: vay ngắn hạn, đẩy thu KH chậm, đàm phán giãn trả NCC, cắt giảm chi cố định.' : '',
+          };
+          return _explainIcon('cf_warn');
+        })()}</div>
         <div class="kpi-value" style="color:${negativeMonths.length > 0 ? 'var(--red)' : 'var(--blue)'}">${negativeMonths.length}</div>
         <div class="kpi-sub">${negativeMonths.length > 0 ? `tháng âm: ${negativeMonths.map(m=>m.label).join(', ')}` : 'Không có tháng âm'}</div>
       </div>
@@ -14988,10 +15440,45 @@ async function renderTaxReport() {
     </div>
 
     <div class="kpi-grid cols4 mb16">
-      <div class="kpi-card accent-teal"><div class="kpi-label">Doanh thu thuần</div><div class="kpi-value">${fmtB(totalRev)}</div></div>
-      <div class="kpi-card ${ebit>=0?'accent-blue':'accent-red'}"><div class="kpi-label">EBIT</div><div class="kpi-value ${ebit>=0?'kpi-positive':'kpi-negative'}">${fmtB(ebit)}</div><div class="kpi-sub">${pct(totalRev?ebit/totalRev*100:0)} DT</div></div>
-      <div class="kpi-card accent-amber"><div class="kpi-label">Thu nhập chịu thuế</div><div class="kpi-value">${fmtB(taxableIncome)}</div><div class="kpi-sub">CIT: ${fmtB(citAmount)}</div></div>
-      <div class="kpi-card ${netIncome>=0?'accent-green':'accent-red'}"><div class="kpi-label">LNST</div><div class="kpi-value ${netIncome>=0?'kpi-positive':'kpi-negative'}">${fmtB(netIncome)}</div><div class="kpi-sub">Thuế suất TT: ${pct(effectiveRate)}</div></div>
+      <div class="kpi-card accent-teal"><div class="kpi-label">Doanh thu thuần ${(()=>{
+        window._explainData['tax_rev'] = {
+          title: 'Cách tính: Doanh thu thuần (BCTC)',
+          description: 'Tổng doanh thu được công nhận trong báo cáo tài chính (chưa VAT). Đã loại trừ DT thuộc nhóm L/I (chi nội bộ, ngoài BCTC).',
+          formula: 'Σ DT các mảng (Vessel + O&M + SM + Corporate phụ trợ) — sau loại L/I',
+          compute: `Tổng doanh thu thuần: ${fmtVnd(totalRev)}`,
+          note: 'Khác Doanh thu hợp nhất — vì DT này dùng cho mục đích thuế, đã loại trừ DT không hợp lệ theo luật.',
+        };
+        return _explainIcon('tax_rev');
+      })()}</div><div class="kpi-value">${fmtB(totalRev)}</div></div>
+      <div class="kpi-card ${ebit>=0?'accent-blue':'accent-red'}"><div class="kpi-label">EBIT ${(()=>{
+        window._explainData['tax_ebit'] = {
+          title: 'Cách tính: EBIT (Lợi nhuận trước lãi vay & thuế)',
+          description: 'Lợi nhuận hoạt động — Doanh thu trừ tất cả chi phí trừ lãi vay và thuế.',
+          formula: 'EBIT = Doanh thu - Chi phí (sau loại Q/Capitalize/L)',
+          compute: `Doanh thu:  ${fmtVnd(totalRev)}\n− Chi phí:  ${fmtVnd(totalCost)}\n────────────────────\nEBIT:       ${fmtVnd(ebit)}\nEBIT%:      ${pct(totalRev?ebit/totalRev*100:0)}`,
+          note: ebit < 0 ? '⚠ EBIT âm — lỗ trước thuế.' : '',
+        };
+        return _explainIcon('tax_ebit');
+      })()}</div><div class="kpi-value ${ebit>=0?'kpi-positive':'kpi-negative'}">${fmtB(ebit)}</div><div class="kpi-sub">${pct(totalRev?ebit/totalRev*100:0)} DT</div></div>
+      <div class="kpi-card accent-amber"><div class="kpi-label">Thu nhập chịu thuế ${(()=>{
+        window._explainData['tax_taxable'] = {
+          title: 'Cách tính: Thu nhập chịu thuế TNDN',
+          description: 'Cơ sở tính thuế thu nhập doanh nghiệp — sau khi đã điều chỉnh tăng/giảm theo quy định thuế.',
+          formula: 'EBIT + Lãi vay phải nộp - Lỗ chuyển kế hoạch + Điều chỉnh tăng - Điều chỉnh giảm',
+          compute: `EBIT:               ${fmtVnd(ebit)}\n+ Lãi vay phải nộp: ${fmtVnd(loanInterest)}\n+/- Điều chỉnh:     ${fmtVnd(taxAdjustments)}\n────────────────────\nThu nhập chịu thuế: ${fmtVnd(taxableIncome)}\n× Thuế suất ${citRatePct}%:  ${fmtVnd(citAmount)}`,
+        };
+        return _explainIcon('tax_taxable');
+      })()}</div><div class="kpi-value">${fmtB(taxableIncome)}</div><div class="kpi-sub">CIT: ${fmtB(citAmount)}</div></div>
+      <div class="kpi-card ${netIncome>=0?'accent-green':'accent-red'}"><div class="kpi-label">LNST ${(()=>{
+        window._explainData['tax_lnst'] = {
+          title: 'Cách tính: Lợi nhuận sau thuế (LNST)',
+          description: 'Lợi nhuận thực tế còn lại sau khi nộp thuế TNDN — tiền thuộc về cổ đông.',
+          formula: 'LNST = EBIT - Lãi vay - CIT (Thuế TNDN)\nThuế suất thực tế = CIT / EBIT × 100',
+          compute: `EBIT:               ${fmtVnd(ebit)}\n− Lãi vay:          ${fmtVnd(loanInterest)}\n− CIT:              ${fmtVnd(citAmount)}\n────────────────────\nLNST:               ${fmtVnd(netIncome)}\n\nThuế suất TT:       ${pct(effectiveRate)}`,
+          note: netIncome < 0 ? '⚠ LNST âm — công ty đang lỗ.' : '',
+        };
+        return _explainIcon('tax_lnst');
+      })()}</div><div class="kpi-value ${netIncome>=0?'kpi-positive':'kpi-negative'}">${fmtB(netIncome)}</div><div class="kpi-sub">Thuế suất TT: ${pct(effectiveRate)}</div></div>
     </div>
 
     <div class="card">
@@ -16041,6 +16528,70 @@ async function loadOmReport() {
     }
   }
 
+  // ═══ EXPLAIN DATA ═══
+  window._explainData['om_rev'] = {
+    title: 'Cách tính: Doanh thu thực thu O&M',
+    description: `Tổng doanh thu thực thu của hợp đồng O&M "${c.name}" (chưa VAT).`,
+    formula: 'Σ Doanh thu các bút toán đã ghi nhận (không phải kế hoạch)',
+    compute: `Tổng cộng: ${fmtVnd(totalRev)}\nSo với KH: ${pct(revProgress)} (KH ${fmtVnd(totalPlan)})`,
+    breakdown: cRevs.slice().sort((a,b)=>(b.entryDate||'').localeCompare(a.entryDate||'')).map(r => ({
+      date: fmtDate(r.entryDate),
+      month: r.month || '—',
+      desc: r.description || '—',
+      amount: parseFloat(r.amountVnd) || 0,
+    })),
+    breakdownCols: [
+      {key:'date', label:'Ngày', width:'90px'},
+      {key:'month', label:'Tháng HT', width:'80px'},
+      {key:'desc', label:'Mô tả'},
+      {key:'amount', label:'Số tiền VNĐ', num:true, fmt:fmtVnd, width:'130px'},
+    ],
+    breakdownTotal: { amount: totalRev },
+  };
+
+  window._explainData['om_plan'] = {
+    title: 'Cách tính: Kế hoạch doanh thu vòng đời HĐ',
+    description: 'Tổng doanh thu kế hoạch của hợp đồng O&M cho cả vòng đời.',
+    formula: lifePlan
+      ? (lifePlan.mode==='monthly' ? 'Σ KH các tháng (đã nhập chi tiết theo tháng)' : 'Tổng KH chia đều cho số tháng HĐ')
+      : 'Phí tháng × số tháng HĐ (chưa nhập KH chi tiết)',
+    compute: `Tổng KH DT: ${fmtVnd(totalPlan)}\nTổng KH CP: ${fmtVnd(totalPlanCost)}\nSố tháng HĐ: ${totalContractMonths}`,
+    note: lifePlan ? '' : '⚠ Chưa có KH chi tiết — đang tự tính theo phí tháng HĐ. Click "✏ Cập nhật KH" trên trang Kế hoạch O&M để nhập KH chính xác.',
+  };
+
+  window._explainData['om_progress'] = {
+    title: 'Cách tính: Tiến độ thời gian',
+    description: 'Tỷ lệ thời gian đã trôi qua trong vòng đời hợp đồng O&M.',
+    formula: 'Số tháng đã qua / Tổng số tháng HĐ × 100',
+    compute: `= ${elapsedMonths} tháng / ${totalContractMonths} tháng × 100\n= ${pct(timeProgress)}`,
+    note: 'So sánh với "Tỷ lệ DT đạt KH" để biết HĐ đang nhanh/chậm tiến độ tài chính.',
+  };
+
+  window._explainData['om_margin'] = {
+    title: 'Cách tính: Margin O&M',
+    description: 'Lợi nhuận gộp HĐ O&M sau khi trừ tất cả chi phí của HĐ.',
+    formula: 'Margin = Doanh thu - Chi phí\nMargin% = Margin / Doanh thu × 100',
+    compute: `Margin VNĐ = ${fmtVnd(totalRev)} − ${fmtVnd(totalCost)}\n           = ${fmtVnd(margin)}\n\nMargin% = ${fmtVnd(margin)} / ${fmtVnd(totalRev)} × 100\n        = ${pct(marginPct)}`,
+    note: margin < 0 ? '⚠ Margin âm — HĐ đang lỗ.' : marginPct < 10 ? '⚠ Margin <10%.' : '',
+  };
+
+  window._explainData['om_cost'] = {
+    title: 'Cách tính: Tổng chi phí O&M',
+    description: `Tổng chi phí của HĐ "${c.name}" — bao gồm các nhóm A (chuyên gia), B (BH), C (logistics), D (CPQL), E (PTSC QN), F (phân bổ — bảo hiểm/máy tính), P (thuê ngoài).`,
+    compute: `Tổng cộng: ${fmtVnd(totalCost)}`,
+    breakdown: Object.entries(grpBreakdown).map(([g, gd]) => ({
+      group: `${g}. ${gd.label}`,
+      total: parseFloat(gd.total) || 0,
+      pct: totalCost ? (gd.total/totalCost*100) : 0,
+    })),
+    breakdownCols: [
+      {key:'group', label:'Nhóm chi phí'},
+      {key:'total', label:'Số tiền', num:true, fmt:fmtVnd, width:'130px'},
+      {key:'pct', label:'%', num:true, fmt:v=>pct(v), width:'80px'},
+    ],
+    breakdownTotal: { total: totalCost, pct: 100 },
+  };
+
   document.getElementById('om-report-content').innerHTML = `
     <div class="section-title">${c.name} — ${c.client} — ${c.contractNo}</div>
     <div style="background:var(--gray1);border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--text2)">
@@ -16049,13 +16600,13 @@ async function loadOmReport() {
     </div>
 
     <div class="kpi-grid cols4 mb16">
-      <div class="kpi-card accent-teal"><div class="kpi-label">Doanh thu thực thu</div><div class="kpi-value">${fmtB(totalRev)}</div><div class="kpi-sub">${pct(revProgress)} so với KH</div></div>
-      <div class="kpi-card accent-blue"><div class="kpi-label">Kế hoạch DT vòng đời HĐ</div><div class="kpi-value">${fmtB(totalPlan)}</div><div class="kpi-sub">${lifePlan ? (lifePlan.mode==='monthly'?'Theo từng tháng':'Chia đều theo tháng') : 'Tự tính theo phí HĐ'}</div></div>
-      <div class="kpi-card accent-amber"><div class="kpi-label">Tiến độ thời gian</div><div class="kpi-value">${pct(timeProgress)}</div><div class="kpi-sub">${elapsedMonths}/${totalContractMonths} tháng đã qua</div></div>
+      <div class="kpi-card accent-teal"><div class="kpi-label">Doanh thu thực thu ${_explainIcon('om_rev')}</div><div class="kpi-value">${fmtB(totalRev)}</div><div class="kpi-sub">${pct(revProgress)} so với KH</div></div>
+      <div class="kpi-card accent-blue"><div class="kpi-label">Kế hoạch DT vòng đời HĐ ${_explainIcon('om_plan')}</div><div class="kpi-value">${fmtB(totalPlan)}</div><div class="kpi-sub">${lifePlan ? (lifePlan.mode==='monthly'?'Theo từng tháng':'Chia đều theo tháng') : 'Tự tính theo phí HĐ'}</div></div>
+      <div class="kpi-card accent-amber"><div class="kpi-label">Tiến độ thời gian ${_explainIcon('om_progress')}</div><div class="kpi-value">${pct(timeProgress)}</div><div class="kpi-sub">${elapsedMonths}/${totalContractMonths} tháng đã qua</div></div>
       <div class="kpi-card ${marginPct>=0?'accent-green':'accent-red'}">
-        <div class="kpi-label">Margin</div>
+        <div class="kpi-label">Margin ${_explainIcon('om_margin')}</div>
         <div class="kpi-value ${marginPct>=0?'kpi-positive':'kpi-negative'}">${pct(marginPct)}</div>
-        <div class="kpi-sub">${fmtB(margin)} (CP: ${fmtB(totalCost)})</div>
+        <div class="kpi-sub">${fmtB(margin)} (CP: ${fmtB(totalCost)} ${_explainIcon('om_cost')})</div>
       </div>
     </div>
 
@@ -18365,22 +18916,58 @@ async function renderConsolidated() {
     <!-- KPI cards — dual currency -->
     <div class="kpi-grid cols4 mb16">
       <div class="kpi-card accent-teal">
-        <div class="kpi-label">Tổng doanh thu</div>
+        <div class="kpi-label">Tổng doanh thu ${(()=>{
+          window._explainData['cs_rev'] = {
+            title: 'Cách tính: Tổng doanh thu hợp nhất',
+            description: `Tổng doanh thu của TẤT CẢ các mảng kinh doanh trong năm ${S.year} (chưa VAT).`,
+            formula: 'Vessel + O&M + Ship Mgmt + Corporate (DT phụ trợ)',
+            compute: `Vessel:    ${fmtVnd(vesselRev)}\nO&M:       ${fmtVnd(omRev)}\nShip Mgmt: ${fmtVnd(smRev)}\nCorporate: ${fmtVnd(gaRev)}\n────────────────────────\nTổng:      ${fmtVnd(totalRev)}`,
+            note: '1 USD ≈ '+fmt(fxRate)+' ₫ (tỷ giá bình quân gia quyền theo giao dịch)',
+          };
+          return _explainIcon('cs_rev');
+        })()}</div>
         <div class="kpi-value">${fmtUsdK(u(totalRev))}</div>
         <div class="kpi-sub">${fmtB(totalRev)} VNĐ</div>
       </div>
       <div class="kpi-card accent-amber">
-        <div class="kpi-label">Segment Margin (trước G&A)</div>
+        <div class="kpi-label">Segment Margin (trước G&A) ${(()=>{
+          window._explainData['cs_segm'] = {
+            title: 'Cách tính: Segment Margin (trước G&A)',
+            description: 'Lợi nhuận gộp các mảng kinh doanh, TRƯỚC khi trừ chi phí Hoạt động chung (Corporate / G&A). Là chỉ tiêu đánh giá hiệu quả từng mảng riêng.',
+            formula: 'Σ (Doanh thu - Chi phí trực tiếp) các mảng',
+            compute: `Vessel:    ${fmtVnd(vesselMargin)}\nO&M:       ${fmtVnd(omMargin)}\nShip Mgmt: ${fmtVnd(smMargin)}\nCorporate (rev): ${fmtVnd(gaRev)}\n────────────────────────\nTổng:      ${fmtVnd(totalSegMargin)}\nMargin%:   ${pct(totalRev?totalSegMargin/totalRev*100:0)}`,
+            note: 'Chưa trừ chi phí G&A (lương ban GĐ, văn phòng, marketing, IT). Đó là chỉ tiêu để xem mảng nào lãi/lỗ độc lập.',
+          };
+          return _explainIcon('cs_segm');
+        })()}</div>
         <div class="kpi-value">${fmtUsdK(u(totalSegMargin))}</div>
         <div class="kpi-sub">${fmtB(totalSegMargin)} · ${pct(totalRev?totalSegMargin/totalRev*100:0)}</div>
       </div>
       <div class="kpi-card accent-red">
-        <div class="kpi-label">Hoạt động chung (Corporate Center)</div>
+        <div class="kpi-label">Hoạt động chung (Corporate Center) ${(()=>{
+          window._explainData['cs_ga'] = {
+            title: 'Cách tính: Hoạt động chung (Corporate Center)',
+            description: 'Tổng chi phí G&A — không thuộc mảng kinh doanh nào: lương ban GĐ, thuê văn phòng, marketing, IT, pháp lý, tài chính, khấu hao TSCĐ chung.',
+            formula: 'Σ Chi phí G&A năm hiện tại — sau loại Q/Capitalize/L/I',
+            compute: `Tổng G&A: ${fmtVnd(gaTotal)}\nTỷ trọng/DT: ${pct(totalRev?gaTotal/totalRev*100:0)}`,
+            note: 'Chi phí này gánh vào EBITDA chung của công ty. Càng thấp càng tốt — nhưng phải đủ để vận hành.',
+          };
+          return _explainIcon('cs_ga');
+        })()}</div>
         <div class="kpi-value kpi-negative">${fmtUsdK(u(gaTotal))}</div>
         <div class="kpi-sub">${fmtB(gaTotal)} · ${pct(totalRev?gaTotal/totalRev*100:0)}</div>
       </div>
       <div class="kpi-card ${ebitda>=0?'accent-green':'accent-red'}">
-        <div class="kpi-label">EBITDA (sau G&A)</div>
+        <div class="kpi-label">EBITDA (sau G&A) ${(()=>{
+          window._explainData['cs_ebitda'] = {
+            title: 'Cách tính: EBITDA hợp nhất',
+            description: 'Lợi nhuận trước lãi vay, thuế, khấu hao và phân bổ — chỉ tiêu QUAN TRỌNG NHẤT để đánh giá hiệu quả kinh doanh.',
+            formula: 'EBITDA = Segment Margin - Chi phí G&A\nEBITDA% = EBITDA / Doanh thu × 100',
+            compute: `Segment Margin: ${fmtVnd(totalSegMargin)}\n− G&A:          ${fmtVnd(gaTotal)}\n────────────────────────\nEBITDA:         ${fmtVnd(ebitda)}\nEBITDA%:        ${pct(ebitdaPct)}`,
+            note: ebitda < 0 ? '⚠ EBITDA âm — công ty đang lỗ vận hành.' : ebitdaPct < 10 ? '⚠ EBITDA <10% — hiệu quả thấp, cần cải thiện.' : ebitdaPct < 20 ? 'EBITDA 10-20% — chấp nhận được.' : '✓ EBITDA >20% — hiệu quả tốt.',
+          };
+          return _explainIcon('cs_ebitda');
+        })()}</div>
         <div class="kpi-value ${ebitda>=0?'kpi-positive':'kpi-negative'}">${fmtUsdK(u(ebitda))}</div>
         <div class="kpi-sub">${fmtB(ebitda)} · ${pct(ebitdaPct)}</div>
       </div>
