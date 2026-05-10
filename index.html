@@ -2717,34 +2717,53 @@ function buildDemoDashboard(D, p) {
     const daysInYear = isLeap ? 366 : 365;
     let onhireDays = 0;
     (D.projects||[]).filter(prj => prj.vesselId === v.id).forEach(prj => {
-      if (!prj.startDate) return;
-      const ps = new Date(prj.startDate);
-      const pe = prj.endDate ? new Date(prj.endDate) : new Date();
+      // Hỗ trợ cả schema mới (onhireAt/offhireAt) và cũ (startDate/endDate)
+      const startStr = prj.onhireAt || prj.startDate;
+      const endStr   = prj.offhireAt || prj.endDate;
+      if (!startStr) return;
+      const ps = new Date(startStr);
+      const pe = endStr ? new Date(endStr) : new Date();
       // Chỉ tính nếu dự án chạm vào năm này
       const yStart = new Date(year, 0, 1);
       const yEnd = new Date(year, 11, 31, 23, 59, 59);
       if (pe < yStart || ps > yEnd) return;
-      const days = (parseFloat(prj.transitDays)||0) + (parseFloat(prj.mobDemobDays)||0)
-                 + (parseFloat(prj.standbyDays)||0) + (parseFloat(prj.onfieldDays)||0);
-      onhireDays += days;
+      // Ưu tiên transitDays/mobDemobDays/standbyDays/onfieldDays nếu có
+      const detailDays = (parseFloat(prj.transitDays)||0) + (parseFloat(prj.mobDemobDays)||0)
+                       + (parseFloat(prj.standbyDays)||0) + (parseFloat(prj.onfieldDays)||0);
+      if (detailDays > 0) {
+        onhireDays += detailDays;
+      } else {
+        // Fallback: tính từ onhireAt/offhireAt giao thoa với năm
+        const s = ps < yStart ? yStart : ps;
+        const e = pe > yEnd ? yEnd : pe;
+        const diff = (e - s) / 86400000;  // milliseconds → days
+        if (diff > 0) onhireDays += diff;
+      }
     });
     onhireDays = Math.min(onhireDays, daysInYear);
     const utilPct = daysInYear ? onhireDays / daysInYear * 100 : 0;
 
     // Đếm số dự án trong năm
     const projectCount = (D.projects||[]).filter(prj => {
-      if (prj.vesselId !== v.id || !prj.startDate) return false;
-      const ps = new Date(prj.startDate);
-      const pe = prj.endDate ? new Date(prj.endDate) : new Date();
+      if (prj.vesselId !== v.id) return false;
+      const startStr = prj.onhireAt || prj.startDate;
+      const endStr   = prj.offhireAt || prj.endDate;
+      if (!startStr) return false;
+      const ps = new Date(startStr);
+      const pe = endStr ? new Date(endStr) : new Date();
       const yStart = new Date(year, 0, 1);
       const yEnd = new Date(year, 11, 31, 23, 59, 59);
       return !(pe < yStart || ps > yEnd);
     }).length;
 
     return {
-      id: v.id, name: v.name, imo: v.imo,
+      id: v.id, vesselId: v.id, name: v.name, vesselName: v.name, imo: v.imo,
       totalRevVnd, totalCostVnd, totalMarginVnd, marginPct: +marginPct.toFixed(1),
-      onhireDays: +onhireDays.toFixed(1), utilPct: +utilPct.toFixed(1),
+      onhireDays: +onhireDays.toFixed(1),
+      utilizedDays: +onhireDays.toFixed(1),
+      offhireDays: +(daysInYear - onhireDays).toFixed(1),
+      utilPct: +utilPct.toFixed(1),
+      utilisationPct: +utilPct.toFixed(1),
       projectCount,
     };
   });
@@ -2755,10 +2774,11 @@ function buildDemoDashboard(D, p) {
     totalCostVnd: acc.totalCostVnd + v.totalCostVnd,
     totalMarginVnd: acc.totalMarginVnd + v.totalMarginVnd,
     onhireDays: acc.onhireDays + v.onhireDays,
+    utilizedDays: acc.utilizedDays + v.utilizedDays,
     projectCount: acc.projectCount + v.projectCount,
-  }), { totalRevVnd: 0, totalCostVnd: 0, totalMarginVnd: 0, onhireDays: 0, projectCount: 0 });
+  }), { totalRevVnd: 0, totalCostVnd: 0, totalMarginVnd: 0, onhireDays: 0, utilizedDays: 0, projectCount: 0 });
 
-  return { year, vessels, totals };
+  return { year, daysInYear, vessels, totals };
 }
 function buildDemoProject(D, p) {
   const proj = D.projects.find(x=>x.id===p.projectId);
