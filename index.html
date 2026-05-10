@@ -1843,6 +1843,123 @@ window.dedupOmCosts = async function(doDelete = false) {
 };
 
 // ═══════════════════════════════════════════════════════
+// DIAGNOSTIC: Phát hiện và xoá CHUỖI PHÂN BỔ trùng lặp
+// (không xoá lẻ — phát hiện nhiều chuỗi cùng BH/Cat → xoá nguyên chuỗi dư)
+// Gọi: window.dedupOmAllocChains() — chỉ liệt kê
+//      window.dedupOmAllocChains(true) — xoá thật (giữ 1 chuỗi/nhóm)
+// ═══════════════════════════════════════════════════════
+window.dedupOmAllocChains = async function(doDelete = false) {
+  const all = (window.OM_DEMO?.omCostEntries) || [];
+  console.group(`🔍 FELIX Diagnostic — Tìm CHUỖI PHÂN BỔ trùng (${all.length} entries)`);
+
+  // 1. Group entries by allocSource → mỗi chuỗi 1 group
+  const chains = {};
+  all.forEach(e => {
+    if (!e.allocSource) return;  // Bỏ entry không phải chuỗi
+    if (!chains[e.allocSource]) chains[e.allocSource] = [];
+    chains[e.allocSource].push(e);
+  });
+
+  const chainList = Object.entries(chains).map(([src, entries]) => {
+    const e = entries[0];  // Lấy 1 entry mẫu
+    const totalVnd = entries.reduce((s,x) => s + (parseFloat(x.amountVnd)||0), 0);
+    return {
+      allocSource: src,
+      entries,
+      contractId: e.contractId || '',
+      categoryId: e.categoryId || '',
+      allocMonths: e.allocMonths || 0,
+      allocStartMonth: e.allocStartMonth || '',
+      monthlyAmount: Math.round(parseFloat(e.amountVnd)||0),
+      totalVnd,
+      count: entries.length,
+    };
+  });
+
+  console.log(`Tổng chuỗi phân bổ tìm được: ${chainList.length}`);
+
+  if (chainList.length === 0) {
+    console.log('✓ Không có chuỗi phân bổ nào');
+    console.groupEnd();
+    return { chains: [], deleted: 0 };
+  }
+
+  // 2. Group lại theo (HĐ + Cat + startMonth + monthlyAmount) → tìm chuỗi trùng
+  const groupKey = c => `${c.contractId}|${c.categoryId}|${c.allocStartMonth}|${c.monthlyAmount}`;
+  const groupedChains = {};
+  chainList.forEach(c => {
+    const k = groupKey(c);
+    if (!groupedChains[k]) groupedChains[k] = [];
+    groupedChains[k].push(c);
+  });
+
+  // 3. Tìm nhóm có ≥2 chuỗi → trùng
+  const dupGroups = Object.entries(groupedChains).filter(([k, arr]) => arr.length > 1);
+
+  if (dupGroups.length === 0) {
+    console.log('✓ Không có chuỗi phân bổ nào trùng (mỗi BH/Cat chỉ có 1 chuỗi)');
+    console.groupEnd();
+    return { chains: chainList, dupGroups: [], deleted: 0 };
+  }
+
+  console.log(`⚠ Phát hiện ${dupGroups.length} nhóm CHUỖI trùng:\n`);
+  let totalChainsToDelete = 0;
+  let totalEntriesToDelete = 0;
+  const chainsToDelete = [];
+
+  dupGroups.forEach(([key, chainArr]) => {
+    const [cid, catId, startMonth, monthlyAmt] = key.split('|');
+    console.log(`📌 Nhóm: HĐ=${cid} | Cat=${catId} | Bắt đầu=${startMonth} | Mỗi tháng=${parseInt(monthlyAmt).toLocaleString('vi-VN')} ₫`);
+    console.log(`   Có ${chainArr.length} chuỗi cùng đặc điểm:`);
+    chainArr.forEach((c, i) => {
+      const keep = i === 0 ? '✓ GIỮ' : '✗ SẼ XOÁ';
+      console.log(`     ${i+1}. allocSource=${c.allocSource} (${c.count} entries, tổng ${c.totalVnd.toLocaleString('vi-VN')}₫)  ${keep}`);
+      if (i > 0) {
+        chainsToDelete.push(c);
+        totalChainsToDelete++;
+        totalEntriesToDelete += c.count;
+      }
+    });
+    console.log('');
+  });
+
+  console.log(`Tổng cộng: xoá ${totalChainsToDelete} chuỗi (= ${totalEntriesToDelete} entries)`);
+
+  if (!doDelete) {
+    console.log('💡 Để XOÁ thật: gọi window.dedupOmAllocChains(true)');
+    console.groupEnd();
+    return { chains: chainList, dupGroups, chainsToDelete, deleted: 0 };
+  }
+
+  // ── XOÁ ──
+  if (!confirm(`⚠ Xác nhận XOÁ ${totalChainsToDelete} CHUỖI phân bổ trùng?\n\nTổng: ${totalEntriesToDelete} entries sẽ bị xoá.\nGiữ lại 1 chuỗi đầu trong mỗi nhóm.\nThao tác KHÔNG THỂ HOÀN TÁC.`)) {
+    console.log('✗ Đã huỷ');
+    console.groupEnd();
+    return { chains: chainList, dupGroups, deleted: 0 };
+  }
+
+  let deleted = 0;
+  for (const c of chainsToDelete) {
+    for (const e of c.entries) {
+      try {
+        await api('deleteOmCostEntry', {id: e.id});
+        deleted++;
+      } catch(err) {
+        console.warn(`Lỗi xoá ${e.id}:`, err.message);
+      }
+    }
+  }
+  console.log(`✓ Đã xoá ${deleted}/${totalEntriesToDelete} entries (${totalChainsToDelete} chuỗi)`);
+  console.groupEnd();
+
+  // Re-render
+  if (typeof renderOmCosts === 'function' && S?.page === 'om-costs') {
+    renderOmCosts();
+  }
+  return { chains: chainList, dupGroups, deleted };
+};
+
+// ═══════════════════════════════════════════════════════
 // AES-256-GCM ENCRYPTION LAYER
 // Mã hoá blob trước khi sync lên cloud
 // ═══════════════════════════════════════════════════════
