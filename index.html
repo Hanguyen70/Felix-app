@@ -18947,6 +18947,23 @@ function openGaRevEntryForm(e={}) {
     <div class="form-grid cols2">
       <div class="field required"><label>Ngày</label><input type="date" id="grv_date" value="${today()}"/></div>
       <div class="field"><label>Tháng hạch toán</label><input type="month" id="grv_month" value="${today().slice(0,7)}"/></div>
+      <div class="field" style="grid-column:span 2">
+        <label>% VAT (áp chung tất cả dòng)</label>
+        <select id="grv_vat_rate_h">
+          <option value="0">0%</option>
+          <option value="0.05">5%</option>
+          <option value="0.08">8%</option>
+          <option value="0.10" selected>10%</option>
+        </select>
+        <span style="font-size:10px;color:var(--text3)">VAT KHÔNG vào doanh thu/P/L, sẽ cộng vào Phải thu</span>
+      </div>
+      <div class="field" style="grid-column:span 2;background:#F5F3FF;border:1px solid var(--purple);border-radius:6px;padding:8px 10px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0;font-size:13px">
+          <input type="checkbox" id="grv_t_check_h" checked style="width:16px;height:16px"/>
+          <span style="font-weight:600;color:var(--purple)">💰 Trích quỹ T cho TẤT CẢ dòng (tỷ lệ năm ${S.year}: <strong>${_getTRate(S.year)}%</strong>)</span>
+        </label>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px">${_getTRate(S.year)===0?'⚠ Chưa cấu hình tỷ lệ — vào trang "Quỹ lương dự án" để set':'Bỏ tick nếu DT đợt này không trích quỹ'}</div>
+      </div>
     </div>
 
     <div class="divider"></div>
@@ -18978,6 +18995,10 @@ function openGaRevEntryForm(e={}) {
     const month = gv('grv_month');
     if (!entryDate) { toast('Chọn ngày','warn'); return; }
 
+    // VAT + T chung header
+    const vatRate = parseFloat(gv('grv_vat_rate_h')) || 0;
+    const withTAccrual = document.getElementById('grv_t_check_h')?.checked === true;
+
     const lineRows = document.querySelectorAll('#grv_lines tr[data-line]');
     const lines = [];
     for (const row of lineRows) {
@@ -18992,10 +19013,16 @@ function openGaRevEntryForm(e={}) {
     showLoading();
     try {
       for (const ln of lines) {
+        const amtVnd = ln.amount;
         const payload = {
           id: newId(), categoryId: ln.categoryId, entryDate, month,
-          amount: ln.amount, currency: 'VND', fxRate: 1, amountVnd: ln.amount,
+          amount: ln.amount, currency: 'VND', fxRate: 1, amountVnd,
           description: ln.description,
+          // VAT chung header → áp cho từng dòng
+          vatRate,
+          vatAmountVnd: Math.round(amtVnd * vatRate),
+          // T accrual: tick header áp cho tất cả dòng
+          withTAccrual,
           createdAt: new Date().toISOString(),
         };
         await api('saveGaRevEntry', payload);
