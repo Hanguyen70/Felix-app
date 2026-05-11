@@ -611,6 +611,7 @@ body.ios-view .ios-banner { display: block; }
 /* Tag helpers */
 .tag-service  {background:var(--teal-lt);color:var(--teal);padding:2px 7px;border-radius:4px;font-size:10px;font-weight:500;margin-left:4px}
 .tag-technical{background:var(--brand-lt);color:var(--brand);padding:2px 7px;border-radius:4px;font-size:10px;font-weight:500;margin-left:4px}
+.tag-equipment{background:#FEF3C7;color:#92400E;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:500;margin-left:4px}
 .accent-gray{border-top:3px solid var(--ink4)!important}
 
 /* ══════════════════════════════════
@@ -2258,10 +2259,10 @@ const FELIX_VERSION = '2026.04.30-10:30'; // Cập nhật mỗi lần em build f
 const VERSION_CHECK_KEY = 'felix_last_version_check';
 const VERSION_REPO = 'Hanguyen70/Felix-app'; // Repo chứa code
 const VERSION_FILE = 'index.html';
-const VERSION_CHECK_INTERVAL = 1000 * 60 * 30; // Check mỗi 30 phút
+const VERSION_CHECK_INTERVAL = 1000 * 60 * 60 * 24; // Check mỗi 24 giờ (tránh rate limit)
 
 async function checkForUpdate() {
-  // Skip nếu mới check trong 30 phút qua
+  // Skip nếu mới check trong 24 giờ qua
   const lastCheck = parseInt(localStorage.getItem(VERSION_CHECK_KEY) || '0');
   if (Date.now() - lastCheck < VERSION_CHECK_INTERVAL) return;
   await _doCheckUpdate(false);
@@ -2284,9 +2285,9 @@ async function _doCheckUpdate(isManual) {
     if (ghToken) headers['Authorization'] = 'token ' + ghToken;
     const resp = await fetch(url, { cache: 'no-store', headers });
     if (!resp.ok) {
-      // Khi bị 403 rate limit, đặt lastCheck = now + 30 phút để skip auto-check trong ~1 giờ
+      // Khi bị 403 rate limit, đặt lastCheck = now + 6 giờ để skip auto-check
       if (resp.status === 403) {
-        localStorage.setItem(VERSION_CHECK_KEY, String(Date.now() + 30*60*1000));
+        localStorage.setItem(VERSION_CHECK_KEY, String(Date.now() + 6*60*60*1000));
       }
       if (st && isManual) {
         let msg = `✗ Lỗi GitHub API: ${resp.status}`;
@@ -4694,7 +4695,7 @@ async function init() {
 
   // Tự động kiểm tra phiên bản mới (sau 3s để không block load đầu)
   setTimeout(()=>checkForUpdate(), 3000);
-  // Check định kỳ mỗi 30 phút
+  // Check định kỳ mỗi 24 giờ
   setInterval(checkForUpdate, VERSION_CHECK_INTERVAL);
 }
 
@@ -7902,7 +7903,7 @@ async function renderVessels() {
               ${vessels.map(v=>`
                 <tr>
                   <td><strong>${v.name}</strong></td>
-                  <td><span class="${v.type==='Dịch vụ'?'tag-service':'tag-technical'}">${v.type}</span></td>
+                  <td><span class="${v.type==='Dịch vụ'?'tag-service':v.type==='Thiết bị'?'tag-equipment':'tag-technical'}">${v.type}</span></td>
                   <td class="mono">${v.imoNumber||'—'}</td>
                   <td>${v.flag||'—'}</td>
                   <td class="num">${fmt(v.grt)}</td>
@@ -7929,10 +7930,11 @@ function openVesselForm(v={}) {
   const html = `
     <div class="form-grid cols2">
       <div class="field required" style="grid-column:span 2"><label>Tên tàu</label><input id="vn" value="${v.name||''}"/></div>
-      <div class="field required"><label>Loại tàu</label>
+      <div class="field required"><label>Loại tàu / thiết bị</label>
         <select id="vt">
-          <option value="Dịch vụ"${v.type==='Dịch vụ'?'selected':''}>Dịch vụ</option>
-          <option value="Kỹ thuật"${v.type==='Kỹ thuật'?'selected':''}>Kỹ thuật</option>
+          <option value="Dịch vụ"${v.type==='Dịch vụ'?'selected':''}>🚢 Dịch vụ (cho thuê)</option>
+          <option value="Kỹ thuật"${v.type==='Kỹ thuật'?'selected':''}>🔬 Kỹ thuật (khảo sát)</option>
+          <option value="Thiết bị"${v.type==='Thiết bị'?'selected':''}>⚙️ Thiết bị (CPT, máy phát, v.v.)</option>
         </select>
       </div>
       <div class="field"><label>Cờ (flag)</label><input id="vflag" value="${v.flag||'VN'}"/></div>
@@ -10473,15 +10475,15 @@ var OM_DEMO = {
     {id:'ol22',group:'L',groupLabel:'Chi phí khác (ngoài BCTC)',category:'L1',categoryLabel:'Chi phí nội bộ',name:'Hỗ trợ nội bộ từ phòng ban khác',unit:'tháng',currency:'VND'},
     {id:'ol23',group:'L',groupLabel:'Chi phí khác (ngoài BCTC)',category:'L2',categoryLabel:'Ghi nhận theo dõi',name:'Chi phí ước tính chưa xác nhận',unit:'lần',currency:'VND'},
     {id:'ol24',group:'L',groupLabel:'Chi phí khác (ngoài BCTC)',category:'L2',categoryLabel:'Ghi nhận theo dõi',name:'Ghi nhận theo dõi nội bộ O&M',unit:'lot',currency:'VND'},
-    // F — Không thường xuyên / Khác
-    {id:'of11',group:'F',groupLabel:'Không thường xuyên / Khác',category:'F1',categoryLabel:'Mobilisation & Setup',name:'Chi phí thiết lập / mobilisation ban đầu',unit:'lần',currency:'VND'},
-    {id:'of12',group:'F',groupLabel:'Không thường xuyên / Khác',category:'F1',categoryLabel:'Mobilisation & Setup',name:'PPE & bảo hộ lao động nhà máy',unit:'bộ',currency:'VND'},
-    {id:'of13',group:'F',groupLabel:'Không thường xuyên / Khác',category:'F1',categoryLabel:'Mobilisation & Setup',name:'Trang thiết bị làm việc (laptop, tools)',unit:'lot',currency:'VND'},
-    {id:'of14',group:'F',groupLabel:'Không thường xuyên / Khác',category:'F2',categoryLabel:'Đào tạo & CGCN',name:'Tổ chức khoá đào tạo vận hành',unit:'khoá',currency:'VND'},
-    {id:'of15',group:'F',groupLabel:'Không thường xuyên / Khác',category:'F2',categoryLabel:'Đào tạo & CGCN',name:'Biên soạn SOP / O&M Manual',unit:'tài liệu',currency:'VND'},
-    {id:'of16',group:'F',groupLabel:'Không thường xuyên / Khác',category:'F2',categoryLabel:'Đào tạo & CGCN',name:'Chuyên gia đào tạo OEM / licensor',unit:'ngày',currency:'USD'},
-    {id:'of17',group:'F',groupLabel:'Không thường xuyên / Khác',category:'F3',categoryLabel:'Chi phí bất thường',name:'Chi phí phát sinh bất thường',unit:'lot',currency:'VND'},
-    {id:'of18',group:'F',groupLabel:'Không thường xuyên / Khác',category:'F3',categoryLabel:'Chi phí bất thường',name:'Phí kiểm toán / pháp lý dự án',unit:'lần',currency:'VND'},
+    // N — Không thường xuyên / Khác (Non-recurring) — đổi từ F để không trùng F (Phân bổ trong Tàu)
+    {id:'on11',group:'N',groupLabel:'Không thường xuyên / Khác',category:'N1',categoryLabel:'Mobilisation & Setup',name:'Chi phí thiết lập / mobilisation ban đầu',unit:'lần',currency:'VND'},
+    {id:'on12',group:'N',groupLabel:'Không thường xuyên / Khác',category:'N1',categoryLabel:'Mobilisation & Setup',name:'PPE & bảo hộ lao động nhà máy',unit:'bộ',currency:'VND'},
+    {id:'on13',group:'N',groupLabel:'Không thường xuyên / Khác',category:'N1',categoryLabel:'Mobilisation & Setup',name:'Trang thiết bị làm việc (laptop, tools)',unit:'lot',currency:'VND'},
+    {id:'on14',group:'N',groupLabel:'Không thường xuyên / Khác',category:'N2',categoryLabel:'Đào tạo & CGCN',name:'Tổ chức khoá đào tạo vận hành',unit:'khoá',currency:'VND'},
+    {id:'on15',group:'N',groupLabel:'Không thường xuyên / Khác',category:'N2',categoryLabel:'Đào tạo & CGCN',name:'Biên soạn SOP / O&M Manual',unit:'tài liệu',currency:'VND'},
+    {id:'on16',group:'N',groupLabel:'Không thường xuyên / Khác',category:'N2',categoryLabel:'Đào tạo & CGCN',name:'Chuyên gia đào tạo OEM / licensor',unit:'ngày',currency:'USD'},
+    {id:'on17',group:'N',groupLabel:'Không thường xuyên / Khác',category:'N3',categoryLabel:'Chi phí bất thường',name:'Chi phí phát sinh bất thường',unit:'lot',currency:'VND'},
+    {id:'on18',group:'N',groupLabel:'Không thường xuyên / Khác',category:'N3',categoryLabel:'Chi phí bất thường',name:'Phí kiểm toán / pháp lý dự án',unit:'lần',currency:'VND'},
   ],
   omRevCats: [
     {id:'or1',name:'Thù lao chuyên gia (Expert Remuneration)'},
@@ -10766,7 +10768,7 @@ async function renderOmCosts() {
   hideLoading();
 
   const ctrName = id => (contracts.find(c=>c.id===id)||{}).name||id;
-  const grpColors={'A':'badge-blue','B':'badge-green','C':'badge-teal','D':'badge-amber','E':'badge-purple','F':'badge-gray'};
+  const grpColors={'A':'badge-blue','B':'badge-green','C':'badge-teal','D':'badge-amber','E':'badge-purple','F':'badge-amber','N':'badge-gray'};
   const getCat = id => OM_DEMO.omCostCats.find(c=>c.id===id)||{};
 
   // ─── APPLY FILTER ───
@@ -10797,7 +10799,7 @@ async function renderOmCosts() {
   // Group totals (theo data đã lọc)
   const grpTotals={};
   filteredEntries.forEach(e=>{ const g=getCat(e.categoryId).group||'?'; grpTotals[g]=(grpTotals[g]||0)+(parseFloat(e.amountVnd)||0); });
-  const grpLabels={'A':'Chuyên gia','B':'Bảo hiểm','C':'Logistics','D':'CPQL','E':'PTSC QN','F':'KTX / Khác'};
+  const grpLabels={'A':'Chuyên gia','B':'Bảo hiểm','C':'Logistics','D':'CPQL','E':'PTSC QN','F':'Phân bổ','N':'Không thường xuyên'};
 
   // ─── BUILD FILTER OPTIONS ───
   const yearsAvail = [...new Set(allEntries.map(e => (e.entryDate||'').slice(0,4)).filter(y=>y && y.length===4))].sort((a,b)=>b.localeCompare(a));
@@ -17096,7 +17098,7 @@ async function renderOmCats() {
 
   // Build cost cat tree: group → category → items
   const tree = {};
-  const grpColors = {'A':'badge-blue','B':'badge-green','C':'badge-teal','D':'badge-amber','E':'badge-purple','F':'badge-gray'};
+  const grpColors = {'A':'badge-blue','B':'badge-green','C':'badge-teal','D':'badge-amber','E':'badge-purple','F':'badge-amber','N':'badge-gray'};
   costCats.forEach(c => {
     if (!tree[c.group]) tree[c.group] = {label:c.groupLabel, cats:{}};
     if (!tree[c.group].cats[c.category]) tree[c.group].cats[c.category] = {label:c.categoryLabel, items:[]};
@@ -19976,7 +19978,7 @@ async function renderConsolidated() {
             </tr>
             ${vessels.map(v=>unitRow(
               v.name || v.vesselName || '—',
-              v.vesselType ? `<span class="${v.vesselType==='Dịch vụ'?'tag-service':'tag-technical'}">${v.vesselType}</span>` : '',
+              v.vesselType ? `<span class="${v.vesselType==='Dịch vụ'?'tag-service':v.vesselType==='Thiết bị'?'tag-equipment':'tag-technical'}">${v.vesselType}</span>` : '',
               v.totalRevVnd||0,
               v.totalCostVnd || ((v.totalRevVnd||0)-(v.totalMarginVnd||v.annualMarginVnd||0)),
               v.totalMarginVnd || v.annualMarginVnd || 0,
