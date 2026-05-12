@@ -442,7 +442,7 @@ tr.row-excluded td{color:var(--ink4) !important}
   background:#fff;border-top:1px solid #e5e7eb;
   padding:6px 0 max(6px,env(safe-area-inset-bottom));
   z-index:200;
-  grid-template-columns:1fr 1fr;
+  grid-template-columns:1fr 1fr 1fr;
 }
 body.ios-view #ios-tabs { display:grid; }
 .ios-tab {
@@ -888,14 +888,18 @@ body.ios-view .ios-banner { display: block; }
 </div>
 
 <!-- IOS BOTTOM TABS -->
-<div id="ios-tabs">
-  <button class="ios-tab active" id="ios-tab-vessel" onclick="iosTab('vessel')">
-    <span class="ios-tab-icon">🚢</span>
-    <span class="ios-tab-label">Tàu — KH & TĐ</span>
+<div id="ios-tabs" style="grid-template-columns:1fr 1fr 1fr">
+  <button class="ios-tab active" id="ios-tab-plan" onclick="iosTab('plan')">
+    <span class="ios-tab-icon">📊</span>
+    <span class="ios-tab-label">KH & Tiến độ</span>
   </button>
-  <button class="ios-tab" id="ios-tab-om" onclick="iosTab('om')">
-    <span class="ios-tab-icon">🏥</span>
-    <span class="ios-tab-label">O&M — KH & TĐ</span>
+  <button class="ios-tab" id="ios-tab-cash" onclick="iosTab('cash')">
+    <span class="ios-tab-icon">💵</span>
+    <span class="ios-tab-label">Dòng tiền</span>
+  </button>
+  <button class="ios-tab" id="ios-tab-arap" onclick="iosTab('arap')">
+    <span class="ios-tab-icon">📋</span>
+    <span class="ios-tab-label">Phải thu/trả</span>
   </button>
 </div>
 </div>
@@ -4616,15 +4620,18 @@ window.goToHomeDashboard = goToHomeDashboard;
 async function init() {
   showLoading();
   try {
-    // Year selector
+    // Year selector (reset trước để tránh trùng)
     const yearSel = document.getElementById('global-year');
     const curYear = new Date().getFullYear();
-    for (let y = curYear+1; y >= curYear-3; y--) {
-      const opt = document.createElement('option');
-      opt.value = y;
-      opt.textContent = y;
-      if (y === curYear) opt.selected = true;
-      yearSel.appendChild(opt);
+    if (yearSel) {
+      yearSel.innerHTML = '';
+      for (let y = curYear+1; y >= curYear-3; y--) {
+        const opt = document.createElement('option');
+        opt.value = y;
+        opt.textContent = y;
+        if (y === curYear) opt.selected = true;
+        yearSel.appendChild(opt);
+      }
     }
     S.year = curYear;
 
@@ -4637,14 +4644,17 @@ async function init() {
     S.costCats = Array.isArray(costCats) ? costCats : [];
     S.revCats  = Array.isArray(revCats)  ? revCats  : [];
 
-    // Fill vessel selector
+    // Fill vessel selector (reset trước để tránh populate trùng nếu init() chạy nhiều lần)
     const vSel = document.getElementById('global-vessel');
-    S.vessels.forEach(v => {
-      const opt = document.createElement('option');
-      opt.value = v.id;
-      opt.textContent = v.name;
-      vSel.appendChild(opt);
-    });
+    if (vSel) {
+      vSel.innerHTML = '<option value="">— Tất cả tàu —</option>';
+      S.vessels.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.id;
+        opt.textContent = v.name;
+        vSel.appendChild(opt);
+      });
+    }
   } catch(e) {
     console.error('[init] ERROR:', e);
     toast('Lỗi tải dữ liệu: ' + e.message, 'err');
@@ -21869,8 +21879,8 @@ async function bootFoxy(){
   await init();
 
   if (isIOS) {
-    // Mặc định hiện trang Kế hoạch & Tiến độ Tàu
-    iosTab('vessel');
+    // Mặc định hiện trang Kế hoạch & Tiến độ
+    iosTab('plan');
   }
 
   // Bật Auto-lock sau khi mọi thứ ổn định
@@ -21883,16 +21893,21 @@ function iosTab(tab) {
   document.querySelectorAll('.ios-tab').forEach(t => t.classList.remove('active'));
   document.getElementById('ios-tab-'+tab)?.classList.add('active');
 
-  if (tab === 'vessel') {
-    // Kế hoạch & Giá bán tàu
+  if (tab === 'plan') {
+    // Kế hoạch & Tiến độ (P&L hợp nhất)
     document.getElementById('page-title').textContent = 'Kế hoạch & Tiến độ';
-    const planEl = document.querySelector('[data-page="report-plan"]');
-    if (planEl) nav_(planEl); else renderPage('report-plan');
-  } else if (tab === 'om') {
-    // Kế hoạch & Tiến độ O&M
-    document.getElementById('page-title').textContent = 'Kế hoạch & Tiến độ';
-    const omPlanEl = document.querySelector('[data-page="om-plan"]');
-    if (omPlanEl) nav_(omPlanEl); else renderPage('om-plan');
+    const el = document.querySelector('[data-page="consolidated"]');
+    if (el) nav_(el); else renderPage('consolidated');
+  } else if (tab === 'cash') {
+    // Dòng tiền (Cash Flow Forecast)
+    document.getElementById('page-title').textContent = 'Dòng tiền';
+    const el = document.querySelector('[data-page="cash-flow"]');
+    if (el) nav_(el); else renderPage('cash-flow');
+  } else if (tab === 'arap') {
+    // Phải thu — Phải trả (AR/AP chi tiết)
+    document.getElementById('page-title').textContent = 'Phải thu / Phải trả';
+    const el = document.querySelector('[data-page="receivables-payables"]');
+    if (el) nav_(el); else renderPage('receivables-payables');
   }
 }
 
