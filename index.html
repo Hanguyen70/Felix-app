@@ -5253,21 +5253,22 @@ async function viewProjectReport(id) {
 // ═══════════════════════════════════════════════════════
 // PAGE: COSTS
 // ═══════════════════════════════════════════════════════
-// State filter cho trang Chi phí (giữ trong session, reset khi đổi tàu/năm)
-let _S_COSTS_FILTER = { month:'', group:'', projectId:'', type:'', acctType:'' };
+// State filter cho trang Chi phí (giữ trong session)
+let _S_COSTS_FILTER = { year:'', month:'', group:'', projectId:'', type:'', acctType:'' };
 
 // Reset filter khi đổi context
 function _resetCostsFilter() {
-  _S_COSTS_FILTER = { month:'', group:'', projectId:'', type:'', acctType:'' };
+  _S_COSTS_FILTER = { year:'', month:'', group:'', projectId:'', type:'', acctType:'' };
+  renderCosts();
 }
 
 async function renderCosts() {
   showLoading();
-  let entries=[], projects=[];
+  let allEntries=[], projects=[];
   try {
-    [entries, projects] = await Promise.all([
-      api('getCostEntries',{vesselId:S.vesselId,year:S.year}),
-      api('getProjects',{vesselId:S.vesselId}),  // Bỏ filter year — cần lookup dự án các năm khác
+    [allEntries, projects] = await Promise.all([
+      api('getCostEntries',{vesselId:S.vesselId}),  // BỎ filter year — lấy tất cả, lọc ở frontend
+      api('getProjects',{vesselId:S.vesselId}),
     ]);
   } catch(e){ toast('Lỗi: '+e.message,'err'); }
   hideLoading();
@@ -5280,8 +5281,12 @@ async function renderCosts() {
 
   // ─── APPLY FILTER ───
   const f = _S_COSTS_FILTER;
-  const filteredEntries = entries.filter(e => {
+  const filteredEntries = allEntries.filter(e => {
     const cat = getCat(e.categoryId);
+    if (f.year) {
+      const y = (e.entryDate||'').slice(0,4);
+      if (y !== f.year) return false;
+    }
     if (f.month) {
       const m = e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0;
       if (String(m) !== String(f.month)) return false;
@@ -5302,7 +5307,7 @@ async function renderCosts() {
   });
 
   const total = filteredEntries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-  const totalAll = entries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const totalAll = allEntries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
 
   // Group totals: từ filteredEntries để KPI cards tự đổi theo lọc
   const groupTotals = {};
@@ -5313,19 +5318,22 @@ async function renderCosts() {
   const groupLabels={'A':'Hàng hải','B':'Kỹ thuật (Khoan/KS/ĐCCT)','C':'Nhiên liệu','D':'Phát sinh dự án','E':'Không thường xuyên','F':'Phân bổ','T':'Trích quỹ (T)','P':'Thuê ngoài (Pass-through)','I':'Nội bộ (I)','L':'Chi phí khác (ngoài BCTC)'};
   const groupColors={'A':'accent-red','B':'accent-blue','C':'accent-amber','D':'accent-gray','F':'accent-teal','T':'accent-amber','I':'accent-purple'};
 
-  // ─── BUILD FILTER OPTIONS từ entries (dynamic — chỉ hiển thị options có data) ───
-  const monthsAvail = [...new Set(entries.map(e => e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0).filter(m=>m>0))].sort((a,b)=>a-b);
-  const groupsAvail = [...new Set(entries.map(e => getCat(e.categoryId).group).filter(Boolean))].sort();
-  const typesAvail = [...new Set(entries.map(e => e.type).filter(Boolean))].sort();
-  const acctTypesAvail = [...new Set(entries.map(e => e.accountType||'').filter(t => t !== ''))];
-  const hasNormalAcctType = entries.some(e => !e.accountType);  // Có chi phí bình thường?
+  // ─── BUILD FILTER OPTIONS từ allEntries ───
+  const yearsAvail = [...new Set(allEntries.map(e => (e.entryDate||'').slice(0,4)).filter(y=>y && y.length===4))].sort((a,b)=>b.localeCompare(a));
+  const monthsAvail = [...new Set(allEntries.map(e => e.entryDate ? parseInt(e.entryDate.slice(5,7)) : 0).filter(m=>m>0))].sort((a,b)=>a-b);
+  const groupsAvail = [...new Set(allEntries.map(e => getCat(e.categoryId).group).filter(Boolean))].sort();
+  const typesAvail = [...new Set(allEntries.map(e => e.type).filter(Boolean))].sort();
+  const acctTypesAvail = [...new Set(allEntries.map(e => e.accountType||'').filter(t => t !== ''))];
+  const hasNormalAcctType = allEntries.some(e => !e.accountType);
 
+  const yearOpts = `<option value="">Tất cả năm</option>` +
+    yearsAvail.map(y => `<option value="${y}"${f.year===y?' selected':''}>${y}</option>`).join('');
   const monthOpts = `<option value="">Tất cả tháng</option>` +
     monthsAvail.map(m => `<option value="${m}"${String(f.month)===String(m)?' selected':''}>Tháng ${String(m).padStart(2,'0')}</option>`).join('');
   const groupOpts = `<option value="">Tất cả nhóm</option>` +
     groupsAvail.map(g => `<option value="${g}"${f.group===g?' selected':''}>${g}. ${groupLabels[g]||g}</option>`).join('');
-  // Project options: chỉ projects xuất hiện trong cost entries của năm này
-  const projectIdsInUse = [...new Set(entries.map(e => e.projectId).filter(Boolean))];
+  // Project options
+  const projectIdsInUse = [...new Set(allEntries.map(e => e.projectId).filter(Boolean))];
   const projectOpts = `<option value="">Tất cả dự án</option>
     <option value="__none__"${f.projectId==='__none__'?' selected':''}>(Phát sinh ngoài HĐ — không gắn dự án)</option>` +
     projectIdsInUse.map(pid => {
@@ -5339,10 +5347,10 @@ async function renderCosts() {
     ${hasNormalAcctType ? `<option value="__normal__"${f.acctType==='__normal__'?' selected':''}>(1) Bình thường</option>` : ''}` +
     acctTypesAvail.map(t => `<option value="${t}"${f.acctType===t?' selected':''}>${acctTypeLabel[t]||t}</option>`).join('');
 
-  const hasAnyFilter = !!(f.month || f.group || f.projectId || f.type || f.acctType);
+  const hasAnyFilter = !!(f.year || f.month || f.group || f.projectId || f.type || f.acctType);
   const filterStatus = hasAnyFilter
-    ? `Hiển thị <strong>${filteredEntries.length}</strong> / ${entries.length} bút toán · Tổng: <strong>${fmtB(total)}</strong> / ${fmtB(totalAll)}`
-    : `${filteredEntries.length} bút toán • Tổng: <strong>${fmtB(total)}</strong>`;
+    ? `Hiển thị <strong>${filteredEntries.length}</strong> / ${allEntries.length} bút toán · Tổng: <strong>${fmtB(total)}</strong> / ${fmtB(totalAll)}`
+    : `${filteredEntries.length} bút toán (tất cả các năm) • Tổng: <strong>${fmtB(total)}</strong>`;
 
   document.getElementById('content').innerHTML = `
     <div class="flex items-center justify-between mb12">
@@ -5361,12 +5369,13 @@ async function renderCosts() {
     <div class="card mb16" style="background:var(--gray1);border:1px solid var(--border)">
       <div style="padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <div style="font-size:12px;font-weight:600;color:var(--text2)">🔍 Lọc:</div>
+        <select onchange="_S_COSTS_FILTER.year=this.value;renderCosts()" style="min-width:100px;font-size:12px">${yearOpts}</select>
         <select onchange="_S_COSTS_FILTER.month=this.value;renderCosts()" style="min-width:120px;font-size:12px">${monthOpts}</select>
         <select onchange="_S_COSTS_FILTER.group=this.value;renderCosts()" style="min-width:170px;font-size:12px">${groupOpts}</select>
         <select onchange="_S_COSTS_FILTER.projectId=this.value;renderCosts()" style="min-width:200px;font-size:12px">${projectOpts}</select>
         <select onchange="_S_COSTS_FILTER.type=this.value;renderCosts()" style="min-width:120px;font-size:12px">${typeOpts}</select>
         <select onchange="_S_COSTS_FILTER.acctType=this.value;renderCosts()" style="min-width:140px;font-size:12px">${acctTypeOpts}</select>
-        ${hasAnyFilter ? `<button class="btn btn-ghost btn-xs" onclick="_resetCostsFilter();renderCosts()" style="margin-left:auto" title="Bỏ tất cả lọc">🔄 Reset</button>` : ''}
+        ${hasAnyFilter ? `<button class="btn btn-ghost btn-xs" onclick="_resetCostsFilter()" style="margin-left:auto" title="Bỏ tất cả lọc">🔄 Reset</button>` : ''}
       </div>
     </div>
 
@@ -7919,7 +7928,10 @@ async function renderVessels() {
                   <td class="num">${fmt(v.grt)}</td>
                   <td class="num">${fmt(v.dwt)}</td>
                   <td class="mono">${fmtDate(v.purchaseDate)}</td>
-                  <td class="num">${fmtB(v.purchaseCost)}</td>
+                  <td class="num" title="${v.currency&&v.currency!=='VND'?(v.purchaseCost||0).toLocaleString('en-US')+' '+v.currency+' × tỷ giá '+(v.fxRate||1).toLocaleString('vi-VN'):''}">
+                    <strong>${fmtVnd(v.purchaseCostVND || (v.purchaseCost*(v.fxRate||1)) || 0)}</strong>
+                    ${v.currency&&v.currency!=='VND'?`<div style="font-size:10px;color:var(--text3);font-weight:400">${fmt(v.purchaseCost)} ${v.currency}</div>`:''}
+                  </td>
                   <td><span class="badge ${v.active===true||v.active==='true'?'badge-green':'badge-gray'}">${v.active===true||v.active==='true'?'Đang HĐ':'Không HĐ'}</span></td>
                   <td class="row-actions">
                     <button class="btn btn-ghost btn-xs" onclick="openVesselForm(${JSON.stringify(v).replace(/"/g,'&quot;')})">✏️</button>
@@ -17877,44 +17889,63 @@ async function renderSmDashboard() {
     // Cảnh báo nếu có ngưỡng và số dư thấp hơn
     const minBal = parseFloat(c.minBalance)||0;
     let alertHtml = '';
+    let balanceColor = balance>=0 ? 'var(--green)' : 'var(--red)';
+    let balanceIcon = balance>=0 ? '✓' : '🔴';
+    let balanceLabel = balance>=0 ? 'Số dư dương' : '⚠ SME đang ứng trước';
     if (minBal > 0) {
       if (balance < 0) {
-        alertHtml = `<div style="background:#fee2e2;border:1px solid #ef4444;color:#991b1b;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:11px;font-weight:600">🔴 SME đang ứng trước ${fmtVnd(Math.abs(balance))} — Cần thu lại từ chủ tàu!</div>`;
+        alertHtml = `<div style="background:#fee2e2;border:1px solid #ef4444;color:#991b1b;border-radius:6px;padding:10px 12px;margin-bottom:10px;font-size:12px;font-weight:600">🔴 <strong>CẢNH BÁO:</strong> SME đang ứng trước ${fmtVnd(Math.abs(balance))} — cần thu lại từ chủ tàu!</div>`;
       } else if (balance < minBal) {
-        alertHtml = `<div style="background:#fef3c7;border:1px solid #f59e0b;color:#92400e;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:11px;font-weight:600">⚠ Tiền ứng còn ${fmtVnd(balance)} (dưới ngưỡng ${fmtVnd(minBal)}) — Đề nghị chủ tàu chuyển bổ sung</div>`;
+        alertHtml = `<div style="background:#fef3c7;border:1px solid #f59e0b;color:#92400e;border-radius:6px;padding:10px 12px;margin-bottom:10px;font-size:12px;font-weight:600">⚠ <strong>Tiền ứng còn ${fmtVnd(balance)}</strong> (dưới ngưỡng ${fmtVnd(minBal)}) — đề nghị chủ tàu chuyển bổ sung</div>`;
+        balanceIcon = '⚠';
+        balanceLabel = 'Sắp cạn';
       }
+    } else if (balance < 0) {
+      alertHtml = `<div style="background:#fee2e2;border:1px solid #ef4444;color:#991b1b;border-radius:6px;padding:10px 12px;margin-bottom:10px;font-size:12px;font-weight:600">🔴 SME đang ứng trước ${fmtVnd(Math.abs(balance))} — cần thu lại!</div>`;
     }
 
     return `<div class="card"><div class="card-body">
       <div class="flex items-center justify-between mb8">
-        <div><div style="font-size:13px;font-weight:600;color:var(--navy)">${c.vesselName}</div>
+        <div><div style="font-size:14px;font-weight:700;color:var(--navy)">${c.vesselName}</div>
         <div style="font-size:11px;color:var(--text3)">Chủ tàu: <strong>${c.ownerName}</strong> | ${c.contractNo}</div></div>
         ${smStatusBadge(c.status)}
       </div>
       ${alertHtml}
-      <div style="background:var(--gray1);border-radius:4px;padding:6px 10px;margin-bottom:8px;font-size:11px">${c.scope||''}</div>
-      <div class="form-grid cols3" style="gap:8px">
-        <div><div class="kpi-label">Phí QT/tháng</div>
-          <div style="font-size:14px;font-weight:700;color:var(--teal);font-family:var(--mono)">${fmtCurrency(c.monthlyFee, c.currency||'VND')}</div>
-          ${(c.currency&&c.currency!=='VND')?`<div style="font-size:10px;color:var(--text3)">≈ ${fmtVnd(c.monthlyFeeVnd||(c.monthlyFee*(c.fxRate||1)))}</div>`:''}
+
+      <!-- ⭐ KPI 1: Phí quản lý — DT thực của SME -->
+      <div style="background:linear-gradient(135deg,var(--teal-lt) 0%,#fff 60%);border-left:4px solid var(--teal);border-radius:6px;padding:10px 14px;margin-bottom:10px">
+        <div style="font-size:10px;font-weight:600;color:var(--teal);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">💰 PHÍ QUẢN LÝ THỰC THU ${S.year}</div>
+        <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+          <div style="font-size:22px;font-weight:800;color:var(--teal);font-family:var(--mono);line-height:1">${fmtB(cFee)}</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:2px">
+            / KH ${fmtB(planFee)}
+            <span style="color:${prog>=80?'var(--green)':'var(--amber)'};font-weight:700;margin-left:6px">${pct(prog)}</span>
+          </div>
         </div>
-        <div><div class="kpi-label">Đã thu ${S.year}</div><div style="font-size:14px;font-weight:700;font-family:var(--mono)">${fmtB(cFee)}</div></div>
-        <div><div class="kpi-label">Tiến độ</div><div style="font-size:14px;font-weight:700;color:${prog>=80?'var(--green)':'var(--amber)'};font-family:var(--mono)">${pct(prog)}</div></div>
+        <div class="progress-wrap mt8"><div class="progress-bar ${prog<50?'warn':''}" style="width:${prog.toFixed(1)}%"></div></div>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px">Phí HĐ: ${fmtCurrency(c.monthlyFee, c.currency||'VND')}/tháng × ${months} tháng</div>
       </div>
-      <div class="progress-wrap mt8"><div class="progress-bar ${prog<50?'warn':''}" style="width:${prog.toFixed(1)}%"></div></div>
-      <!-- Số dư công nợ -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--gray2)">
-        <div><div class="kpi-label" style="font-size:10px">Thu hộ</div><div style="font-size:12px;font-weight:600;color:var(--teal);font-family:var(--mono)">${fmtB(cThuHo)}</div></div>
-        <div><div class="kpi-label" style="font-size:10px">Chi hộ</div><div style="font-size:12px;font-weight:600;color:var(--amber);font-family:var(--mono)">${fmtB(cChiHo)}</div></div>
-        <div><div class="kpi-label" style="font-size:10px">Số dư</div><div style="font-size:12px;font-weight:700;color:${balance>=0?'var(--green)':'var(--red)'};font-family:var(--mono)">${balance>=0?'+':'−'}${fmtB(Math.abs(balance))}</div></div>
+
+      <!-- ⭐ KPI 2: Số dư công nợ — cảnh báo quan trọng -->
+      <div style="background:${balance>=0?'#F0FDF4':'#FEF2F2'};border-left:4px solid ${balanceColor};border-radius:6px;padding:10px 14px;margin-bottom:10px">
+        <div style="font-size:10px;font-weight:600;color:${balanceColor};letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">${balanceIcon} SỐ DƯ CÔNG NỢ CHỦ TÀU</div>
+        <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+          <div style="font-size:22px;font-weight:800;color:${balanceColor};font-family:var(--mono);line-height:1">${balance>=0?'+':'−'}${fmtB(Math.abs(balance))}</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${balanceLabel}</div>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:6px;display:flex;gap:14px;flex-wrap:wrap">
+          <span>Thu hộ: <strong style="color:var(--teal)">${fmtB(cThuHo)}</strong></span>
+          <span>Chi hộ: <strong style="color:var(--amber)">${fmtB(cChiHo)}</strong></span>
+          ${minBal>0?`<span>Ngưỡng tối thiểu: <strong>${fmtB(minBal)}</strong></span>`:''}
+        </div>
       </div>
+
       <div class="row-actions mt8">
-        <button class="btn btn-outline btn-xs" onclick="openSmContractForm(${JSON.stringify(c).replace(/"/g,'&quot;')})">✏️ Sửa</button>
-        <button class="btn btn-primary btn-xs" onclick="openSmRevForm({contractId:'${c.id}'})" style="background:var(--teal);border-color:var(--teal)">💰 + DT QT</button>
+        <button class="btn btn-outline btn-xs" onclick="openSmContractForm(${JSON.stringify(c).replace(/"/g,'&quot;')})" title="Sửa hợp đồng">✏️</button>
+        <button class="btn btn-primary btn-xs" onclick="openSmRevForm({contractId:'${c.id}'})" style="background:var(--teal);border-color:var(--teal)">💰 Thu phí QT</button>
         <button class="btn btn-outline btn-xs" onclick="openSmPassthroughForm({contractId:'${c.id}'})">+ Thu/chi hộ</button>
         <button class="btn btn-outline btn-xs" onclick="openSmCostForm({contractId:'${c.id}'})">+ CP QT</button>
-        <button class="btn btn-outline btn-xs" onclick="renderSmLedger('${c.id}')">📒 Sổ công nợ</button>
-        <button class="btn btn-primary btn-xs" onclick="renderSmReport('${c.id}')">Báo cáo</button>
+        <button class="btn btn-outline btn-xs" onclick="renderSmLedger('${c.id}')">📒 Sổ</button>
       </div>
     </div></div>`;
   }).join('');
@@ -19002,15 +19033,19 @@ async function renderGa() {
   try {
     [cats, entries, revCats, revEntries] = await Promise.all([
       api('getGaCats',{}),
-      api('getGaEntries',{year:S.year}),
+      api('getGaEntries',{}),       // BỎ year filter — lấy tất cả, lọc frontend
       api('getGaRevCats',{}),
-      api('getGaRevEntries',{year:S.year}),
+      api('getGaRevEntries',{}),    // BỎ year filter
     ]);
   } catch(e){ toast('Lỗi','err'); }
   hideLoading();
 
-  const totalCost = entries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-  const totalRev  = revEntries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  // Tính KPI vẫn theo S.year (mặc định năm hiện tại)
+  const curYear = String(S.year);
+  const yrEntries = entries.filter(e => (e.entryDate||'').startsWith(curYear));
+  const yrRevEntries = revEntries.filter(e => (e.entryDate||'').startsWith(curYear));
+  const totalCost = yrEntries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const totalRev  = yrRevEntries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const netCorp   = totalRev - totalCost;
 
   document.getElementById('content').innerHTML = `
@@ -19061,10 +19096,10 @@ function gaSwitch(tab) {
     document.getElementById('gaTab'+t.charAt(0).toUpperCase()+t.slice(1))?.classList.toggle('active', t===tab);
   });
   if (tab==='cost') {
-    Promise.all([api('getGaCats',{}),api('getGaEntries',{year:S.year})])
+    Promise.all([api('getGaCats',{}),api('getGaEntries',{})])    // BỎ year — lấy tất cả
       .then(([cats,entries])=>gaRenderCost(cats,entries,entries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0)));
   } else if (tab==='rev') {
-    Promise.all([api('getGaRevCats',{}),api('getGaRevEntries',{year:S.year})])
+    Promise.all([api('getGaRevCats',{}),api('getGaRevEntries',{})])    // BỎ year — lấy tất cả
       .then(([cats,entries])=>gaRenderRev(cats,entries));
   } else if (tab==='fa') {
     api('getFixedAssets',{}).then(assets=>gaRenderFA(assets));
@@ -19074,9 +19109,9 @@ function gaSwitch(tab) {
 }
 
 // Filter state cho trang Chi phí GA
-let _S_GACOSTS_FILTER = { month:'', group:'', categoryId:'' };
+let _S_GACOSTS_FILTER = { year:'', month:'', group:'', categoryId:'' };
 function _resetGaCostsFilter() {
-  _S_GACOSTS_FILTER = { month:'', group:'', categoryId:'' };
+  _S_GACOSTS_FILTER = { year:'', month:'', group:'', categoryId:'' };
   if (typeof gaSwitch === 'function') gaSwitch('cost');
 }
 
@@ -19085,6 +19120,10 @@ function gaRenderCost(cats, entries, total) {
   const f = _S_GACOSTS_FILTER;
   const filteredEntries = entries.filter(e => {
     const cat = cats.find(c=>c.id===e.categoryId)||{};
+    if (f.year) {
+      const y = (e.entryDate||'').slice(0,4);
+      if (y !== f.year) return false;
+    }
     if (f.month) {
       // Extract month: "2026-05" → 5; số đơn lẻ → giữ nguyên; entryDate → parse
       let m = 0;
@@ -19129,10 +19168,13 @@ function gaRenderCost(cats, entries, total) {
     if (e.entryDate) return parseInt(e.entryDate.slice(5,7)) || 0;
     return 0;
   };
+  const yearsAvail = [...new Set(entries.map(e => (e.entryDate||'').slice(0,4)).filter(y=>y && y.length===4))].sort((a,b)=>b.localeCompare(a));
   const monthsAvail = [...new Set(entries.map(extractMonth).filter(m=>m>0&&m<=12))].sort((a,b)=>a-b);
   const groupsAvail = [...new Set(entries.map(e => (cats.find(c=>c.id===e.categoryId)||{}).group).filter(Boolean))].sort();
   const catIdsInUse = [...new Set(entries.map(e => e.categoryId).filter(Boolean))];
 
+  const yearOpts = `<option value="">Tất cả năm</option>` +
+    yearsAvail.map(y => `<option value="${y}"${f.year===y?' selected':''}>${y}</option>`).join('');
   const monthOpts = `<option value="">Tất cả tháng</option>` +
     monthsAvail.map(m => `<option value="${m}"${String(f.month)===String(m)?' selected':''}>Tháng ${String(m).padStart(2,'0')}</option>`).join('');
   const groupOpts = `<option value="">Tất cả nhóm</option>` +
@@ -19143,10 +19185,10 @@ function gaRenderCost(cats, entries, total) {
       return `<option value="${cid}"${f.categoryId===cid?' selected':''}>${cat.name||cid}</option>`;
     }).join('');
 
-  const hasAnyFilter = !!(f.month || f.group || f.categoryId);
+  const hasAnyFilter = !!(f.year || f.month || f.group || f.categoryId);
   const filterStatus = hasAnyFilter
     ? `Hiển thị <strong>${filteredEntries.length}</strong> / ${entries.length} bút toán · Tổng: <strong>${fmtB(filteredTotal)}</strong> / ${fmtB(total)}`
-    : `${filteredEntries.length} bút toán · <strong>${fmtB(filteredTotal)}</strong>`;
+    : `${filteredEntries.length} bút toán (tất cả các năm) · <strong>${fmtB(filteredTotal)}</strong>`;
 
   document.getElementById('ga-tab-content').innerHTML=`
     <div class="flex items-center justify-between mb12">
@@ -19161,6 +19203,7 @@ function gaRenderCost(cats, entries, total) {
     <div class="card mb16" style="background:var(--gray1);border:1px solid var(--border)">
       <div style="padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <div style="font-size:12px;font-weight:600;color:var(--text2)">🔍 Lọc:</div>
+        <select onchange="_S_GACOSTS_FILTER.year=this.value;gaSwitch('cost')" style="min-width:100px;font-size:12px">${yearOpts}</select>
         <select onchange="_S_GACOSTS_FILTER.month=this.value;gaSwitch('cost')" style="min-width:120px;font-size:12px">${monthOpts}</select>
         <select onchange="_S_GACOSTS_FILTER.group=this.value;gaSwitch('cost')" style="min-width:170px;font-size:12px">${groupOpts}</select>
         <select onchange="_S_GACOSTS_FILTER.categoryId=this.value;gaSwitch('cost')" style="min-width:200px;font-size:12px">${catOpts}</select>
@@ -19201,8 +19244,38 @@ function gaRenderCost(cats, entries, total) {
   },100);
 }
 
-function gaRenderRev(cats, entries) {
+// Filter state cho trang DT phụ trợ GA
+let _S_GAREV_FILTER = { year:'', month:'', categoryId:'' };
+function _resetGaRevFilter() {
+  _S_GAREV_FILTER = { year:'', month:'', categoryId:'' };
+  if (typeof gaSwitch === 'function') gaSwitch('rev');
+}
+
+function gaRenderRev(cats, allEntries) {
+  // ─── APPLY FILTER ───
+  const f = _S_GAREV_FILTER;
+  const entries = allEntries.filter(e => {
+    if (f.year) {
+      const y = (e.entryDate||'').slice(0,4);
+      if (y !== f.year) return false;
+    }
+    if (f.month) {
+      let m = 0;
+      if (e.month && typeof e.month === 'string' && e.month.includes('-')) {
+        m = parseInt(e.month.split('-')[1]) || 0;
+      } else if (e.month) {
+        m = parseInt(e.month) || 0;
+      } else if (e.entryDate) {
+        m = parseInt(e.entryDate.slice(5,7)) || 0;
+      }
+      if (String(m) !== String(f.month)) return false;
+    }
+    if (f.categoryId && e.categoryId !== f.categoryId) return false;
+    return true;
+  });
+
   const total = entries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+  const totalAll = allEntries.reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
   const byGrp = {};
   entries.forEach(e=>{
     const cat=cats.find(c=>c.id===e.categoryId)||{};
@@ -19211,11 +19284,48 @@ function gaRenderRev(cats, entries) {
     byGrp[g].total+=parseFloat(e.amountVnd)||0;
   });
 
+  // Filter options
+  const yearsAvail = [...new Set(allEntries.map(e => (e.entryDate||'').slice(0,4)).filter(y=>y && y.length===4))].sort((a,b)=>b.localeCompare(a));
+  const monthsAvail = [...new Set(allEntries.map(e => {
+    if (e.month && typeof e.month === 'string' && e.month.includes('-')) return parseInt(e.month.split('-')[1])||0;
+    if (e.month) return parseInt(e.month)||0;
+    if (e.entryDate) return parseInt(e.entryDate.slice(5,7))||0;
+    return 0;
+  }).filter(m=>m>0&&m<=12))].sort((a,b)=>a-b);
+  const catIdsInUse = [...new Set(allEntries.map(e => e.categoryId).filter(Boolean))];
+
+  const yearOpts = `<option value="">Tất cả năm</option>` +
+    yearsAvail.map(y => `<option value="${y}"${f.year===y?' selected':''}>${y}</option>`).join('');
+  const monthOpts = `<option value="">Tất cả tháng</option>` +
+    monthsAvail.map(m => `<option value="${m}"${String(f.month)===String(m)?' selected':''}>Tháng ${String(m).padStart(2,'0')}</option>`).join('');
+  const catOpts = `<option value="">Tất cả đầu mục</option>` +
+    catIdsInUse.map(cid => {
+      const cat = cats.find(c=>c.id===cid)||{};
+      return `<option value="${cid}"${f.categoryId===cid?' selected':''}>${cat.name||cid}</option>`;
+    }).join('');
+
+  const hasAnyFilter = !!(f.year || f.month || f.categoryId);
+  const filterStatus = hasAnyFilter
+    ? `Hiển thị <strong>${entries.length}</strong> / ${allEntries.length} bút toán · DT: <strong>${fmtB(total)}</strong> / ${fmtB(totalAll)}`
+    : `${entries.length} bút toán (tất cả các năm) · Tổng DT phụ trợ: <strong>${fmtB(total)}</strong>`;
+
   document.getElementById('ga-tab-content').innerHTML=`
     <div class="flex items-center justify-between mb12">
-      <span class="text-muted text-small">${entries.length} bút toán · Tổng DT phụ trợ: <strong>${fmtB(total)}</strong></span>
+      <span class="text-muted text-small">${filterStatus}</span>
       <button class="btn btn-primary" onclick="openGaRevEntryForm()">+ Nhập doanh thu</button>
     </div>
+
+    <!-- ─── TOOLBAR FILTER ─── -->
+    <div class="card mb16" style="background:var(--gray1);border:1px solid var(--border)">
+      <div style="padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div style="font-size:12px;font-weight:600;color:var(--text2)">🔍 Lọc:</div>
+        <select onchange="_S_GAREV_FILTER.year=this.value;gaSwitch('rev')" style="min-width:100px;font-size:12px">${yearOpts}</select>
+        <select onchange="_S_GAREV_FILTER.month=this.value;gaSwitch('rev')" style="min-width:120px;font-size:12px">${monthOpts}</select>
+        <select onchange="_S_GAREV_FILTER.categoryId=this.value;gaSwitch('rev')" style="min-width:200px;font-size:12px">${catOpts}</select>
+        ${hasAnyFilter ? `<button class="btn btn-ghost btn-xs" onclick="_resetGaRevFilter()" style="margin-left:auto" title="Bỏ tất cả lọc">🔄 Reset</button>` : ''}
+      </div>
+    </div>
+
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
       ${Object.entries(byGrp).map(([g,d])=>`
         <div class="kpi-card accent-green" style="min-width:160px">
@@ -19234,7 +19344,7 @@ function gaRenderRev(cats, entries) {
             <button class="btn btn-ghost btn-xs" onclick="openGaRevEntryForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">✏️</button>
             <button class="btn btn-ghost btn-xs" onclick="deleteGaRevEntry('${e.id}')">🗑</button>
           </td></tr>`;
-      }).join(''):'<tr><td colspan="6"><div class="empty-state">Chưa có doanh thu phụ trợ nào.</div></td></tr>'}</tbody>
+      }).join(''):`<tr><td colspan="6"><div class="empty-state">${hasAnyFilter?'Không có bút toán nào khớp với bộ lọc.':'Chưa có doanh thu phụ trợ nào.'}</div></td></tr>`}</tbody>
     </table></div></div></div>`;
 }
 
