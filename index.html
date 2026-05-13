@@ -487,6 +487,15 @@ body.ios-view .mode-switcher {
   display:none !important;
 }
 
+/* iOS: Allow these specific items to show (exception list) */
+body.ios-view .allow-on-ios,
+body.ios-view .allow-on-ios * {
+  display: inline-flex !important;
+}
+body.ios-view button.allow-on-ios {
+  display: inline-block !important;
+}
+
 /* iOS banner */
 .ios-banner {
   background:var(--brand);color:#fff;
@@ -8845,10 +8854,10 @@ async function renderSettings() {
           </div>
         </div>
         <div class="flex gap8 mt8" style="flex-wrap:wrap">
-          <button class="btn btn-primary btn-sm" onclick="saveGhConfig()">💾 Lưu cấu hình</button>
-          <button class="btn btn-outline btn-sm" onclick="ghPushManual()">🐙↑ Sync lên GitHub</button>
-          <button class="btn btn-outline btn-sm" onclick="ghPullManual()">🐙↓ Tải về từ GitHub</button>
-          <button class="btn btn-ghost btn-sm" onclick="clearGhConfig()" style="color:var(--red)">🗑 Xoá token</button>
+          <button class="btn btn-primary btn-sm allow-on-ios" onclick="saveGhConfig()">💾 Lưu cấu hình</button>
+          <button class="btn btn-outline btn-sm allow-on-ios" onclick="ghPushManual()">🐙↑ Sync lên GitHub</button>
+          <button class="btn btn-outline btn-sm allow-on-ios" onclick="ghPullManual()">🐙↓ Tải về từ GitHub</button>
+          <button class="btn btn-ghost btn-sm allow-on-ios" onclick="clearGhConfig()" style="color:var(--red)">🗑 Xoá token</button>
         </div>
         <div class="flex items-center gap8 mt12" style="font-size:12px">
           <input type="checkbox" id="auto_gh" ${autoGh?'checked':''} onchange="toggleAutoSync('gh',this.checked)"/>
@@ -9394,7 +9403,7 @@ function renderCryptoCard() {
           <input type="password" id="crypto_pw2" placeholder="Nhập lại để xác nhận" autocomplete="new-password"/></div>
       </div>
       <div class="flex gap8 mt8" style="flex-wrap:wrap">
-        <button class="btn btn-primary btn-sm" onclick="cryptoEnable()">🔒 Bật mã hoá</button>
+        <button class="btn btn-primary btn-sm allow-on-ios" onclick="cryptoEnable()">🔒 Bật mã hoá</button>
       </div>`;
   } else if (enabled && !hasPw) {
     // Đã bật ở thiết bị khác — máy này cần nhập password để đọc file cloud
@@ -9404,16 +9413,16 @@ function renderCryptoCard() {
           <input type="password" id="crypto_pw_unlock" placeholder="Mật khẩu" autocomplete="current-password"/></div>
       </div>
       <div class="flex gap8 mt8" style="flex-wrap:wrap">
-        <button class="btn btn-primary btn-sm" onclick="cryptoUnlock()">🔑 Mở khoá thiết bị này</button>
-        <button class="btn btn-ghost btn-sm" onclick="cryptoDisableLocal()" style="color:var(--red)">Tắt mã hoá ở thiết bị này</button>
+        <button class="btn btn-primary btn-sm allow-on-ios" onclick="cryptoUnlock()">🔑 Mở khoá thiết bị này</button>
+        <button class="btn btn-ghost btn-sm allow-on-ios" onclick="cryptoDisableLocal()" style="color:var(--red)">Tắt mã hoá ở thiết bị này</button>
       </div>`;
   } else {
     // Đã bật + có password
     ctrlEl.innerHTML = `
       <div class="flex gap8" style="flex-wrap:wrap">
-        <button class="btn btn-outline btn-sm" onclick="cryptoChangePassword()">🔄 Đổi mật khẩu</button>
-        <button class="btn btn-outline btn-sm" onclick="cryptoTestPassword()">✓ Kiểm tra mật khẩu</button>
-        <button class="btn btn-outline btn-sm" onclick="cryptoDisable()" style="color:var(--red);border-color:var(--red)">🔓 Tắt mã hoá</button>
+        <button class="btn btn-outline btn-sm allow-on-ios" onclick="cryptoChangePassword()">🔄 Đổi mật khẩu</button>
+        <button class="btn btn-outline btn-sm allow-on-ios" onclick="cryptoTestPassword()">✓ Kiểm tra mật khẩu</button>
+        <button class="btn btn-outline btn-sm allow-on-ios" onclick="cryptoDisable()" style="color:var(--red);border-color:var(--red)">🔓 Tắt mã hoá</button>
       </div>`;
   }
 }
