@@ -22139,9 +22139,8 @@ async function renderIosPlan() {
     // Doanh thu/Chi phí SM
     let smRev = 0, smCost = 0;
     const smRevs = await api('getSmRevEntries',{}).catch(()=>[]);
-    const smCostsData = await api('getSmCostEntries',{}).catch(()=>[]);
     smRev = smRevs.filter(inYear).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
-    smCost = smCostsData.filter(inYear).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+    smCost = 0; // SM không có cost entries riêng — phí quản lý gần như 100% margin
     const smMargin = smRev - smCost;
 
     // GA
