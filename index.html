@@ -22080,20 +22080,248 @@ function iosTab(tab) {
   document.getElementById('ios-tab-'+tab)?.classList.add('active');
 
   if (tab === 'plan') {
-    // Kế hoạch & Tiến độ (P&L hợp nhất)
-    document.getElementById('page-title').textContent = 'Kế hoạch & Tiến độ';
-    const el = document.querySelector('[data-page="consolidated"]');
-    if (el) nav_(el); else renderPage('consolidated');
+    renderIosPlan();
   } else if (tab === 'cash') {
-    // Dòng tiền (Cash Flow Forecast)
-    document.getElementById('page-title').textContent = 'Dòng tiền';
-    const el = document.querySelector('[data-page="cash-flow"]');
-    if (el) nav_(el); else renderPage('cash-flow');
+    renderIosCashflow();
   } else if (tab === 'arap') {
-    // Phải thu — Phải trả (AR/AP chi tiết)
-    document.getElementById('page-title').textContent = 'Phải thu / Phải trả';
-    const el = document.querySelector('[data-page="receivables-payables"]');
-    if (el) nav_(el); else renderPage('receivables-payables');
+    renderIosArap();
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// iOS CUSTOM RENDERS — mobile-friendly layout
+// ═══════════════════════════════════════════════════════
+
+async function renderIosPlan() {
+  const content = document.getElementById('content');
+  if (!content) return;
+
+  // Loading skeleton
+  content.innerHTML = `
+    <div style="padding-bottom:10px">
+      <div style="font-size:13px;color:#9ca3af;text-align:center;padding:30px 0">Đang tải dữ liệu...</div>
+    </div>`;
+
+  // Lấy dữ liệu cho năm hiện tại
+  const year = S.year || new Date().getFullYear();
+
+  try {
+    // Gom data từ các nguồn
+    const [vessels, omContracts, smContracts, gaCosts, gaRevs, gaTaxAdj] = await Promise.all([
+      api('getVessels',{}),
+      api('getOmContracts',{}),
+      api('getSmContracts',{}),
+      api('getGaEntries',{}),
+      api('getGaRevEntries',{}),
+      api('getGaTaxAdj',{year}),
+    ]);
+
+    // Doanh thu/Chi phí Vessel năm
+    let vesselRev = 0, vesselCost = 0;
+    for (const v of vessels) {
+      try {
+        const r = await api('getAnnualReport',{vesselId:v.id, year});
+        vesselRev += parseFloat(r?.revenue?.totalRevVnd) || 0;
+        vesselCost += parseFloat(r?.costs?.totalAnnualCost) || 0;
+      } catch(_) {}
+    }
+    const vesselMargin = vesselRev - vesselCost;
+
+    // Doanh thu/Chi phí O&M năm
+    const omRevs = await api('getOmRevEntries',{}).catch(()=>[]);
+    const omCosts = await api('getOmCostEntries',{}).catch(()=>[]);
+    const yrStart = `${year}-01-01`, yrEnd = `${year}-12-31`;
+    const inYear = e => (e.entryDate||'') >= yrStart && (e.entryDate||'') <= yrEnd;
+    const omRev = omRevs.filter(e => inYear(e) && !e.isPlan).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+    const omCost = omCosts.filter(inYear).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+    const omMargin = omRev - omCost;
+
+    // Doanh thu/Chi phí SM
+    let smRev = 0, smCost = 0;
+    const smRevs = await api('getSmRevEntries',{}).catch(()=>[]);
+    const smCostsData = await api('getSmCostEntries',{}).catch(()=>[]);
+    smRev = smRevs.filter(inYear).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+    smCost = smCostsData.filter(inYear).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+    const smMargin = smRev - smCost;
+
+    // GA
+    const gaCostTotal = gaCosts.filter(inYear).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+    const gaRevTotal = gaRevs.filter(inYear).reduce((s,e)=>s+(parseFloat(e.amountVnd)||0),0);
+
+    const totalRev = vesselRev + omRev + smRev + gaRevTotal;
+    const totalSegMargin = vesselMargin + omMargin + smMargin + gaRevTotal;
+    const ebitda = totalSegMargin - gaCostTotal;
+    const ebitdaPct = totalRev > 0 ? (ebitda/totalRev*100) : 0;
+
+    // KH (kế hoạch) — đơn giản: nếu có target trong settings, ko thì để 0
+    const plannedRev = parseFloat(localStorage.getItem('felix_planned_rev_' + year)) || 0;
+    const planPct = plannedRev > 0 ? (totalRev/plannedRev*100) : 0;
+
+    // Daily project count etc.
+    const vesselCount = vessels.length;
+    const omCount = omContracts.length;
+    const smCount = smContracts.length;
+
+    // Days left in year
+    const today = new Date();
+    const yearEnd = new Date(year, 11, 31);
+    const isCurYear = today.getFullYear() === year;
+    let daysLeftLabel = '';
+    if (isCurYear && today <= yearEnd) {
+      const monthsLeft = Math.max(0, 11 - today.getMonth());
+      daysLeftLabel = monthsLeft > 0 ? `${monthsLeft} tháng nữa hết năm` : 'Tháng cuối năm';
+    } else if (today > yearEnd) {
+      daysLeftLabel = 'Đã kết thúc';
+    } else {
+      daysLeftLabel = 'Năm tương lai';
+    }
+
+    // USD
+    const fxRate = 25500;
+    const usdM = v => (v/fxRate/1e6).toFixed(1);
+
+    content.innerHTML = `
+      <div style="padding-bottom:10px">
+        <h2 style="font-size:18px;font-weight:500;margin:0 0 2px;color:#111827">Kế hoạch & Tiến độ</h2>
+        <p style="font-size:11px;color:#6b7280;margin:0 0 14px">${daysLeftLabel}</p>
+
+        <!-- KPI 1: Doanh thu hợp nhất -->
+        <div style="background:linear-gradient(135deg,#E1F5EE 0%,#fff 60%);border-left:3px solid #1D9E75;border-radius:10px;padding:14px 16px;margin-bottom:10px">
+          <div style="font-size:10px;font-weight:600;color:#0F6E56;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">💰 DOANH THU HỢP NHẤT ${year}</div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between">
+            <div style="font-size:24px;font-weight:600;color:#0F6E56;font-family:var(--mono);line-height:1">${fmtB(totalRev)}</div>
+            <div style="font-size:11px;color:#6b7280">≈ \$${usdM(totalRev)}M</div>
+          </div>
+          ${plannedRev > 0 ? `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11px">
+              <span style="color:#6b7280">KH ${fmtB(plannedRev)}</span>
+              <span style="color:#0F6E56;font-weight:600">${pct(planPct)}</span>
+            </div>
+            <div style="background:#E1F5EE;height:4px;border-radius:2px;margin-top:6px;overflow:hidden">
+              <div style="background:#1D9E75;width:${Math.min(100,planPct).toFixed(1)}%;height:100%"></div>
+            </div>
+          ` : `
+            <div style="font-size:10px;color:#9ca3af;margin-top:6px;font-style:italic">Chưa đặt KH năm — vào Cài đặt để nhập</div>
+          `}
+        </div>
+
+        <!-- KPI 2: EBITDA -->
+        <div style="background:#FAEEDA;border-left:3px solid #BA7517;border-radius:10px;padding:14px 16px;margin-bottom:14px">
+          <div style="font-size:10px;font-weight:600;color:#854F0B;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">📈 EBITDA (SAU G&A)</div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between">
+            <div style="font-size:24px;font-weight:600;color:#854F0B;font-family:var(--mono);line-height:1">${fmtB(ebitda)}</div>
+            <div style="font-size:11px;color:${ebitda>=0?'#0F6E56':'#dc2626'};font-weight:600">${ebitda>=0?'+':''}${pct(ebitdaPct)}</div>
+          </div>
+          <div style="font-size:11px;color:#6b7280;margin-top:6px">
+            Segment ${fmtB(totalSegMargin)} − G&A ${fmtB(gaCostTotal)}
+          </div>
+        </div>
+
+        <!-- Mảng kinh doanh -->
+        <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">MẢNG KINH DOANH</div>
+
+        <!-- Vessel -->
+        <div style="background:#fff;border:0.5px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:18px">🚢</span>
+              <div>
+                <div style="font-size:13px;font-weight:600;color:#111827">Vessel</div>
+                <div style="font-size:10px;color:#6b7280">${vesselCount} tàu</div>
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:14px;font-weight:600;font-family:var(--mono);color:#111827">${fmtB(vesselRev)}</div>
+              <div style="font-size:10px;color:${vesselMargin>=0?'#0F6E56':'#dc2626'}">Margin ${vesselRev?pct(vesselMargin/vesselRev*100):'0%'}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- O&M -->
+        <div style="background:#fff;border:0.5px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:18px">🏥</span>
+              <div>
+                <div style="font-size:13px;font-weight:600;color:#111827">O&M Service</div>
+                <div style="font-size:10px;color:#6b7280">${omCount} hợp đồng</div>
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:14px;font-weight:600;font-family:var(--mono);color:#111827">${fmtB(omRev)}</div>
+              <div style="font-size:10px;color:${omMargin>=0?'#0F6E56':'#dc2626'}">Margin ${omRev?pct(omMargin/omRev*100):'0%'}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ship Mgmt -->
+        <div style="background:#fff;border:0.5px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:18px">⚓</span>
+              <div>
+                <div style="font-size:13px;font-weight:600;color:#111827">Ship Mgmt</div>
+                <div style="font-size:10px;color:#6b7280">${smCount} tàu quản lý</div>
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:14px;font-weight:600;font-family:var(--mono);color:#111827">${fmtB(smRev)}</div>
+              <div style="font-size:10px;color:${smMargin>=0?'#0F6E56':'#dc2626'}">Margin ${smRev?pct(smMargin/smRev*100):'0%'}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Corporate (G&A) -->
+        ${gaRevTotal > 0 ? `
+        <div style="background:#fff;border:0.5px solid #e5e7eb;border-radius:10px;padding:12px 14px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:18px">🏢</span>
+              <div>
+                <div style="font-size:13px;font-weight:600;color:#111827">Corporate</div>
+                <div style="font-size:10px;color:#6b7280">DT phụ trợ</div>
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:14px;font-weight:600;font-family:var(--mono);color:#111827">${fmtB(gaRevTotal)}</div>
+            </div>
+          </div>
+        </div>
+        ` : ''}
+      </div>`;
+  } catch(e) {
+    content.innerHTML = `
+      <div style="padding:30px 20px;text-align:center;color:#dc2626;font-size:13px">
+        Lỗi tải dữ liệu: ${e.message}<br>
+        <button class="allow-on-ios" onclick="renderIosPlan()" style="margin-top:14px;padding:8px 16px;background:#3b82f6;color:#fff;border:none;border-radius:8px;font-size:12px">🔄 Thử lại</button>
+      </div>`;
+  }
+}
+
+async function renderIosCashflow() {
+  const content = document.getElementById('content');
+  if (!content) return;
+  // Tạm dùng render desktop có sẵn
+  content.innerHTML = `<div style="padding:30px 20px;text-align:center;color:#6b7280;font-size:13px">Đang tải Cash Flow...</div>`;
+  try {
+    if (typeof renderCashFlow === 'function') {
+      await renderCashFlow();
+    }
+  } catch(e) {
+    content.innerHTML = `<div style="padding:30px 20px;text-align:center;color:#dc2626;font-size:13px">Lỗi: ${e.message}</div>`;
+  }
+}
+
+async function renderIosArap() {
+  const content = document.getElementById('content');
+  if (!content) return;
+  content.innerHTML = `<div style="padding:30px 20px;text-align:center;color:#6b7280;font-size:13px">Đang tải Công nợ...</div>`;
+  try {
+    if (typeof renderReceivablesPayables === 'function') {
+      await renderReceivablesPayables();
+    }
+  } catch(e) {
+    content.innerHTML = `<div style="padding:30px 20px;text-align:center;color:#dc2626;font-size:13px">Lỗi: ${e.message}</div>`;
   }
 }
 
