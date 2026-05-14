@@ -14927,14 +14927,23 @@ function _arInsAddRow() {
   tbody.appendChild(tr);
 }
 
-// Helper: tính lại tổng đã thu
+// Helper: tính lại tổng đã thu/trả + Gốc/Lãi (cho khoản vay)
 function _arRecalcInsModal() {
-  let totalPaid = 0;
+  let totalAmt = 0, totalPrincipal = 0, totalInterest = 0, totalPaid = 0;
   document.querySelectorAll('#ar_ins_rows tr[data-idx]').forEach(row => {
-    totalPaid += parseFloat(row.querySelector('.ar_ins_amt')?.value) || 0;
+    totalAmt += parseFloat(row.querySelector('.ar_ins_amt')?.value) || 0;
+    totalPrincipal += parseFloat(row.querySelector('.ar_ins_principal')?.value) || 0;
+    totalInterest += parseFloat(row.querySelector('.ar_ins_interest')?.value) || 0;
+    totalPaid += parseFloat(row.querySelector('.ar_ins_paidamt')?.value) || 0;
   });
   const tEl = document.getElementById('ar_ins_total');
-  if (tEl) tEl.textContent = fmtVnd(totalPaid);
+  if (tEl) tEl.textContent = fmtVnd(totalAmt);
+  const pEl = document.getElementById('ar_ins_principal_total');
+  if (pEl) pEl.textContent = fmtVnd(totalPrincipal);
+  const iEl = document.getElementById('ar_ins_interest_total');
+  if (iEl) iEl.textContent = fmtVnd(totalInterest);
+  const paidEl = document.getElementById('ar_ins_paid_total');
+  if (paidEl) paidEl.textContent = fmtVnd(totalPaid);
 }
 
 // Helper: đánh dấu thu đủ một lần
@@ -15008,71 +15017,143 @@ function _arQuickAddInstallment(item) {
 // Modal: quản lý đợt trả (Phải trả) — tương tự _arEditPayment nhưng cho payable
 function _arEditPayablePayment(item) {
   const total = parseFloat(item.amountVnd) || 0;
-  const installments = Array.isArray(item.installments) ? [...item.installments] : [];
+  const isLoan = !!item.isLoan;
+  const installments = Array.isArray(item.installments) ? JSON.parse(JSON.stringify(item.installments)) : [];
   if (installments.length === 0 && item.paidDate) {
     installments.push({
       id: 'legacy-' + (item.id || newId()),
       date: item.paidDate, amount: total, note: '',
     });
   }
-  const renderRows = () => installments.map((ins, idx) => `
+
+  // Lưu vào window để các helper có thể truy cập
+  window._editingPayable = item;
+  window._editingInstallments = installments;
+
+  const renderRows = () => installments.map((ins, idx) => {
+    const principal = parseFloat(ins.principalAmount) || 0;
+    const interest = parseFloat(ins.interestAmount) || 0;
+    const amt = parseFloat(ins.amount) || (principal + interest);
+    const paidAmt = parseFloat(ins.paidAmount) || 0;
+    const status = ins.status || 'pending';
+    const statusBadge = status === 'paid'
+      ? `<span class="badge badge-green" style="font-size:9px">✓ Đã trả</span>`
+      : status === 'partial'
+      ? `<span class="badge badge-amber" style="font-size:9px">Trả 1 phần</span>`
+      : `<span class="badge badge-gray" style="font-size:9px">Chờ</span>`;
+
+    return `
     <tr data-idx="${idx}">
-      <td><input type="date" class="ar_ins_date" value="${ins.date||''}" style="width:100%" oninput="_arRecalcInsModal()"/></td>
-      <td><input type="number" class="ar_ins_amt" value="${ins.amount||0}" min="0" step="1000" style="width:100%;text-align:right" oninput="_arRecalcInsModal()"/></td>
-      <td><input type="text" class="ar_ins_note" value="${(ins.note||'').replace(/"/g,'&quot;')}" placeholder="VD: TT đợt 1, BIDV..." style="width:100%"/></td>
-      <td><button class="btn btn-ghost btn-xs" onclick="this.closest('tr').remove();_arRecalcInsModal()">🗑</button></td>
+      <td style="font-size:11px;color:var(--text3)">${idx+1}</td>
+      <td><input type="date" class="ar_ins_date" value="${ins.dueDate||ins.date||''}" style="width:100%;font-size:11px" oninput="_arRecalcInsModal()"/></td>
+      ${isLoan ? `
+      <td><input type="number" class="ar_ins_principal" value="${principal}" min="0" step="1000" style="width:100%;text-align:right;font-size:11px" oninput="_arRecalcRow(${idx})" title="Gốc trả kỳ này"/></td>
+      <td><input type="number" class="ar_ins_interest" value="${interest}" min="0" step="1000" style="width:100%;text-align:right;font-size:11px" oninput="_arRecalcRow(${idx})" title="Lãi trả kỳ này"/></td>
+      ` : ''}
+      <td><input type="number" class="ar_ins_amt" value="${amt}" min="0" step="1000" style="width:100%;text-align:right;font-size:11px;font-weight:600" ${isLoan?'readonly':''} oninput="_arRecalcInsModal()"/></td>
+      <td><input type="date" class="ar_ins_paiddate" value="${ins.paidDate||''}" style="width:100%;font-size:11px" oninput="_arUpdateStatus(${idx})" title="Ngày thực trả"/></td>
+      <td><input type="number" class="ar_ins_paidamt" value="${paidAmt}" min="0" step="1000" style="width:100%;text-align:right;font-size:11px" oninput="_arUpdateStatus(${idx})" title="Số tiền thực trả"/></td>
+      <td style="text-align:center">${statusBadge}</td>
+      <td><input type="text" class="ar_ins_note" value="${(ins.note||'').replace(/"/g,'&quot;')}" placeholder="Ghi chú" style="width:100%;font-size:11px"/></td>
+      <td style="display:flex;gap:2px">
+        ${isLoan ? `<button class="btn btn-ghost btn-xs" onclick="_arRecalcFromHere(${idx})" title="Tính lại lãi từ kỳ này trở đi (sau khi sửa gốc/dư nợ)" style="font-size:10px;padding:2px 4px">🔁</button>` : ''}
+        <button class="btn btn-ghost btn-xs" onclick="this.closest('tr').remove();_arRecalcInsModal()" title="Xoá kỳ này">🗑</button>
+      </td>
     </tr>
-  `).join('');
+  `}).join('');
 
   const html = `
-    <div style="background:#FFF7ED;border-left:4px solid var(--amber);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px">
-      <strong>Khoản phải trả:</strong>
+    <div style="background:${isLoan?'#FEF3C7':'#FFF7ED'};border-left:4px solid ${isLoan?'#F59E0B':'var(--amber)'};border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px">
+      ${isLoan ? '<strong>💳 KHOẢN VAY DÀI HẠN</strong><br>' : '<strong>Khoản phải trả:</strong><br>'}
       <strong>${item.supplier||'—'}</strong> · ${item.description||''}<br>
-      Tổng: <strong>${fmtVnd(total)}</strong>
+      Tổng vay: <strong>${fmtVnd(total)}</strong>
+      ${isLoan ? ` · Lãi suất: <strong>${item.loanRate||0}%/năm</strong> · ${item.loanPeriods||0} kỳ ${item.loanFreq==='quarter'?'quý':'tháng'}` : ''}
     </div>
 
-    <div class="divider"></div>
-    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
-      <span>📋 Các đợt trả</span>
-      <button class="btn btn-ghost btn-xs" onclick="_arInsAddRow()">+ Thêm đợt</button>
+    ${isLoan ? `
+    <div style="background:#FEF3C7;border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:11px;color:#92400E;line-height:1.5">
+      <strong>💡 Hướng dẫn sửa tay</strong>:<br>
+      • <strong>Trả trước hạn 1 phần</strong>: sửa "Gốc trả" của kỳ → bấm 🔁 → các kỳ sau tự tính lại lãi theo dư nợ mới<br>
+      • <strong>Trả trước toàn bộ</strong>: ở kỳ cần trả hết, sửa "Gốc trả" = dư nợ còn lại + xoá các kỳ sau<br>
+      • <strong>Đã thanh toán</strong>: điền "Ngày thực trả" + "Số tiền thực trả" → status tự cập nhật
     </div>
-    <div class="tbl-wrap" style="margin-bottom:8px">
-      <table style="font-size:13px">
+    ` : ''}
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+      <span>📋 Lịch ${isLoan?'trả vay (Gốc + Lãi)':'thanh toán'}</span>
+      <button class="btn btn-ghost btn-xs" onclick="_arInsAddRow()">+ Thêm kỳ</button>
+    </div>
+    <div class="tbl-wrap" style="margin-bottom:8px;overflow-x:auto">
+      <table style="font-size:13px;min-width:${isLoan?'900':'700'}px">
         <thead><tr>
-          <th style="width:140px">Ngày trả</th>
-          <th class="num" style="width:160px">Số tiền (VNĐ)</th>
+          <th style="width:30px">#</th>
+          <th style="width:110px">Hạn trả</th>
+          ${isLoan ? `
+          <th class="num" style="width:120px">Gốc kỳ</th>
+          <th class="num" style="width:120px">Lãi kỳ</th>
+          ` : ''}
+          <th class="num" style="width:130px">Tổng kỳ</th>
+          <th style="width:110px">Ngày thực trả</th>
+          <th class="num" style="width:120px">Đã trả (VNĐ)</th>
+          <th style="width:80px;text-align:center">Trạng thái</th>
           <th>Ghi chú</th>
-          <th style="width:40px"></th>
+          <th style="width:60px"></th>
         </tr></thead>
         <tbody id="ar_ins_rows">${renderRows()}</tbody>
         <tfoot>
-          <tr style="background:var(--gray1);font-weight:700">
-            <td style="text-align:right">Tổng đã trả:</td>
+          <tr style="background:var(--gray1);font-weight:600;font-size:12px">
+            <td colspan="${isLoan?2:2}" style="text-align:right">Tổng:</td>
+            ${isLoan ? `
+            <td class="num" id="ar_ins_principal_total">0</td>
+            <td class="num" id="ar_ins_interest_total">0</td>
+            ` : ''}
             <td class="num" id="ar_ins_total">0</td>
-            <td colspan="2"></td>
+            <td></td>
+            <td class="num" id="ar_ins_paid_total" style="color:var(--green)">0</td>
+            <td colspan="3"></td>
           </tr>
         </tfoot>
       </table>
     </div>
 
-    <button class="btn btn-outline btn-sm" onclick="_arInsMarkFullPaid(${total})">⚡ Đánh dấu trả đủ một lần (hôm nay)</button>
+    ${!isLoan ? `<button class="btn btn-outline btn-sm" onclick="_arInsMarkFullPaid(${total})">⚡ Đánh dấu trả đủ một lần (hôm nay)</button>` : ''}
   `;
 
-  openModal('Quản lý đợt trả', html, async() => {
+  openModal(isLoan ? 'Quản lý lịch trả vay' : 'Quản lý đợt trả', html, async() => {
     const rows = document.querySelectorAll('#ar_ins_rows tr[data-idx]');
     const newIns = [];
+    let idx = 0;
     for (const row of rows) {
-      const date = row.querySelector('.ar_ins_date')?.value || '';
+      const dueDate = row.querySelector('.ar_ins_date')?.value || '';
       const amt = parseFloat(row.querySelector('.ar_ins_amt')?.value) || 0;
       const note = row.querySelector('.ar_ins_note')?.value || '';
-      if (!date || amt <= 0) continue;
-      newIns.push({ id: newId(), date, amount: amt, note });
+      const paidDate = row.querySelector('.ar_ins_paiddate')?.value || '';
+      const paidAmt = parseFloat(row.querySelector('.ar_ins_paidamt')?.value) || 0;
+      let principal = 0, interest = 0;
+      if (isLoan) {
+        principal = parseFloat(row.querySelector('.ar_ins_principal')?.value) || 0;
+        interest = parseFloat(row.querySelector('.ar_ins_interest')?.value) || 0;
+      }
+      if (!dueDate || amt <= 0) continue;
+      const status = paidAmt >= amt ? 'paid' : (paidAmt > 0 ? 'partial' : 'pending');
+      newIns.push({
+        id: 'inst_' + idx,
+        dueDate,
+        date: paidDate || dueDate,  // Legacy compat
+        amount: amt,
+        principalAmount: principal,
+        interestAmount: interest,
+        paidDate,
+        paidAmount: paidAmt,
+        status,
+        note,
+      });
+      idx++;
     }
-    // Update payable: thêm installments, xóa paidDate cũ (đã migrate)
     const updated = {
       ...item,
       installments: newIns,
-      paidDate: '',  // legacy — tính từ installments
+      paidDate: '',
     };
     try {
       await api('savePayable', updated);
@@ -15080,9 +15161,82 @@ function _arEditPayablePayment(item) {
       closeModal();
       renderReceivablesPayables();
     } catch(e) { toast('Lỗi: '+e.message, 'err'); }
-  }, 'lg');
+  });
 
   setTimeout(_arRecalcInsModal, 50);
+}
+
+// Tính lại Tổng = Gốc + Lãi cho 1 row
+function _arRecalcRow(idx) {
+  const row = document.querySelector(`#ar_ins_rows tr[data-idx="${idx}"]`);
+  if (!row) return;
+  const p = parseFloat(row.querySelector('.ar_ins_principal')?.value) || 0;
+  const i = parseFloat(row.querySelector('.ar_ins_interest')?.value) || 0;
+  const amtEl = row.querySelector('.ar_ins_amt');
+  if (amtEl) amtEl.value = p + i;
+  _arRecalcInsModal();
+}
+
+// Cập nhật badge status tự động
+function _arUpdateStatus(idx) {
+  const row = document.querySelector(`#ar_ins_rows tr[data-idx="${idx}"]`);
+  if (!row) return;
+  const amt = parseFloat(row.querySelector('.ar_ins_amt')?.value) || 0;
+  const paid = parseFloat(row.querySelector('.ar_ins_paidamt')?.value) || 0;
+  const paidDate = row.querySelector('.ar_ins_paiddate')?.value;
+  const statusCell = row.children[row.children.length - 3];  // Cột status
+  if (paid >= amt && paidDate) {
+    statusCell.innerHTML = `<span class="badge badge-green" style="font-size:9px">✓ Đã trả</span>`;
+  } else if (paid > 0) {
+    statusCell.innerHTML = `<span class="badge badge-amber" style="font-size:9px">Trả 1 phần</span>`;
+  } else {
+    statusCell.innerHTML = `<span class="badge badge-gray" style="font-size:9px">Chờ</span>`;
+  }
+  _arRecalcInsModal();
+}
+
+// Tính lại lãi từ kỳ idx trở đi — dựa trên dư nợ còn lại và lãi suất
+function _arRecalcFromHere(startIdx) {
+  const item = window._editingPayable;
+  if (!item || !item.isLoan) return;
+  const rate = parseFloat(item.loanRate) || 0;
+  const freq = item.loanFreq || 'month';
+  const periodRate = (rate / 100) / (freq === 'quarter' ? 4 : 12);
+  const totalAmount = parseFloat(item.amountVnd) || 0;
+
+  // Tính tổng gốc đã trả trước kỳ startIdx (dựa trên UI hiện tại)
+  let paidPrincipal = 0;
+  for (let i = 0; i < startIdx; i++) {
+    const row = document.querySelector(`#ar_ins_rows tr[data-idx="${i}"]`);
+    if (row) paidPrincipal += parseFloat(row.querySelector('.ar_ins_principal')?.value) || 0;
+  }
+  let remainBalance = totalAmount - paidPrincipal;
+
+  // Lấy gốc kỳ startIdx (user vừa sửa)
+  const startRow = document.querySelector(`#ar_ins_rows tr[data-idx="${startIdx}"]`);
+  if (!startRow) return;
+  const startPrincipal = parseFloat(startRow.querySelector('.ar_ins_principal')?.value) || 0;
+
+  // Tính lãi cho kỳ startIdx = dư nợ trước kỳ × lãi/kỳ
+  const startInterest = Math.round(remainBalance * periodRate);
+  startRow.querySelector('.ar_ins_interest').value = startInterest;
+  startRow.querySelector('.ar_ins_amt').value = startPrincipal + startInterest;
+  remainBalance -= startPrincipal;
+
+  // Tính lại các kỳ sau
+  const allRows = document.querySelectorAll('#ar_ins_rows tr[data-idx]');
+  for (let i = startIdx + 1; i < allRows.length; i++) {
+    const row = allRows[i];
+    if (!row) continue;
+    const p = parseFloat(row.querySelector('.ar_ins_principal')?.value) || 0;
+    const newInterest = Math.round(remainBalance * periodRate);
+    row.querySelector('.ar_ins_interest').value = newInterest;
+    row.querySelector('.ar_ins_amt').value = p + newInterest;
+    remainBalance -= p;
+  }
+
+  _arRecalcInsModal();
+  toast(`Đã tính lại lãi từ kỳ ${startIdx+1} (dư nợ trước kỳ: ${fmtVnd(remainBalance+startPrincipal)})`, 'ok');
 }
 
 // Quick add 1 đợt trả
@@ -15185,6 +15339,37 @@ async function openPayableForm(p={}) {
       <div class="field" style="grid-column:span 2"><label>Mô tả / Diễn giải</label>
         <input id="pay_desc" value="${p.description||''}" placeholder="VD: NCC dầu nhớt tháng 5, Sửa chữa máy chính..."/>
       </div>
+
+      <!-- ─── KHOẢN VAY DÀI HẠN (TRẢ GÓP) ─── -->
+      <div style="grid-column:span 2;margin-top:6px;padding:10px;background:#FEF3C7;border:1px solid #F59E0B;border-radius:6px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;color:#92400E;font-size:13px">
+          <input type="checkbox" id="pay_is_loan" ${p.isLoan?'checked':''} onchange="document.getElementById('pay_loan_box').style.display=this.checked?'block':'none'"/>
+          💳 Khoản vay dài hạn — tự sinh lịch trả gốc + lãi
+        </label>
+        <div id="pay_loan_box" style="display:${p.isLoan?'block':'none'};margin-top:10px">
+          <div class="form-grid cols2" style="gap:8px">
+            <div class="field"><label style="font-size:11px">Lãi suất (%/năm)</label>
+              <input type="number" id="pay_loan_rate" step="0.01" value="${p.loanRate||''}" placeholder="VD: 8.5"/>
+            </div>
+            <div class="field"><label style="font-size:11px">Số kỳ trả</label>
+              <input type="number" id="pay_loan_periods" min="1" value="${p.loanPeriods||12}" placeholder="VD: 24"/>
+            </div>
+            <div class="field"><label style="font-size:11px">Tần suất</label>
+              <select id="pay_loan_freq">
+                <option value="month"${p.loanFreq==='month'||!p.loanFreq?' selected':''}>Hàng tháng</option>
+                <option value="quarter"${p.loanFreq==='quarter'?' selected':''}>Hàng quý</option>
+              </select>
+            </div>
+            <div class="field"><label style="font-size:11px">Bắt đầu trả từ</label>
+              <input type="date" id="pay_loan_start" value="${p.loanStartDate||''}"/>
+            </div>
+          </div>
+          <div style="font-size:10px;color:#92400E;margin-top:6px;line-height:1.4">
+            <strong>Cách tính</strong>: Gốc cố định mỗi kỳ = Tổng vay / Số kỳ. Lãi giảm dần theo dư nợ còn lại.<br>
+            <strong>Ví dụ</strong>: Vay 1.2 tỷ, 12 kỳ tháng, lãi 8%/năm → Gốc mỗi kỳ 100tr, Lãi kỳ 1 = 1.2 tỷ × 8%/12 = 8tr → kỳ cuối = 100tr × 8%/12 ≈ 0.67tr.
+          </div>
+        </div>
+      </div>
     </div>
   `;
   openModal(p.id?'Cập nhật khoản phải trả':'Thêm khoản phải trả', html, async() => {
@@ -15194,25 +15379,74 @@ async function openPayableForm(p={}) {
     if (!amt) { toast('Nhập số tiền','warn'); return; }
     const fx = parseFloat(gv('pay_fx')) || 1;
     const entryDate = gv('pay_entry') || today();
+    const amtVnd = Math.round(amt * fx);
+
+    // Khoản vay dài hạn
+    const isLoan = document.getElementById('pay_is_loan')?.checked || false;
+    const loanRate = parseFloat(gv('pay_loan_rate')) || 0;
+    const loanPeriods = parseInt(gv('pay_loan_periods')) || 0;
+    const loanFreq = gv('pay_loan_freq') || 'month';
+    const loanStartDate = gv('pay_loan_start') || '';
+
+    let installments = Array.isArray(p.installments) ? p.installments : [];
+
+    // Sinh lịch trả nếu là khoản vay
+    if (isLoan && loanPeriods > 0 && loanStartDate) {
+      const principalPer = Math.round(amtVnd / loanPeriods);  // Gốc cố định mỗi kỳ
+      const periodRate = (loanRate / 100) / (loanFreq === 'quarter' ? 4 : 12);  // Lãi suất/kỳ
+      installments = [];
+      let remainBalance = amtVnd;
+      const startD = new Date(loanStartDate);
+
+      for (let i = 0; i < loanPeriods; i++) {
+        const interest = Math.round(remainBalance * periodRate);  // Lãi theo dư nợ còn lại
+        const principal = (i === loanPeriods - 1)
+          ? remainBalance  // Kỳ cuối trả hết phần còn lại (tránh sai số làm tròn)
+          : principalPer;
+        const due = new Date(startD);
+        if (loanFreq === 'quarter') due.setMonth(due.getMonth() + i * 3);
+        else due.setMonth(due.getMonth() + i);
+
+        installments.push({
+          id: 'inst_' + i,
+          dueDate: due.toISOString().slice(0,10),
+          amount: principal + interest,         // Tổng kỳ
+          principalAmount: principal,           // Gốc
+          interestAmount: interest,             // Lãi
+          remainingBalance: remainBalance - principal,
+          status: 'pending',
+          paidDate: '',
+          paidAmount: 0,
+          note: `Kỳ ${i+1}/${loanPeriods} (Gốc: ${fmtVnd(principal)} + Lãi: ${fmtVnd(interest)})`,
+        });
+        remainBalance -= principal;
+      }
+    }
+
     const payload = {
       id: p.id || newId(),
       supplier, module: gv('pay_module'),
       vesselId: gv('pay_vessel') || '',
       contractId: gv('pay_contract') || '',
       amount: amt, currency: gv('pay_cur'), fxRate: fx,
-      amountVnd: Math.round(amt * fx),
-      entryDate,                                  // Ngày phát sinh bút toán (user nhập)
+      amountVnd: amtVnd,
+      entryDate,
       dueDate: gv('pay_due') || '',
       invoiceNo: gv('pay_inv') || '',
       description: gv('pay_desc') || '',
-      // Giữ installments cũ nếu có (form không sửa installments — dùng modal riêng)
-      installments: Array.isArray(p.installments) ? p.installments : [],
-      paidDate: p.paidDate || '',                  // Legacy field — không show trong form mới nữa
+      // Khoản vay
+      isLoan,
+      loanRate: isLoan ? loanRate : 0,
+      loanPeriods: isLoan ? loanPeriods : 0,
+      loanFreq: isLoan ? loanFreq : '',
+      loanStartDate: isLoan ? loanStartDate : '',
+      installments,
+      paidDate: p.paidDate || '',
       createdAt: p.createdAt || new Date().toISOString(),
     };
     try {
       await api('savePayable', payload);
-      toast('Đã lưu','ok');
+      toast(isLoan ? `Đã lưu khoản vay + sinh ${installments.length} kỳ trả` : 'Đã lưu','ok');
       closeModal();
       renderReceivablesPayables();
     } catch(e) { toast('Lỗi: '+e.message, 'err'); }
