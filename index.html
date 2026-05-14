@@ -14358,21 +14358,36 @@ function _arStatus(item) {
     }];
   }
 
-  // CHỈ TÍNH các đợt đã đến/quá ngày (bỏ qua đợt còn ở tương lai → đó là dự kiến)
+  // PHÂN BIỆT: thực tế đã thu/trả vs lịch dự kiến
+  // - Khoản vay: dùng paidAmount + paidDate (user nhập khi thực trả)
+  // - Khoản thường: dùng amount + date (mỗi installment = 1 đợt thực)
   const todayDt = new Date(); todayDt.setHours(0,0,0,0);
-  const realizedIns = installments.filter(i => {
-    if (!i.date) return true;  // Không có ngày → tính
-    const d = new Date(i.date); d.setHours(0,0,0,0);
-    return d <= todayDt;        // Đã đến ngày hoặc trong quá khứ
-  });
-  const scheduledIns = installments.filter(i => {
-    if (!i.date) return false;
-    const d = new Date(i.date); d.setHours(0,0,0,0);
-    return d > todayDt;         // Tương lai → dự kiến
+  const isLoan = !!item.isLoan;
+
+  let paid = 0, scheduled = 0;
+  installments.forEach(i => {
+    const insAmt = parseFloat(i.amount) || 0;
+    if (isLoan) {
+      // Khoản vay: chỉ tính paidAmount nếu có paidDate (thực trả)
+      const paidAmt = parseFloat(i.paidAmount) || 0;
+      if (paidAmt > 0 && i.paidDate) {
+        paid += paidAmt;
+      } else {
+        scheduled += insAmt;
+      }
+    } else {
+      // Khoản thường: mỗi installment = 1 đợt thực thu/trả
+      const insDate = i.date || i.dueDate;
+      if (!insDate) {
+        paid += insAmt;  // Không có ngày → tính như đã thu
+      } else {
+        const d = new Date(insDate); d.setHours(0,0,0,0);
+        if (d <= todayDt) paid += insAmt;
+        else scheduled += insAmt;
+      }
+    }
   });
 
-  const paid = realizedIns.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
-  const scheduled = scheduledIns.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
   const remaining = total - paid;
 
   // Status
@@ -14755,6 +14770,36 @@ async function renderReceivablesPayables() {
     </div>
     ` : `
     <!-- Tab Phải trả -->
+
+    <!-- ─── KHOẢN VAY / TRẢ NHIỀU KỲ (collapsible cards) ─── -->
+    ${(() => {
+      const multi = filteredPay.filter(p => p.isLoan || p.isMulti);
+      if (multi.length === 0) return '';
+      const loanCount = multi.filter(p => p.isLoan).length;
+      const multiOnlyCount = multi.length - loanCount;
+      return `
+      <div class="card mb16" style="background:linear-gradient(135deg,#FAEEDA 0%,#fff 100%);border-left:4px solid #BA7517">
+        <div class="card-header" style="border-bottom:0.5px solid var(--border)">
+          <h3 style="margin:0;font-size:14px;display:flex;align-items:center;gap:6px;color:#854F0B">
+            <span>📅</span> Trả nhiều kỳ (${multi.length})
+            ${loanCount > 0 ? `<span class="badge badge-amber" style="font-size:10px">${loanCount} có lãi</span>` : ''}
+            ${multiOnlyCount > 0 ? `<span class="badge badge-gray" style="font-size:10px">${multiOnlyCount} không lãi</span>` : ''}
+            <span style="font-size:11px;color:var(--text3);font-weight:400;margin-left:8px">Click card để mở rộng</span>
+          </h3>
+        </div>
+        <div class="card-body" style="padding:12px">
+          ${multi.sort((a,b) => {
+            // Khoản vay (isLoan) lên đầu, rồi alphabet
+            const aL = a.isLoan ? 0 : 1, bL = b.isLoan ? 0 : 1;
+            if (aL !== bL) return aL - bL;
+            return (a.supplier||'').toLowerCase().localeCompare((b.supplier||'').toLowerCase(),'vi');
+          }).map(loan => _renderLoanCard(loan)).join('')}
+        </div>
+      </div>
+      `;
+    })()}
+
+    <!-- ─── PHẢI TRẢ THÔNG THƯỜNG (bảng) ─── -->
     <div class="card">
       <div class="card-body no-pad">
         <div class="tbl-wrap">
@@ -14771,13 +14816,11 @@ async function renderReceivablesPayables() {
               <th></th>
             </tr></thead>
             <tbody>
-              ${filteredPay.length === 0 ? `<tr><td colspan="9"><div class="empty-state">Không có khoản phải trả (lọc: ${_S_AR_FILTER}). <a href="#" onclick="openPayableForm();return false;">+ Thêm</a></div></td></tr>` :
-                filteredPay.slice().sort((a,b) => {
-                  const sa = _arStatus(a), sb = _arStatus(b);
-                  const order = {overdue:0, 'overdue-partial':1, 'due-soon':2, pending:3, partial:4, 'scheduled-partial':5, scheduled:6, paid:7, overpaid:8};
-                  if (order[sa.status] !== order[sb.status]) return order[sa.status] - order[sb.status];
-                  return (a.dueDate||'').localeCompare(b.dueDate||'');
-                }).map(item => {
+              ${(() => {
+                const nonLoans = filteredPay.filter(p => !p.isLoan && !p.isMulti);
+                if (nonLoans.length === 0) return `<tr><td colspan="9"><div class="empty-state">Không có khoản phải trả thông thường (lọc: ${_S_AR_FILTER}). <a href="#" onclick="openPayableForm();return false;">+ Thêm</a></div></td></tr>`;
+                return nonLoans.sort((a,b) => (a.supplier||'').toLowerCase().localeCompare((b.supplier||'').toLowerCase(),'vi') || (a.dueDate||'').localeCompare(b.dueDate||''))
+                  .map(item => {
                   const st = _arStatus(item);
                   const isOverdue = st.status === 'overdue' || st.status === 'overdue-partial';
                   const moduleLabel = {vessel:'🚢 Vessel', om:'🏥 O&M', ga:'🏢 GA', sm:'⚓ Ship Mgmt'}[item.module] || item.module;
@@ -14802,8 +14845,8 @@ async function renderReceivablesPayables() {
                       <button class="btn btn-ghost btn-xs" onclick="_arDeletePayable('${item.id}')" title="Xoá">🗑</button>
                     </td>
                   </tr>`;
-                }).join('')
-              }
+                }).join('');
+              })()}
             </tbody>
           </table>
         </div>
@@ -15015,6 +15058,313 @@ function _arQuickAddInstallment(item) {
 }
 
 // Modal: quản lý đợt trả (Phải trả) — tương tự _arEditPayment nhưng cho payable
+// ═══════════════════════════════════════════════════════
+// LOAN CARD — collapsible card cho khoản vay dài hạn
+// ═══════════════════════════════════════════════════════
+
+// State: lưu các loanId đang expanded
+window._S_LOAN_EXPANDED = window._S_LOAN_EXPANDED || new Set();
+
+function _renderLoanCard(loan) {
+  const total = parseFloat(loan.amountVnd) || 0;
+  const installments = Array.isArray(loan.installments) ? loan.installments : [];
+  const totalPeriods = installments.length;
+  const hasInterest = !!loan.isLoan;  // Có lãi = khoản vay
+
+  // Tính các số liệu
+  let paidPrincipal = 0, paidInterest = 0, paidPeriods = 0;
+  installments.forEach(i => {
+    const paidAmt = parseFloat(i.paidAmount) || 0;
+    if (paidAmt > 0 && i.paidDate) {
+      paidPrincipal += parseFloat(i.principalAmount) || 0;
+      paidInterest += parseFloat(i.interestAmount) || 0;
+      paidPeriods++;
+    }
+  });
+  const remainBalance = total - paidPrincipal;
+  const progressPct = totalPeriods > 0 ? (paidPeriods / totalPeriods * 100) : 0;
+
+  const isExpanded = window._S_LOAN_EXPANDED.has(loan.id);
+  const chevron = isExpanded ? '▼' : '▶';
+
+  // Quá hạn check
+  const todayDt = new Date(); todayDt.setHours(0,0,0,0);
+  const overdueCount = installments.filter(i => {
+    if (i.paidAmount > 0 && i.paidDate) return false;
+    if (!i.dueDate) return false;
+    const d = new Date(i.dueDate); d.setHours(0,0,0,0);
+    return d < todayDt;
+  }).length;
+
+  const icon = hasInterest ? '💳' : '📅';
+  const typeLabel = hasInterest ? 'Khoản vay có lãi' : 'Trả nhiều kỳ';
+  const borderColor = hasInterest ? '#BA7517' : '#6b7280';
+
+  return `
+  <div class="card mb12" style="overflow:hidden;${overdueCount>0?'border-left:3px solid var(--red)':`border-left:3px solid ${borderColor}`}">
+    <!-- Header (clickable) -->
+    <div onclick="_toggleLoanCard('${loan.id}')" style="padding:12px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;background:${isExpanded?'var(--gray1)':'#fff'};border-bottom:${isExpanded?'0.5px solid var(--border)':'none'}">
+      <div style="display:flex;align-items:center;gap:10px;flex:1">
+        <span style="font-size:14px;color:var(--text3)">${chevron}</span>
+        <div>
+          <div style="font-size:14px;font-weight:600;color:var(--navy)">
+            ${icon} ${loan.supplier||'—'}
+            <span class="badge ${hasInterest?'badge-amber':'badge-gray'}" style="font-size:9px;margin-left:6px">${typeLabel}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text3)">
+            ${loan.description||'—'} · ${hasInterest?(loan.loanRate||0)+'%/năm · ':''}${paidPeriods}/${totalPeriods} kỳ
+            ${overdueCount>0?`<span style="color:var(--red);font-weight:600;margin-left:6px">⚠ ${overdueCount} kỳ quá hạn</span>`:''}
+          </div>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:10px;color:var(--text3)">${hasInterest?'Dư nợ còn':'Còn phải trả'}</div>
+        <div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${remainBalance>0?'var(--red)':'var(--green)'}">${fmtVnd(remainBalance)}</div>
+      </div>
+    </div>
+
+    ${isExpanded ? `
+    <!-- Expanded content -->
+    <div style="padding:12px 16px;background:#fafafa">
+
+      <!-- KPI row -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px dashed var(--border)">
+        <div>
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase">Tổng${hasInterest?' vay':''}</div>
+          <div style="font-size:13px;font-weight:600;font-family:var(--mono)">${fmtVnd(total)}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase">Đã trả${hasInterest?' gốc':''}</div>
+          <div style="font-size:13px;font-weight:600;font-family:var(--mono);color:var(--green)">${fmtVnd(paidPrincipal)}</div>
+        </div>
+        ${hasInterest ? `
+        <div>
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase">Đã trả lãi</div>
+          <div style="font-size:13px;font-weight:600;font-family:var(--mono);color:var(--green)">${fmtVnd(paidInterest)}</div>
+        </div>
+        ` : ''}
+        <div>
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase">Tiến độ</div>
+          <div style="font-size:13px;font-weight:600;color:var(--brand)">${progressPct.toFixed(1)}%</div>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:12px;font-weight:600">📅 Lịch trả</div>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-ghost btn-xs" onclick="_arEditPayablePayment(${JSON.stringify(loan).replace(/"/g,'&quot;')})" title="Sửa chi tiết">✏️ Sửa</button>
+          <button class="btn btn-ghost btn-xs" onclick="openPayableForm(${JSON.stringify(loan).replace(/"/g,'&quot;')})" title="Sửa khoản vay">⚙️</button>
+          <button class="btn btn-ghost btn-xs" onclick="_arDeletePayable('${loan.id}')" title="Xoá" style="color:var(--red)">🗑</button>
+        </div>
+      </div>
+
+      <!-- Bảng lịch trả -->
+      <div class="tbl-wrap">
+        <table style="font-size:11px;min-width:${hasInterest?'760':'600'}px">
+          <thead>
+            <tr style="background:var(--gray1)">
+              <th style="width:30px;text-align:center">✓</th>
+              <th style="width:32px;text-align:center">Kỳ</th>
+              <th style="width:90px">Hạn</th>
+              ${hasInterest ? `
+              <th class="num" style="width:110px">Gốc</th>
+              <th class="num" style="width:110px">Lãi</th>
+              ` : ''}
+              <th class="num" style="width:120px">${hasInterest?'Tổng kỳ':'Số tiền'}</th>
+              <th style="width:90px">Ngày trả</th>
+              <th class="num" style="width:110px">Đã trả</th>
+              ${hasInterest ? `<th class="num" style="width:110px">Dư nợ sau</th>` : ''}
+              <th style="width:60px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${installments.map((ins, idx) => {
+              const principal = parseFloat(ins.principalAmount) || 0;
+              const interest = parseFloat(ins.interestAmount) || 0;
+              const amount = parseFloat(ins.amount) || (principal + interest);
+              const paidAmt = parseFloat(ins.paidAmount) || 0;
+              const isPaid = paidAmt > 0 && ins.paidDate;
+              const dueDate = ins.dueDate || '';
+              const isOverdue = !isPaid && dueDate && new Date(dueDate) < todayDt;
+
+              let bal = total;
+              for (let i = 0; i <= idx; i++) {
+                bal -= parseFloat(installments[i].principalAmount) || 0;
+              }
+
+              const rowBg = isPaid ? '#F0FDF4' : (isOverdue ? '#FEF2F2' : '');
+              return `
+              <tr style="background:${rowBg}">
+                <td style="text-align:center">${isPaid?'<span style="color:var(--green);font-size:13px">✓</span>':`<input type="checkbox" data-loan="${loan.id}" data-idx="${idx}" class="loan-check" style="cursor:pointer"/>`}</td>
+                <td style="text-align:center;font-weight:${isPaid||isOverdue?'600':'400'};color:${isOverdue?'var(--red)':'inherit'}">${idx+1}</td>
+                <td style="color:${isOverdue?'var(--red)':'inherit'};font-weight:${isOverdue?'600':'400'}">${fmtDate(dueDate)}${isOverdue?' ⚠':''}</td>
+                ${hasInterest ? `
+                <td class="num mono">${fmtVnd(principal).replace(' ₫','')}</td>
+                <td class="num mono">${fmtVnd(interest).replace(' ₫','')}</td>
+                ` : ''}
+                <td class="num mono" style="font-weight:600">${fmtVnd(amount).replace(' ₫','')}</td>
+                <td style="color:${isPaid?'var(--green)':'var(--text3)'};font-style:${isPaid?'normal':'italic'}">${ins.paidDate?fmtDate(ins.paidDate):'—'}</td>
+                <td class="num mono" style="color:${isPaid?'var(--green)':'var(--text3)'};font-weight:${isPaid?'600':'400'}">${paidAmt>0?fmtVnd(paidAmt).replace(' ₫',''):'0'}</td>
+                ${hasInterest ? `<td class="num mono">${fmtVnd(bal).replace(' ₫','')}</td>` : ''}
+                <td>
+                  ${!isPaid ? `<button class="btn btn-primary btn-xs" onclick="_loanPayPeriod('${loan.id}', ${idx})" title="Đánh dấu trả kỳ này hôm nay" style="font-size:10px;padding:2px 6px">💰</button>` : ''}
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="background:var(--gray1);font-weight:600;font-size:11px">
+              <td colspan="3" style="text-align:right">Tổng:</td>
+              ${hasInterest ? `
+              <td class="num mono">${fmtVnd(installments.reduce((s,i)=>s+(parseFloat(i.principalAmount)||0),0)).replace(' ₫','')}</td>
+              <td class="num mono">${fmtVnd(installments.reduce((s,i)=>s+(parseFloat(i.interestAmount)||0),0)).replace(' ₫','')}</td>
+              ` : ''}
+              <td class="num mono">${fmtVnd(installments.reduce((s,i)=>s+(parseFloat(i.amount)||0),0)).replace(' ₫','')}</td>
+              <td colspan="2" style="text-align:right;color:var(--green)">Đã trả: ${fmtVnd(paidPrincipal+paidInterest)}</td>
+              ${hasInterest ? `<td class="num mono" style="color:var(--red)">Còn: ${fmtVnd(remainBalance)}</td>` : ''}
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <!-- Quick actions -->
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-xs" onclick="_loanPaySelected('${loan.id}')">
+          ☑️ Trả các kỳ đã chọn (hôm nay)
+        </button>
+        ${hasInterest ? `
+        <button class="btn btn-outline btn-xs" onclick="_loanPayoff('${loan.id}')" style="border-color:#BA7517;color:#854F0B">
+          🔄 Tất toán trước hạn
+        </button>
+        ` : ''}
+      </div>
+
+    </div>
+    ` : ''}
+  </div>
+  `;
+}
+
+// Toggle expand/collapse
+function _toggleLoanCard(loanId) {
+  if (window._S_LOAN_EXPANDED.has(loanId)) {
+    window._S_LOAN_EXPANDED.delete(loanId);
+  } else {
+    window._S_LOAN_EXPANDED.add(loanId);
+  }
+  renderReceivablesPayables();
+}
+
+// Toggle Trả nhiều kỳ box trong form
+function _togglePayMulti(checked) {
+  const box = document.getElementById('pay_multi_box');
+  if (box) box.style.display = checked ? 'block' : 'none';
+  if (!checked) {
+    // Bỏ tick có lãi nếu tắt Trả nhiều kỳ
+    const loanCb = document.getElementById('pay_is_loan');
+    if (loanCb) loanCb.checked = false;
+    const rateBox = document.getElementById('pay_loan_rate_box');
+    if (rateBox) rateBox.style.display = 'none';
+  }
+}
+
+// Đánh dấu trả 1 kỳ — hôm nay
+async function _loanPayPeriod(loanId, periodIdx) {
+  const all = await api('getPayables', {});
+  const loan = all.find(p => p.id === loanId);
+  if (!loan) return;
+  const ins = loan.installments?.[periodIdx];
+  if (!ins) return;
+  if (!confirm(`Đánh dấu kỳ ${periodIdx+1} đã trả ngày ${today()}?\nSố tiền: ${fmtVnd(ins.amount)}`)) return;
+
+  ins.paidDate = today();
+  ins.paidAmount = ins.amount;
+  ins.status = 'paid';
+
+  try {
+    await api('savePayable', loan);
+    toast(`Đã đánh dấu kỳ ${periodIdx+1} trả ✓`, 'ok');
+    renderReceivablesPayables();
+  } catch(e) { toast('Lỗi: '+e.message, 'err'); }
+}
+
+// Đánh dấu trả các kỳ đã chọn (hôm nay)
+async function _loanPaySelected(loanId) {
+  const checks = document.querySelectorAll(`.loan-check[data-loan="${loanId}"]:checked`);
+  if (checks.length === 0) { toast('Chưa chọn kỳ nào','warn'); return; }
+  if (!confirm(`Đánh dấu ${checks.length} kỳ đã trả hôm nay?`)) return;
+
+  const all = await api('getPayables', {});
+  const loan = all.find(p => p.id === loanId);
+  if (!loan) return;
+
+  let count = 0;
+  checks.forEach(chk => {
+    const idx = parseInt(chk.dataset.idx);
+    const ins = loan.installments?.[idx];
+    if (ins && !ins.paidDate) {
+      ins.paidDate = today();
+      ins.paidAmount = ins.amount;
+      ins.status = 'paid';
+      count++;
+    }
+  });
+
+  try {
+    await api('savePayable', loan);
+    toast(`Đã đánh dấu ${count} kỳ trả ✓`, 'ok');
+    renderReceivablesPayables();
+  } catch(e) { toast('Lỗi: '+e.message, 'err'); }
+}
+
+// Tất toán trước hạn — trả hết dư nợ còn lại
+async function _loanPayoff(loanId) {
+  const all = await api('getPayables', {});
+  const loan = all.find(p => p.id === loanId);
+  if (!loan) return;
+  const total = parseFloat(loan.amountVnd) || 0;
+  const installments = loan.installments || [];
+
+  // Tính dư nợ còn
+  let paidPrincipal = 0;
+  installments.forEach(i => {
+    if (i.paidAmount > 0 && i.paidDate) paidPrincipal += parseFloat(i.principalAmount) || 0;
+  });
+  const remainBalance = total - paidPrincipal;
+
+  if (remainBalance <= 0) { toast('Khoản vay đã thanh toán xong','warn'); return; }
+
+  // Tìm kỳ chưa trả đầu tiên
+  const nextUnpaidIdx = installments.findIndex(i => !(i.paidAmount > 0 && i.paidDate));
+  if (nextUnpaidIdx < 0) { toast('Không tìm thấy kỳ chưa trả','warn'); return; }
+
+  // Tính lãi đến hôm nay (lãi của kỳ tiếp theo)
+  const periodRate = (parseFloat(loan.loanRate)||0) / 100 / (loan.loanFreq === 'quarter' ? 4 : 12);
+  const earlyInterest = Math.round(remainBalance * periodRate);
+
+  if (!confirm(`TẤT TOÁN TRƯỚC HẠN khoản vay này?\n\n• Dư nợ còn: ${fmtVnd(remainBalance)}\n• Lãi kỳ này: ${fmtVnd(earlyInterest)}\n• TỔNG TRẢ HÔM NAY: ${fmtVnd(remainBalance + earlyInterest)}\n\n• Các kỳ sau (${installments.length - nextUnpaidIdx - 1} kỳ) sẽ bị XOÁ.`)) return;
+
+  // Update kỳ này: gốc = dư nợ còn, lãi = earlyInterest, trả hôm nay
+  installments[nextUnpaidIdx].principalAmount = remainBalance;
+  installments[nextUnpaidIdx].interestAmount = earlyInterest;
+  installments[nextUnpaidIdx].amount = remainBalance + earlyInterest;
+  installments[nextUnpaidIdx].paidDate = today();
+  installments[nextUnpaidIdx].paidAmount = remainBalance + earlyInterest;
+  installments[nextUnpaidIdx].status = 'paid';
+  installments[nextUnpaidIdx].note = `Tất toán trước hạn (Gốc ${fmtVnd(remainBalance)} + Lãi ${fmtVnd(earlyInterest)})`;
+
+  // Xoá các kỳ sau
+  loan.installments = installments.slice(0, nextUnpaidIdx + 1);
+
+  try {
+    await api('savePayable', loan);
+    toast(`Đã tất toán ✓ Tổng trả: ${fmtVnd(remainBalance + earlyInterest)}`, 'ok');
+    renderReceivablesPayables();
+  } catch(e) { toast('Lỗi: '+e.message, 'err'); }
+}
+
 function _arEditPayablePayment(item) {
   const total = parseFloat(item.amountVnd) || 0;
   const isLoan = !!item.isLoan;
@@ -15139,7 +15489,7 @@ function _arEditPayablePayment(item) {
       newIns.push({
         id: 'inst_' + idx,
         dueDate,
-        date: paidDate || dueDate,  // Legacy compat
+        date: paidDate || '',  // Chỉ gán khi thực trả (KHÔNG fallback dueDate)
         amount: amt,
         principalAmount: principal,
         interestAmount: interest,
@@ -15340,19 +15690,18 @@ async function openPayableForm(p={}) {
         <input id="pay_desc" value="${p.description||''}" placeholder="VD: NCC dầu nhớt tháng 5, Sửa chữa máy chính..."/>
       </div>
 
-      <!-- ─── KHOẢN VAY DÀI HẠN (TRẢ GÓP) ─── -->
-      <div style="grid-column:span 2;margin-top:6px;padding:10px;background:#FEF3C7;border:1px solid #F59E0B;border-radius:6px">
+      <!-- ─── TRẢ NHIỀU KỲ / KHOẢN VAY ─── -->
+      <div style="grid-column:span 2;margin-top:6px;padding:10px;background:#FEF7E6;border:1px solid #F59E0B;border-radius:6px">
+        <!-- Cờ 1: Trả nhiều kỳ -->
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;color:#92400E;font-size:13px">
-          <input type="checkbox" id="pay_is_loan" ${p.isLoan?'checked':''} onchange="document.getElementById('pay_loan_box').style.display=this.checked?'block':'none'"/>
-          💳 Khoản vay dài hạn — tự sinh lịch trả gốc + lãi
+          <input type="checkbox" id="pay_is_multi" ${(p.isMulti||p.isLoan)?'checked':''} onchange="_togglePayMulti(this.checked)"/>
+          📅 Trả nhiều kỳ (chia kỳ theo tháng/quý)
         </label>
-        <div id="pay_loan_box" style="display:${p.isLoan?'block':'none'};margin-top:10px">
+
+        <div id="pay_multi_box" style="display:${(p.isMulti||p.isLoan)?'block':'none'};margin-top:10px">
           <div class="form-grid cols2" style="gap:8px">
-            <div class="field"><label style="font-size:11px">Lãi suất (%/năm)</label>
-              <input type="number" id="pay_loan_rate" step="0.01" value="${p.loanRate||''}" placeholder="VD: 8.5"/>
-            </div>
             <div class="field"><label style="font-size:11px">Số kỳ trả</label>
-              <input type="number" id="pay_loan_periods" min="1" value="${p.loanPeriods||12}" placeholder="VD: 24"/>
+              <input type="number" id="pay_loan_periods" min="1" value="${p.loanPeriods||12}" placeholder="VD: 12"/>
             </div>
             <div class="field"><label style="font-size:11px">Tần suất</label>
               <select id="pay_loan_freq">
@@ -15360,13 +15709,29 @@ async function openPayableForm(p={}) {
                 <option value="quarter"${p.loanFreq==='quarter'?' selected':''}>Hàng quý</option>
               </select>
             </div>
-            <div class="field"><label style="font-size:11px">Bắt đầu trả từ</label>
+            <div class="field" style="grid-column:span 2"><label style="font-size:11px">Bắt đầu trả từ</label>
               <input type="date" id="pay_loan_start" value="${p.loanStartDate||''}"/>
             </div>
           </div>
-          <div style="font-size:10px;color:#92400E;margin-top:6px;line-height:1.4">
-            <strong>Cách tính</strong>: Gốc cố định mỗi kỳ = Tổng vay / Số kỳ. Lãi giảm dần theo dư nợ còn lại.<br>
-            <strong>Ví dụ</strong>: Vay 1.2 tỷ, 12 kỳ tháng, lãi 8%/năm → Gốc mỗi kỳ 100tr, Lãi kỳ 1 = 1.2 tỷ × 8%/12 = 8tr → kỳ cuối = 100tr × 8%/12 ≈ 0.67tr.
+
+          <!-- Cờ 2: Có lãi (subset của Trả nhiều kỳ) -->
+          <div style="margin-top:10px;padding-top:10px;border-top:1px dashed #F59E0B">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;color:#854F0B;font-size:12px">
+              <input type="checkbox" id="pay_is_loan" ${p.isLoan?'checked':''} onchange="document.getElementById('pay_loan_rate_box').style.display=this.checked?'block':'none'"/>
+              💳 Có lãi suất (khoản vay dài hạn)
+            </label>
+            <div id="pay_loan_rate_box" style="display:${p.isLoan?'block':'none'};margin-top:8px">
+              <div class="field"><label style="font-size:11px">Lãi suất (%/năm)</label>
+                <input type="number" id="pay_loan_rate" step="0.01" value="${p.loanRate||''}" placeholder="VD: 8.5"/>
+              </div>
+              <div style="font-size:10px;color:#92400E;margin-top:6px;line-height:1.4">
+                Gốc cố định mỗi kỳ = Tổng / Số kỳ. Lãi giảm dần theo dư nợ còn lại.
+              </div>
+            </div>
+          </div>
+
+          <div style="font-size:10px;color:#92400E;margin-top:8px;font-style:italic">
+            Không tick "Có lãi" → chia đều thành N kỳ (chỉ gốc, không lãi).
           </div>
         </div>
       </div>
@@ -15381,27 +15746,28 @@ async function openPayableForm(p={}) {
     const entryDate = gv('pay_entry') || today();
     const amtVnd = Math.round(amt * fx);
 
-    // Khoản vay dài hạn
-    const isLoan = document.getElementById('pay_is_loan')?.checked || false;
-    const loanRate = parseFloat(gv('pay_loan_rate')) || 0;
-    const loanPeriods = parseInt(gv('pay_loan_periods')) || 0;
-    const loanFreq = gv('pay_loan_freq') || 'month';
-    const loanStartDate = gv('pay_loan_start') || '';
+    // Cờ: Trả nhiều kỳ + Có lãi (subset)
+    const isMulti = document.getElementById('pay_is_multi')?.checked || false;
+    const isLoan = isMulti && (document.getElementById('pay_is_loan')?.checked || false);
+    const loanRate = isLoan ? (parseFloat(gv('pay_loan_rate')) || 0) : 0;
+    const loanPeriods = isMulti ? (parseInt(gv('pay_loan_periods')) || 0) : 0;
+    const loanFreq = isMulti ? (gv('pay_loan_freq') || 'month') : '';
+    const loanStartDate = isMulti ? (gv('pay_loan_start') || '') : '';
 
     let installments = Array.isArray(p.installments) ? p.installments : [];
 
-    // Sinh lịch trả nếu là khoản vay
-    if (isLoan && loanPeriods > 0 && loanStartDate) {
-      const principalPer = Math.round(amtVnd / loanPeriods);  // Gốc cố định mỗi kỳ
-      const periodRate = (loanRate / 100) / (loanFreq === 'quarter' ? 4 : 12);  // Lãi suất/kỳ
+    // Sinh lịch trả nếu là Trả nhiều kỳ
+    if (isMulti && loanPeriods > 0 && loanStartDate) {
+      const principalPer = Math.round(amtVnd / loanPeriods);
+      const periodRate = isLoan ? ((loanRate / 100) / (loanFreq === 'quarter' ? 4 : 12)) : 0;
       installments = [];
       let remainBalance = amtVnd;
       const startD = new Date(loanStartDate);
 
       for (let i = 0; i < loanPeriods; i++) {
-        const interest = Math.round(remainBalance * periodRate);  // Lãi theo dư nợ còn lại
+        const interest = Math.round(remainBalance * periodRate);  // 0 nếu không có lãi
         const principal = (i === loanPeriods - 1)
-          ? remainBalance  // Kỳ cuối trả hết phần còn lại (tránh sai số làm tròn)
+          ? remainBalance  // Kỳ cuối trả hết phần còn lại
           : principalPer;
         const due = new Date(startD);
         if (loanFreq === 'quarter') due.setMonth(due.getMonth() + i * 3);
@@ -15410,14 +15776,16 @@ async function openPayableForm(p={}) {
         installments.push({
           id: 'inst_' + i,
           dueDate: due.toISOString().slice(0,10),
-          amount: principal + interest,         // Tổng kỳ
-          principalAmount: principal,           // Gốc
-          interestAmount: interest,             // Lãi
+          amount: principal + interest,
+          principalAmount: principal,
+          interestAmount: interest,
           remainingBalance: remainBalance - principal,
           status: 'pending',
           paidDate: '',
           paidAmount: 0,
-          note: `Kỳ ${i+1}/${loanPeriods} (Gốc: ${fmtVnd(principal)} + Lãi: ${fmtVnd(interest)})`,
+          note: isLoan
+            ? `Kỳ ${i+1}/${loanPeriods} (Gốc: ${fmtVnd(principal)} + Lãi: ${fmtVnd(interest)})`
+            : `Kỳ ${i+1}/${loanPeriods}`,
         });
         remainBalance -= principal;
       }
@@ -15434,19 +15802,25 @@ async function openPayableForm(p={}) {
       dueDate: gv('pay_due') || '',
       invoiceNo: gv('pay_inv') || '',
       description: gv('pay_desc') || '',
-      // Khoản vay
+      // Trả nhiều kỳ / Khoản vay
+      isMulti,
       isLoan,
       loanRate: isLoan ? loanRate : 0,
-      loanPeriods: isLoan ? loanPeriods : 0,
-      loanFreq: isLoan ? loanFreq : '',
-      loanStartDate: isLoan ? loanStartDate : '',
+      loanPeriods: isMulti ? loanPeriods : 0,
+      loanFreq: isMulti ? loanFreq : '',
+      loanStartDate: isMulti ? loanStartDate : '',
       installments,
       paidDate: p.paidDate || '',
       createdAt: p.createdAt || new Date().toISOString(),
     };
     try {
       await api('savePayable', payload);
-      toast(isLoan ? `Đã lưu khoản vay + sinh ${installments.length} kỳ trả` : 'Đã lưu','ok');
+      const msg = isLoan
+        ? `Đã lưu khoản vay + sinh ${installments.length} kỳ (Gốc + Lãi)`
+        : (isMulti
+          ? `Đã lưu + sinh ${installments.length} kỳ trả`
+          : 'Đã lưu');
+      toast(msg, 'ok');
       closeModal();
       renderReceivablesPayables();
     } catch(e) { toast('Lỗi: '+e.message, 'err'); }
