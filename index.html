@@ -15117,8 +15117,8 @@ function _renderLoanCard(loan) {
   return `
   <div class="card mb12" style="overflow:hidden;${overdueCount>0?'border-left:3px solid var(--red)':`border-left:3px solid ${borderColor}`}">
     <!-- Header (clickable) -->
-    <div onclick="_toggleLoanCard('${loan.id}')" style="padding:12px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;background:${isExpanded?'var(--gray1)':'#fff'};border-bottom:${isExpanded?'0.5px solid var(--border)':'none'}">
-      <div style="display:flex;align-items:center;gap:10px;flex:1">
+    <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;background:${isExpanded?'var(--gray1)':'#fff'};border-bottom:${isExpanded?'0.5px solid var(--border)':'none'}">
+      <div onclick="_toggleLoanCard('${loan.id}')" style="cursor:pointer;display:flex;align-items:center;gap:10px;flex:1">
         <span style="font-size:14px;color:var(--text3)">${chevron}</span>
         <div>
           <div style="font-size:14px;font-weight:600;color:var(--navy)">
@@ -15132,9 +15132,12 @@ function _renderLoanCard(loan) {
           </div>
         </div>
       </div>
-      <div style="text-align:right">
-        <div style="font-size:10px;color:var(--text3)">${hasInterest?'Dư nợ còn':'Còn phải trả'}</div>
-        <div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${remainBalanceFc>0?'var(--red)':'var(--green)'}">${fmtAmt(remainBalanceFc)}</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="text-align:right" onclick="_toggleLoanCard('${loan.id}')">
+          <div style="font-size:10px;color:var(--text3)">${hasInterest?'Dư nợ còn':'Còn phải trả'}</div>
+          <div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${remainBalanceFc>0?'var(--red)':'var(--green)'}">${fmtAmt(remainBalanceFc)}</div>
+        </div>
+        <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();_arDeletePayable('${loan.id}')" title="Xoá khoản này" style="color:var(--red)">🗑</button>
       </div>
     </div>
 
@@ -22768,10 +22771,76 @@ async function iosForceSync() {
   }, 300);
 }
 
+// Migration: khoản vay FX cũ (lãi/gốc đã quy đổi VND) → chuyển về đồng tiền gốc
+async function _migrateFxLoans() {
+  // Đánh dấu đã migrate để chỉ chạy 1 lần
+  if (localStorage.getItem('felix_fx_loans_migrated_v1') === '1') return;
+
+  try {
+    const all = await api('getPayables', {});
+    const fxLoans = all.filter(p => p.isLoan && p.currency && p.currency !== 'VND');
+    if (fxLoans.length === 0) {
+      localStorage.setItem('felix_fx_loans_migrated_v1', '1');
+      return;
+    }
+
+    let fixedCount = 0;
+    for (const loan of fxLoans) {
+      const fx = parseFloat(loan.fxRate) || 0;
+      if (fx <= 0 || !Array.isArray(loan.installments)) continue;
+
+      // Heuristic: nếu principalAmount > 1M → là VND (sai); USD nên < 1M
+      const samplePrincipal = parseFloat(loan.installments[0]?.principalAmount) || 0;
+      const sampleInterest = parseFloat(loan.installments[0]?.interestAmount) || 0;
+      const looksLikeVnd = (samplePrincipal > 1000) || (sampleInterest > 1000);
+
+      if (!looksLikeVnd) continue;  // Đã đúng đồng tiền gốc
+
+      // Chuyển toàn bộ installments về đồng tiền gốc (chia tỷ giá)
+      loan.installments.forEach(ins => {
+        const p = parseFloat(ins.principalAmount) || 0;
+        const i = parseFloat(ins.interestAmount) || 0;
+        const a = parseFloat(ins.amount) || (p + i);
+        const paidA = parseFloat(ins.paidAmount) || 0;
+        // Chia về đồng tiền gốc
+        ins.principalAmount = Math.round((p / fx) * 100) / 100;
+        ins.interestAmount = Math.round((i / fx) * 100) / 100;
+        ins.amount = Math.round((a / fx) * 100) / 100;
+        ins.currency = loan.currency;
+        // Nếu kỳ đã trả: giữ paidAmountVnd, tính paidAmount theo FC
+        if (paidA > 0 && ins.paidDate) {
+          if (!ins.paidAmountVnd) ins.paidAmountVnd = paidA;
+          if (!ins.paidFxRate) ins.paidFxRate = fx;
+          ins.paidAmount = Math.round((paidA / fx) * 100) / 100;
+        } else {
+          ins.paidAmount = 0;
+          ins.paidAmountVnd = 0;
+          ins.paidFxRate = 0;
+        }
+      });
+
+      await api('savePayable', loan);
+      fixedCount++;
+    }
+
+    if (fixedCount > 0) {
+      console.log(`[migration] Đã chuyển ${fixedCount} khoản vay FX về đồng tiền gốc`);
+      setTimeout(() => toast(`Đã migration ${fixedCount} khoản vay ngoại tệ ✓`, 'ok'), 1000);
+    }
+    localStorage.setItem('felix_fx_loans_migrated_v1', '1');
+  } catch(e) {
+    console.error('[migration] Error:', e);
+  }
+}
+
 async function bootFoxy(){
   // ── Prime storage: load IndexedDB (master) → localStorage (cache) trước khi init ──
   try { await _storageBootPrime(); }
   catch(e){ console.warn('[boot] storage prime failed (non-fatal):', e?.message); }
+
+  // ── Migration: chuyển khoản vay FX cũ về tiền gốc ──
+  try { await _migrateFxLoans(); }
+  catch(e){ console.warn('[boot] FX migration failed (non-fatal):', e?.message); }
 
   // ── Phát hiện iPhone/iPad ──
   const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
