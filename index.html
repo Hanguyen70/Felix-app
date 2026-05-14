@@ -15186,6 +15186,7 @@ function _renderLoanCard(loan) {
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="font-size:12px;font-weight:600">📅 Lịch trả</div>
         <div style="display:flex;gap:4px">
+          ${hasInterest ? `<button class="btn btn-ghost btn-xs" onclick="_loanChangeRate('${loan.id}')" title="Đổi lãi suất từ 1 kỳ trở đi" style="color:var(--blue)">📊 Đổi lãi</button>` : ''}
           <button class="btn btn-ghost btn-xs" onclick="_arEditPayablePayment(${JSON.stringify(loan).replace(/"/g,'&quot;')})" title="Sửa chi tiết">✏️ Sửa</button>
           <button class="btn btn-ghost btn-xs" onclick="openPayableForm(${JSON.stringify(loan).replace(/"/g,'&quot;')})" title="Sửa khoản vay">⚙️</button>
           <button class="btn btn-ghost btn-xs" onclick="_arDeletePayable('${loan.id}')" title="Xoá" style="color:var(--red)">🗑</button>
@@ -15428,6 +15429,125 @@ async function _loanPaySelected(loanId) {
 }
 
 // Tất toán trước hạn — trả hết dư nợ còn lại
+// Đổi lãi suất từ 1 kỳ trở đi
+async function _loanChangeRate(loanId) {
+  const all = await api('getPayables', {});
+  const loan = all.find(p => p.id === loanId);
+  if (!loan || !loan.isLoan) return;
+  const installments = loan.installments || [];
+  const cur = loan.currency || 'VND';
+  const isFxLoan = cur !== 'VND';
+
+  // Tìm kỳ chưa trả đầu tiên
+  const nextUnpaidIdx = installments.findIndex(i => !(i.paidAmount > 0 && i.paidDate));
+  if (nextUnpaidIdx < 0) { toast('Khoản vay đã trả xong','warn'); return; }
+
+  // Tính dư nợ tại kỳ chưa trả
+  let paidPrincipal = 0;
+  for (let i = 0; i < nextUnpaidIdx; i++) {
+    paidPrincipal += parseFloat(installments[i].principalAmount) || 0;
+  }
+  const totalBase = isFxLoan ? (parseFloat(loan.amount)||0) : (parseFloat(loan.amountVnd)||0);
+  const remainBalanceAtIdx = totalBase - paidPrincipal;
+
+  // Lịch sử lãi đã đổi (nếu có)
+  const rateHistory = Array.isArray(loan.rateHistory) ? loan.rateHistory : [];
+
+  const periodLabel = loan.loanFreq === 'quarter' ? 'quý' : 'tháng';
+
+  openModal('📊 Cập nhật lãi suất mới', `
+    <div style="background:#DBEAFE;border-left:3px solid #2563eb;padding:10px 12px;border-radius:6px;margin-bottom:14px;font-size:12px;color:#1e40af">
+      <strong>${loan.supplier}</strong> · ${loan.description||''}<br>
+      Lãi hiện tại: <strong>${loan.loanRate||0}%/năm</strong><br>
+      Còn ${installments.length - nextUnpaidIdx} kỳ chưa trả · Dư nợ: <strong>${isFxLoan?(remainBalanceAtIdx.toLocaleString('en-US',{minimumFractionDigits:2})+' '+cur):fmtVnd(remainBalanceAtIdx)}</strong>
+    </div>
+
+    ${rateHistory.length > 0 ? `
+    <div style="background:#F3F4F6;padding:8px 10px;border-radius:6px;margin-bottom:12px;font-size:11px">
+      <div style="font-weight:600;margin-bottom:4px">📜 Lịch sử lãi suất:</div>
+      ${rateHistory.map(h => `<div>• ${fmtDate(h.changedDate)}: <strong>${h.oldRate}%</strong> → <strong>${h.newRate}%</strong> từ kỳ ${h.fromPeriod}</div>`).join('')}
+    </div>
+    ` : ''}
+
+    <div class="form-grid cols2" style="gap:10px">
+      <div class="field required"><label>Lãi suất mới (%/năm)</label>
+        <input type="number" id="new_rate" step="0.01" value="${loan.loanRate||0}" autofocus/>
+        <span style="font-size:10px;color:var(--text3)">VD: 10.5</span>
+      </div>
+      <div class="field required"><label>Áp dụng từ kỳ</label>
+        <select id="from_period">
+          ${installments.map((ins,idx) => {
+            const isPaid = ins.paidAmount > 0 && ins.paidDate;
+            if (isPaid) return '';
+            return `<option value="${idx}"${idx===nextUnpaidIdx?' selected':''}>Kỳ ${idx+1} — ${fmtDate(ins.dueDate)}</option>`;
+          }).filter(Boolean).join('')}
+        </select>
+      </div>
+      <div class="field" style="grid-column:span 2"><label>Ngày cập nhật / Ghi chú</label>
+        <input type="text" id="rate_note" placeholder="VD: Hết ưu đãi 12 tháng đầu, áp lãi thả nổi từ NH..." value=""/>
+      </div>
+    </div>
+
+    <div style="background:#FEF3C7;padding:8px 10px;border-radius:6px;margin-top:10px;font-size:11px;color:#92400E">
+      ⚠ Lãi suất MỚI sẽ áp dụng từ kỳ đã chọn trở đi.<br>
+      Các kỳ ĐÃ TRẢ giữ nguyên không đổi.
+    </div>
+  `, async() => {
+    const newRate = parseFloat(gv('new_rate')) || 0;
+    if (newRate <= 0) { toast('Lãi suất phải > 0','warn'); return; }
+    const fromIdx = parseInt(gv('from_period')) || 0;
+    const note = gv('rate_note') || '';
+    const oldRate = parseFloat(loan.loanRate) || 0;
+
+    // Tính lại lãi cho các kỳ từ fromIdx trở đi
+    const newPeriodRate = (newRate / 100) / (loan.loanFreq === 'quarter' ? 4 : 12);
+    let bal = totalBase;
+    // Tính dư nợ đến kỳ fromIdx (lấy các principalAmount đã có cho kỳ < fromIdx)
+    for (let i = 0; i < fromIdx; i++) {
+      bal -= parseFloat(installments[i].principalAmount) || 0;
+    }
+
+    // Tính lại lãi cho từng kỳ từ fromIdx
+    for (let i = fromIdx; i < installments.length; i++) {
+      const ins = installments[i];
+      const isPaid = ins.paidAmount > 0 && ins.paidDate;
+      if (isPaid) {
+        // Đã trả thì giữ — chỉ trừ gốc
+        bal -= parseFloat(ins.principalAmount) || 0;
+        continue;
+      }
+      const interest = isFxLoan
+        ? Math.round(bal * newPeriodRate * 100) / 100
+        : Math.round(bal * newPeriodRate);
+      const principal = parseFloat(ins.principalAmount) || 0;
+      ins.interestAmount = interest;
+      ins.amount = principal + interest;
+      ins.note = ins.isGrace
+        ? `Kỳ ${i+1}/${installments.length} ÂN HẠN — chỉ trả Lãi (Lãi ${newRate}%)`
+        : `Kỳ ${i+1}/${installments.length} (Lãi ${newRate}%)`;
+      bal -= principal;
+    }
+
+    // Lưu lịch sử
+    if (!loan.rateHistory) loan.rateHistory = [];
+    loan.rateHistory.push({
+      changedDate: today(),
+      oldRate,
+      newRate,
+      fromPeriod: fromIdx + 1,
+      note,
+    });
+    loan.loanRate = newRate;  // Cập nhật lãi suất "hiện tại" của khoản vay
+
+    try {
+      await api('savePayable', loan);
+      toast(`Đã đổi lãi: ${oldRate}% → ${newRate}% từ kỳ ${fromIdx+1} ✓`, 'ok');
+      closeModal();
+      renderReceivablesPayables();
+    } catch(e) { toast('Lỗi: '+e.message, 'err'); }
+  }, 'md');
+}
+
 async function _loanPayoff(loanId) {
   const all = await api('getPayables', {});
   const loan = all.find(p => p.id === loanId);
